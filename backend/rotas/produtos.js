@@ -346,7 +346,7 @@ router.get('/promocoes/sugestoes', (req, res) => {
   });
 });
 
-// Obter sugestões com contagem para o card
+// Obter sugestões com contagem para o card e estatísticas de promoções
 router.get('/promocoes/dashboard', (req, res) => {
   db.serialize(() => {
     // Sugestões pendentes
@@ -382,10 +382,65 @@ router.get('/promocoes/dashboard', (req, res) => {
             return res.status(500).json({ error: err3.message });
           }
 
-          res.json({
-            sugestoes_pendentes: sugestoes?.total || 0,
-            promocoes_ativas: ativas?.total || 0,
-            promocoes_encerradas: encerradas?.total || 0
+          // Total de promoções criadas
+          db.get(`
+            SELECT COUNT(*) as total
+            FROM promocoes
+          `, (err4, criadas) => {
+            if (err4) {
+              console.error('Erro ao contar promoções criadas:', err4.message);
+              return res.status(500).json({ error: err4.message });
+            }
+
+            // Produtos salvos do vencimento
+            db.get(`
+              SELECT COUNT(DISTINCT produto_id) as total
+              FROM promocoes_sugestoes
+              WHERE aceito_em IS NOT NULL
+            `, (err5, salvos) => {
+              if (err5) {
+                console.error('Erro ao contar produtos salvos:', err5.message);
+                return res.status(500).json({ error: err5.message });
+              }
+
+              // Receita gerada por promoções
+              db.get(`
+                SELECT COALESCE(SUM(quantidade * preco_unitario), 0) as total
+                FROM vendas_itens
+                WHERE promocao_id IS NOT NULL
+              `, (err6, receita) => {
+                if (err6) {
+                  console.error('Erro ao calcular receita de promoções:', err6.message);
+                  return res.status(500).json({ error: err6.message });
+                }
+
+                // Perdas evitadas por promoções
+                db.get(`
+                  SELECT COALESCE(SUM(
+                    MAX(0, COALESCE(p.preco_original, vi.preco_unitario) - vi.preco_unitario)
+                    * vi.quantidade
+                  ), 0) as total
+                  FROM vendas_itens vi
+                  LEFT JOIN promocoes p ON p.id = vi.promocao_id
+                  WHERE vi.promocao_id IS NOT NULL
+                `, (err7, perdas) => {
+                  if (err7) {
+                    console.error('Erro ao calcular perdas evitadas:', err7.message);
+                    return res.status(500).json({ error: err7.message });
+                  }
+
+                  res.json({
+                    sugestoes_pendentes: sugestoes?.total || 0,
+                    promocoes_ativas: ativas?.total || 0,
+                    promocoes_encerradas: encerradas?.total || 0,
+                    promocoes_criadas: criadas?.total || 0,
+                    produtos_salvos_vencimento: salvos?.total || 0,
+                    receita_gerada: receita?.total || 0,
+                    perdas_evitadas: perdas?.total || 0
+                  });
+                });
+              });
+            });
           });
         });
       });
@@ -549,8 +604,8 @@ router.post('/promocoes/gerar-sugestoes', (req, res) => {
       p.controlar_validade = 1 
       AND p.data_validade IS NOT NULL 
       AND p.data_validade != ''
-      AND date(p.data_validade) > date('now', 'localtime')
-      AND CAST(julianday(date(p.data_validade)) - julianday(date('now', 'localtime')) AS INTEGER) <= COALESCE(p.dias_alerta_validade, 30)
+      AND date(p.data_validade) >= date('now', 'localtime')
+      AND CAST(julianday(date(p.data_validade)) - julianday(date('now', 'localtime')) AS INTEGER) <= COALESCE(NULLIF(p.dias_alerta_validade, 0), 30)
       AND p.id NOT IN (
         SELECT produto_id FROM promocoes_sugestoes 
         WHERE motivo = 'vencimento_proximo' 

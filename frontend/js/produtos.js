@@ -1827,6 +1827,38 @@ async function carregarDashboardPromocoes() {
     }
 }
 
+function formatarMoedaPromocao(valor) {
+    return Number(valor || 0).toLocaleString('pt-BR', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    });
+}
+
+async function carregarEstatisticasPromocoes() {
+    try {
+        const response = await fetch(`${API_URL}/produtos/promocoes/dashboard`, {
+            method: 'GET',
+            headers: {
+                Authorization: 'Bearer ' + (localStorage.getItem('token') || '')
+            }
+        });
+
+        if (!response.ok) {
+            console.error('Erro ao carregar estatísticas de promoções');
+            return;
+        }
+
+        const dados = await response.json();
+
+        $('#statsPromocoesCriadas').text(dados.promocoes_criadas || 0);
+        $('#statsProdutosSalvosVencimento').text(dados.produtos_salvos_vencimento || 0);
+        $('#statsReceitaGerada').text(`R$ ${formatarMoedaPromocao(dados.receita_gerada || 0)}`);
+        $('#statsPerdasEvitadas').text(`R$ ${formatarMoedaPromocao(dados.perdas_evitadas || 0)}`);
+    } catch (error) {
+        console.error('Erro ao carregar estatísticas de promoções:', error);
+    }
+}
+
 /**
  * Abre modal com sugestões de promoções
  */
@@ -1857,6 +1889,11 @@ async function abrirModalPromocoesProdutos() {
                             <li class="nav-item" role="presentation">
                                 <button class="nav-link" id="aba-encerradas" data-bs-toggle="tab" data-bs-target="#painel-encerradas" type="button" role="tab" aria-controls="painel-encerradas" aria-selected="false">
                                     Encerradas
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="aba-estatisticas" data-bs-toggle="tab" data-bs-target="#painel-estatisticas" type="button" role="tab" aria-controls="painel-estatisticas" aria-selected="false">
+                                    Estatísticas
                                 </button>
                             </li>
                         </ul>
@@ -1891,6 +1928,44 @@ async function abrirModalPromocoesProdutos() {
                                     </div>
                                 </div>
                             </div>
+
+                            <!-- ABA ESTATÍSTICAS -->
+                            <div class="tab-pane fade" id="painel-estatisticas" role="tabpanel" aria-labelledby="aba-estatisticas">
+                                <div class="row g-3">
+                                    <div class="col-12 col-md-6 col-xl-3">
+                                        <div class="card h-100 border-secondary border-1 shadow-sm">
+                                            <div class="card-body py-3 px-3 text-center">
+                                                <p class="text-uppercase text-muted small mb-2">Promoções criadas</p>
+                                                <p class="h5 fw-bold mb-0" id="statsPromocoesCriadas">0</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-12 col-md-6 col-xl-3">
+                                        <div class="card h-100 border-secondary border-1 shadow-sm">
+                                            <div class="card-body py-3 px-3 text-center">
+                                                <p class="text-uppercase text-muted small mb-2">Produtos salvos do vencimento</p>
+                                                <p class="h5 fw-bold mb-0" id="statsProdutosSalvosVencimento">0</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-12 col-md-6 col-xl-3">
+                                        <div class="card h-100 border-secondary border-1 shadow-sm">
+                                            <div class="card-body py-3 px-3 text-center">
+                                                <p class="text-uppercase text-muted small mb-2">Receita gerada por promoções</p>
+                                                <p class="h5 fw-bold mb-0" id="statsReceitaGerada">R$ 0,00</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-12 col-md-6 col-xl-3">
+                                        <div class="card h-100 border-secondary border-1 shadow-sm">
+                                            <div class="card-body py-3 px-3 text-center">
+                                                <p class="text-uppercase text-muted small mb-2">Perdas evitadas</p>
+                                                <p class="h5 fw-bold mb-0" id="statsPerdasEvitadas">R$ 0,00</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -1915,8 +1990,9 @@ async function abrirModalPromocoesProdutos() {
     const modal = new bootstrap.Modal(document.getElementById('modalPromocoesProdutos'));
     modal.show();
 
-    // Carregar dados das três abas
-    carregarSugestoesPromocoes();
+    // Carregar dados das três abas e as estatísticas da promoção inteligente
+    carregarEstatisticasPromocoes();
+    carregarSugestoesPromocoes(true);
     carregarPromocoes('ativas');
     carregarPromocoes('encerradas');
 }
@@ -2186,7 +2262,7 @@ window.gerarSugestoesAvancado = gerarSugestoesAvancado;
 /**
  * Carrega sugestões de promoções
  */
-async function carregarSugestoesPromocoes() {
+async function carregarSugestoesPromocoes(autoGerar = false) {
     const container = $('#lista-sugestoes');
     container.html('<div class="text-center"><div class="spinner-border spinner-border-sm text-primary"></div></div>');
 
@@ -2205,6 +2281,11 @@ async function carregarSugestoesPromocoes() {
         const sugestoes = await response.json();
 
         if (!sugestoes || sugestoes.length === 0) {
+            if (autoGerar) {
+                await gerarSugestoesPromocoes({ silent: true });
+                return carregarSugestoesPromocoes(false);
+            }
+
             container.html(`
                 <div class="alert alert-info">
                     <i class="fas fa-info-circle"></i> Nenhuma sugestão de promoção disponível no momento.
@@ -2648,7 +2729,7 @@ window.encerrarPromocao = encerrarPromocao;
  * Gera sugestões automáticas (versão simples - sem parâmetros)
  * @deprecated Use gerarSugestoesAvancado() em vez disso
  */
-async function gerarSugestoesPromocoes() {
+async function gerarSugestoesPromocoes(options = { silent: false }) {
     try {
         const response = await fetch(`${API_URL}/produtos/promocoes/gerar-sugestoes`, {
             method: 'POST',
@@ -2667,14 +2748,22 @@ async function gerarSugestoesPromocoes() {
         }
 
         const resultado = await response.json();
-        showNotification(`${resultado.message}`, 'success');
-        
-        // Recarregar dados
-        carregarSugestoesPromocoes();
+        if (!options.silent) {
+            showNotification(`${resultado.message}`, 'success');
+        }
+
+        if (!options.silent) {
+            carregarSugestoesPromocoes();
+        }
         carregarDashboardPromocoes();
+
+        return resultado;
     } catch (error) {
         console.error('Erro ao gerar sugestões:', error);
-        showNotification('Erro ao gerar sugestões', 'danger');
+        if (!options.silent) {
+            showNotification('Erro ao gerar sugestões', 'danger');
+        }
+        return null;
     }
 }
 

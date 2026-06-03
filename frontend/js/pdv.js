@@ -21,7 +21,13 @@ function normalizarTexto(texto) {
 // Buscar promoção ativa de um produto
 async function buscarPromocaoAtivaProduto(produtoId) {
     try {
-        const response = await fetch(`${API_URL}/produtos/${produtoId}/promocao-ativa`);
+        const response = await fetch(`${API_URL}/produtos/${produtoId}/promocao-ativa`, {
+            method: 'GET',
+            headers: {
+                Authorization: 'Bearer ' + (localStorage.getItem('token') || '')
+            }
+        });
+
         if (!response.ok) return null;
         const promocao = await response.json();
         return promocao;
@@ -1708,9 +1714,11 @@ function mostrarModalCpfCnpjNota() {
                                 Emitir NFC-e
                             </button>
 
+                            ${pdvModoFiscalAtivo() ? '' : `
                             <button type="button" class="btn btn-secondary" id="btnEmitirSemCpf">
                                 Emitir sem CPF/CNPJ
                             </button>
+                            `}
                         </div>
                     </div>
                 </div>
