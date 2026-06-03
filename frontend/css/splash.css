@@ -1,0 +1,73 @@
+/* Splash Screen - Tela de Carregamento */
+#splash-screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(145deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    opacity: 1;
+    transition: opacity 0.5s ease-in-out;
+}
+
+#splash-screen.hide {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.splash-content {
+    text-align: center;
+    animation: fadeInScale 0.6s ease-out;
+}
+
+.splash-logo {
+    max-width: 300px;
+    width: 90%;
+    height: auto;
+    object-fit: contain;
+    margin-bottom: 20px;
+    filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.3));
+}
+
+.splash-text {
+    color: #fff;
+    font-size: 14px;
+    letter-spacing: 1px;
+    animation: pulse 1.5s ease-in-out infinite;
+    margin-top: 20px;
+}
+
+@keyframes fadeInScale {
+    from {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 0.6;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
+/* Responsivo */
+@media (max-width: 768px) {
+    .splash-logo {
+        max-width: 250px;
+    }
+    
+    .splash-text {
+        font-size: 12px;
+    }
+}

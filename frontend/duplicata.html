@@ -1,0 +1,136 @@
+<div class="duplicata-container">
+
+  <!-- CABEÇALHO -->
+  <div class="duplicata-header">
+    <div>
+      <h2 id="clienteNome">Cliente</h2>
+      <span id="clienteCpf">CPF</span>
+    </div>
+
+    <div class="resumo-financeiro">
+      <div>Total: <b id="totalDivida">0.00</b></div>
+      <div>Pago: <b id="totalPago">0.00</b></div>
+      <div>Saldo: <b id="saldoAtual">0.00</b></div>
+      <div>Status: <span id="statusCliente" class="status"></span></div>
+    </div>
+  </div>
+
+  <!-- BOTÕES -->
+  <div class="acoes">
+    <button onclick="abrirPagamento()">💰 Receber</button>
+    <button onclick="abrirHistorico()">📄 Histórico</button>
+  </div>
+
+  <!-- PARCELAS -->
+  <h3>Parcelas / Títulos</h3>
+  <table class="tabela">
+    <thead>
+      <tr>
+        <th>Venda</th>
+        <th>Data</th>
+        <th>Vencimento</th>
+        <th>Valor</th>
+        <th>Saldo</th>
+        <th>Status</th>
+        <th>Ações</th>
+      </tr>
+    </thead>
+    <tbody id="listaParcelas"></tbody>
+  </table>
+
+  <!-- DETALHES -->
+  <h3>Compras</h3>
+  <div id="detalhesCompras"></div>
+
+</div>
+
+<!-- Modal de pagamento -->
+<div class="modal fade" id="modalPagamentoDuplicata" tabindex="-1" aria-labelledby="modalPagamentoDuplicataLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalPagamentoDuplicataLabel">Receber pagamento parcial</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <form id="formPagamentoDuplicata">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="pagamentoValor" class="form-label">Valor recebido</label>
+            <input type="number" step="0.01" min="0.01" id="pagamentoValor" class="form-control" placeholder="0,00" required>
+          </div>
+          <div class="mb-3">
+            <label for="pagamentoData" class="form-label">Data do pagamento</label>
+            <input type="date" id="pagamentoData" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label for="pagamentoForma" class="form-label">Forma de pagamento</label>
+            <select id="pagamentoForma" class="form-select">
+              <option value="dinheiro">Dinheiro</option>
+              <option value="cartao">Cartão</option>
+              <option value="pix">PIX</option>
+              <option value="boleto">Boleto</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label for="pagamentoObservacao" class="form-label">Observação</label>
+            <textarea id="pagamentoObservacao" class="form-control" rows="3" placeholder="Observação opcional"></textarea>
+          </div>
+          <div id="pagamentoErro" class="text-danger small"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Confirmar pagamento</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de detalhes do recebimento -->
+<div class="modal fade" id="modalDetalhesRecebimento" tabindex="-1" aria-labelledby="modalDetalhesRecebimentoLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalDetalhesRecebimentoLabel">Detalhes do recebimento</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body" id="detalhesRecebimentoBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de histórico de pagamentos -->
+<div class="modal fade" id="modalHistoricoDuplicata" tabindex="-1" aria-labelledby="modalHistoricoDuplicataLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalHistoricoDuplicataLabel">Histórico de pagamentos</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="table-responsive">
+          <table class="table table-sm table-striped">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Venda</th>
+                <th>Parcela</th>
+                <th>Valor</th>
+                <th>Forma</th>
+              </tr>
+            </thead>
+            <tbody id="historicoPagamentosBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/duplicata.js"></script>

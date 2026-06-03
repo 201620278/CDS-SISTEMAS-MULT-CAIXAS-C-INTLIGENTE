@@ -1,0 +1,603 @@
+.pdv-profissional {
+  min-height: 100vh;
+  background: #f3f5f7;
+  padding: 12px;
+  color: #1f2937;
+  box-sizing: border-box;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+.pdv-topo {
+  background: #111827;
+  color: white;
+  padding: 18px 22px;
+  border-radius: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.15);
+}
+
+.pdv-topo h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.pdv-topo span {
+  font-size: 14px;
+  opacity: .9;
+}
+
+.pdv-status {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.caixa-aberto {
+  background: #16a34a;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-weight: bold;
+}
+
+.caixa-fechado {
+  background: #dc2626;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-weight: bold;
+  animation: pulse-vermelho 1.5s infinite;
+}
+
+@keyframes pulse-vermelho {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* Botão de fechamento de caixa */
+.btn-fechamento-caixa {
+  background: #f59e0b;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+
+.btn-fechamento-caixa:hover {
+  background: #d97706;
+  transform: translateY(-1px);
+}
+
+.btn-fechamento-caixa:active {
+  transform: translateY(0);
+}
+
+.btn-fechamento-caixa i {
+  font-size: 14px;
+}
+
+.pdv-grid {
+  display: grid;
+  grid-template-columns: 260px 1fr 300px;
+  gap: 12px;
+  max-width: 100%;
+  align-items: start;
+}
+
+.pdv-card {
+  background: white;
+  border-radius: 14px;
+  padding: 12px;
+  box-shadow: 0 4px 18px rgba(0,0,0,.08);
+  border: 1px solid #e5e7eb;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.pdv-resumo.pdv-card {
+  padding: 12px;
+}
+
+/* Cards laterais fixos (sticky) */
+.pdv-busca,
+.pdv-resumo {
+  position: sticky;
+  top: 12px;
+  align-self: start;
+  max-height: calc(100vh - 120px);
+  min-height: auto;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+}
+
+.pdv-resumo {
+  max-height: none;
+  height: fit-content;
+}
+
+/* Scrollbar estilizada para os cards */
+.pdv-busca::-webkit-scrollbar,
+.pdv-resumo::-webkit-scrollbar {
+  width: 6px;
+}
+
+.pdv-busca::-webkit-scrollbar-track,
+.pdv-resumo::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.pdv-busca::-webkit-scrollbar-thumb,
+.pdv-resumo::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.pdv-card h2 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.pdv-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.pdv-busca input,
+.pdv-resumo input,
+.pdv-resumo select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  font-size: 14px;
+  margin-bottom: 8px;
+  height: 40px;
+}
+
+.pdv-busca button,
+.btn-finalizar,
+.btn-cancelar,
+.btn-secundario {
+  border: none;
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.pdv-busca button {
+  width: 100%;
+  background: #2563eb;
+  color: white;
+  margin-top: 0;
+}
+
+.lista-produtos {
+  margin-top: 12px;
+  max-height: 430px;
+  overflow-y: auto;
+}
+
+.produto-item-pdv {
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: .2s;
+}
+
+.produto-item-pdv:hover {
+  background: #eff6ff;
+  border-color: #2563eb;
+}
+
+.produto-item-pdv strong {
+  display: block;
+}
+
+.produto-item-pdv span {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.pdv-itens {
+  overflow-x: auto;
+  min-width: 0;
+}
+
+.pdv-itens table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 0;
+}
+
+.pdv-itens th {
+  background: #f1f5f9;
+  padding: 12px;
+  text-align: left;
+  font-size: 14px;
+}
+
+.pdv-itens td {
+  padding: 12px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.vazio {
+  color: #64748b;
+  text-align: center;
+}
+
+.linha-resumo {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.linha-resumo input {
+  max-width: 130px;
+  margin-bottom: 0;
+}
+
+.total-pdv {
+  background: #0f172a;
+  color: white;
+  padding: 10px 14px;
+  border-radius: 10px;
+  margin: 8px 0;
+}
+
+.total-pdv span {
+  display: block;
+  font-size: 14px;
+  opacity: .8;
+}
+
+.total-pdv strong {
+  display: block;
+  font-size: 32px;
+  margin-top: 4px;
+}
+
+.pdv-resumo > * {
+  flex-shrink: 0;
+  margin-bottom: 8px;
+}
+
+.pdv-resumo > *:last-child {
+  margin-bottom: 0;
+}
+
+.pdv-resumo label {
+  font-weight: bold;
+  display: block;
+  margin-bottom: 4px;
+  margin-top: 4px;
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.btn-finalizar {
+  width: 100%;
+  background: #16a34a;
+  color: white;
+  font-size: 16px;
+  margin-top: 8px;
+  padding: 10px;
+}
+
+.btn-cancelar {
+  width: 100%;
+  background: #dc2626;
+  color: white;
+  margin-top: 6px;
+  padding: 8px;
+  font-size: 14px;
+}
+
+.btn-secundario {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.pdv-atalhos {
+  margin-top: 12px;
+  background: white;
+  padding: 10px 14px;
+  border-radius: 14px;
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  box-shadow: 0 4px 14px rgba(0,0,0,.06);
+}
+
+.pdv-atalhos span {
+  font-weight: bold;
+  color: #334155;
+}
+
+@media (max-width: 1100px) {
+  .pdv-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pdv-topo {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+}
+
+/* Troco destacado */
+#trocoPDV {
+  color: #16a34a;
+  font-size: 28px;
+  font-weight: bold;
+}
+
+/* Garantir que o card de resumo não estoure */
+.pdv-resumo {
+  box-sizing: border-box;
+}
+
+/* PDV Fullscreen Mode */
+.pdv-fullscreen {
+  min-height: 100vh;
+  padding: 12px;
+  box-sizing: border-box;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+body.pdv-mode #page-content {
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.pdv-fullscreen .pdv-topo {
+  margin-bottom: 0;
+  border-radius: 0;
+}
+
+.pdv-header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.btn-menu-pdv {
+  background: rgba(255,255,255,0.15);
+  border: none;
+  color: white;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.btn-menu-pdv:hover {
+  background: rgba(255,255,255,0.25);
+}
+
+body.pdv-mode #sidebar {
+  display: none !important;
+}
+
+body.pdv-mode main {
+  margin-left: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+body.pdv-mode .container-fluid > .row {
+  margin: 0;
+}
+
+body.pdv-mode main.col-md-10,
+body.pdv-mode main.col-lg-10 {
+  flex: 0 0 100% !important;
+  max-width: 100% !important;
+}
+
+/* Mostrar sidebar quando menu estiver aberto no PDV */
+body.pdv-mode.menu-open #sidebar {
+  display: block !important;
+  position: fixed;
+  z-index: 10000;
+  width: 260px;
+  height: 100vh;
+}
+
+/* Overlay só funciona quando PDV está ativo */
+body.pdv-mode.menu-open::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 9999;
+  pointer-events: auto; /* Só bloqueia quando menu está aberto no PDV */
+}
+
+/* Garantir que overlay não fique preso fora do PDV */
+body:not(.pdv-mode)::before {
+  display: none !important;
+  pointer-events: none !important;
+}
+
+/* Calculadora PDV */
+.pdv-calculadora {
+  margin-top: 16px;
+  padding-top: 20px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.pdv-calculadora h3 {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.calc-display {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 18px;
+  font-weight: 600;
+  text-align: right;
+  margin-bottom: 10px;
+  min-height: 42px;
+  word-break: break-all;
+}
+
+.calc-botoes {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.calc-btn {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  color: #1e293b;
+}
+
+.calc-btn:hover {
+  background: #e2e8f0;
+  transform: translateY(-1px);
+}
+
+.calc-btn:active {
+  transform: translateY(0);
+}
+
+.calc-op {
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+
+.calc-op:hover {
+  background: #bfdbfe;
+}
+
+.calc-clear {
+  background: #fee2e2;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+.calc-clear:hover {
+  background: #fecaca;
+}
+
+.calc-igual {
+  background: #16a34a;
+  color: white;
+  border-color: #16a34a;
+  grid-column: span 4;
+  margin-top: 12px;
+}
+
+.calc-igual:hover {
+  background: #15803d;
+}
+
+/* CSS Profissional para Botões de Pagamento PDV */
+.btnPagamentoPDV {
+  height: 150px;
+  border-radius: 20px !important;
+  border: none !important;
+  transition: all .2s ease;
+  display: flex !important;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.08);
+}
+
+.btnPagamentoPDV:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 24px rgba(0,0,0,.15);
+}
+
+.btnPagamentoPDV .atalho {
+  font-size: .9rem;
+  opacity: .7;
+}
+
+.btnPagamentoPDV .titulo {
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+
+/* =====================================================
+   MODO FISCAL F12 - FAIXA VISUAL E FINALIZAÇÃO NFC-e
+   ===================================================== */
+.faixa-sistema-fiscal {
+  background: #16a34a;
+  color: #ffffff;
+  text-align: center;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  border-radius: 12px 12px 0 0;
+  box-shadow: 0 4px 12px rgba(0,0,0,.14);
+  border: 2px solid #16a34a;
+  border-bottom: 0;
+}
+
+.faixa-sistema-fiscal span {
+  color: #dc2626;
+  background: #ffffff;
+  padding: 3px 16px;
+  border-radius: 999px;
+  font-weight: 900;
+}
+
+body.modo-fiscal-ativo .pdv-topo {
+  border: 2px solid #16a34a;
+  border-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+body.modo-fiscal-ativo #btnFinalizarVendaPdv {
+  background: #16a34a !important;
+}

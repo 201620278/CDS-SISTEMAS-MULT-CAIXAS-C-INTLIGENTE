@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CDS Sistemas</title>
+    <link href="vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/financeiro.css">
+    <link rel="stylesheet" href="css/pdv.css">
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <nav id="sidebar" class="col-md-2 col-lg-2 d-md-block bg-dark sidebar">
+                <div class="position-sticky pt-3">
+                    <div class="text-center mb-2" id="sidebar-brand">
+                        <h5 class="text-white">CDS</h5>
+                        <small class="text-muted">Sistemas</small>
+                    </div>
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link text-white active" href="#" data-page="pdv">
+                                <i class="fas fa-cash-register"></i> PDV
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" data-page="dashboard">
+                                <i class="fas fa-chart-line"></i> Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" data-page="caixa">
+                                <i class="fas fa-cash-register"></i>
+                                <span>Fechamento de Caixa</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" data-page="produtos">
+                                <i class="fas fa-box"></i> Produtos
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" data-page="clientes">
+                                <i class="fas fa-users"></i> Clientes
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" data-page="compras">
+                                <i class="fas fa-shopping-cart"></i> Compras
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" data-page="fornecedores">
+                                <i class="fas fa-truck"></i> Fornecedores
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" data-page="vendas">
+                                <i class="fas fa-history"></i> Histórico Venda
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" data-page="financeiro">
+                                <i class="fas fa-chart-line"></i> Financeiro
+                            </a>
+                        </li>
+                        
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" data-page="categorias">
+                                <i class="fas fa-tags"></i> Categorias
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" data-page="fiscal">
+                                <i class="fas fa-receipt"></i> Fiscal NFC-e
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" data-page="configuracoes">
+                                <i class="fas fa-cog"></i> Configurações
+                            </a>
+                        </li>
+                    </ul>
+                    
+                    <div class="sidebar-footer">
+                        <div class="text-white mb-2 small">
+                            <i class="fas fa-user"></i> <span id="user-nome">Carregando...</span>
+                            <br>
+                            <small id="user-perfil" class="text-muted">-</small>
+                        </div>
+                        <button class="btn btn-danger btn-sm w-100" onclick="logout()">
+                            <i class="fas fa-sign-out-alt"></i> Sair
+                        </button>
+                    </div>
+                </div>
+            </nav>
+
+            <!-- Main content -->
+            <main class="col-md-10 ms-sm-auto col-lg-10 px-md-4 position-relative">
+                <div id="page-content">
+                    <div class="text-center p-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Carregando...</span>
+                        </div>
+                        <p class="mt-2">Carregando sistema...</p>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Modais -->
+    <div id="modal-container"></div>
+
+    <script src="vendor/jquery/jquery.min.js"></script>
+    <script src="vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="vendor/chart.js/chart.min.js"></script>
+    <script src="js/pdv.js"></script>
+    <script src="js/produtos.js"></script>
+    <script src="js/subcategorias.js"></script>
+    <script src="js/clientes.js"></script>
+    <script src="js/fornecedores.js"></script>
+    <script src="js/compras.js"></script>
+    <script src="js/vendas.js"></script>
+    <script src="js/financeiro-dashboard.js"></script>
+    <script src="js/financeiro-receber.js"></script>
+    <script src="js/financeiro-pagar.js"></script>
+    <script src="js/financeiro-relatorios.js"></script>
+    <script src="js/financeiro.js"></script>
+    <script src="js/backup_google.js"></script>
+    <script src="js/configuracoes.js"></script>
+    <script src="js/categorias.js"></script>
+    <script src="js/fiscal.js"></script>
+    <script src="js/caixa.js"></script>
+    <script src="js/dashboard.js"></script>
+    <script src="js/app.js"></script>
+    
+    <script>
+        // Função de logout
+        function logout() {
+            if (confirm('Tem certeza que deseja sair?')) {
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = '/login';
+            }
+        }
+        
+        // Verificar autenticação ao carregar
+        $(document).ready(function() {
+            const token = localStorage.getItem('token');
+            const user = JSON.parse(localStorage.getItem('user') || '{}');
+            
+            console.log('Token existe?', !!token);
+            console.log('User:', user);
+            
+            if (!token) {
+                console.log('Sem token, redirecionando para login');
+                window.location.href = '/login';
+                return;
+            }
+            
+            // Mostrar nome e perfil do usuário
+            $('#user-nome').text(user.nome || user.username || 'Usuário');
+            $('#user-perfil').text(user.role === 'admin' ? 'Administrador' : 'Operador');
+            
+            // Configurar AJAX para enviar token em todas as requisições
+            $.ajaxSetup({
+                beforeSend: function(xhr, settings) {
+                    // Não enviar token para arquivos estáticos
+                    if (settings.url && !settings.url.includes('/api/')) {
+                        return;
+                    }
+                    const token = localStorage.getItem('token');
+                    if (token) {
+                        xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+                    }
+                }
+            });
+            
+            // Testar token com o servidor
+            $.ajax({
+                url: `${API_URL}/auth/verificar`,
+                method: 'POST',
+                success: function(data) {
+                    console.log('Token válido:', data);
+                },
+                error: function(xhr) {
+                    console.log('Token inválido:', xhr);
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                    window.location.href = '/login';
+                }
+            });
+        });
+    </script>
+
+    <div id="notification-container"
+         style="position: fixed; top: 20px; right: 20px; z-index: 9999; pointer-events: none;">
+    </div>
+
+    <footer style="position: fixed; bottom: 0; width: 100%; background: #111827; color: #9ca3af; text-align: center; padding: 6px; font-size: 12px; z-index: 1000;">
+        &copy; Todos os Direitos Reservados a Cicero Diego - CDS Sistemas
+    </footer>
+</body>
+</html>

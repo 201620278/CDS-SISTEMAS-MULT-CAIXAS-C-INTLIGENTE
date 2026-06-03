@@ -1,0 +1,62 @@
+{
+  "name": "cds-sistemas",
+  "version": "1.0.3",
+  "description": "Sistema de gestão para mercado",
+  "author": "CDS Sistemas",
+  "main": "electron.js",
+  "scripts": {
+    "start": ".\\node_modules\\.bin\\electron.cmd .",
+    "build": "electron-builder"
+  },
+  "dependencies": {
+    "axios": "^1.15.0",
+    "bcryptjs": "^2.4.3",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "escpos": "^3.0.0-alpha.6",
+    "escpos-usb": "^3.0.0-alpha.4",
+    "express": "^4.18.2",
+    "form-data": "^4.0.5",
+    "googleapis": "^171.4.0",
+    "jsonwebtoken": "^9.0.3",
+    "moment": "^2.29.4",
+    "multer": "^2.1.1",
+    "node-cron": "^4.2.1",
+    "node-forge": "^1.4.0",
+    "qrcode": "^1.5.4",
+    "sqlite3": "^5.1.6",
+    "xml-crypto": "^6.1.2",
+    "xml2js": "^0.5.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.2",
+    "electron": "22.3.27",
+    "electron-builder": "^25.1.8",
+    "nodemon": "^3.0.1"
+  },
+  "build": {
+    "appId": "com.cdssistemas.cds",
+    "productName": "CDS Sistemas - PDV",
+    "copyright": "Copyright © 2026 CDS Sistemas - Cicero Diego",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico",
+      "publisherName": "CDS Sistemas"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CDS Sistemas",
+      "artifactName": "CDS-Sistemas-Setup-${version}.${ext}",
+      "uninstallDisplayName": "CDS Sistemas"
+    }
+  }
+}
