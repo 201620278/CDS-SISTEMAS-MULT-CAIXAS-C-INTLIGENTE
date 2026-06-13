@@ -61,6 +61,8 @@ const loginBgUpload = multer({
   }
 });
 
+const LEGACY_LOGO_CONFIG_KEY = 'caminho_logomarca';
+
 const saveLogoConfig = (req, res) => {
   if (!req.file) {
     console.error('[LOGO] Arquivo não enviado');
@@ -80,16 +82,43 @@ const saveLogoConfig = (req, res) => {
       }
 
       if (this.changes === 0) {
-        db.run(
-          `INSERT INTO configuracoes (chave, valor, tipo, descricao) VALUES ('logo', ?, 'text', 'Logo do cliente')`,
-          [logoPath],
-          function(insertErr) {
-            if (insertErr) {
-              console.error('[LOGO] Erro ao inserir DB:', insertErr);
-              return res.status(500).json({ error: 'Erro ao salvar logo: ' + insertErr.message });
+        db.get(
+          `SELECT id FROM configuracoes WHERE chave = ?`,
+          [LEGACY_LOGO_CONFIG_KEY],
+          (legacyErr, legacyRow) => {
+            if (legacyErr) {
+              console.error('[LOGO] Erro ao buscar logo legada:', legacyErr);
+              return res.status(500).json({ error: 'Erro ao salvar logo: ' + legacyErr.message });
             }
-            console.log('[LOGO] Logo salva com sucesso:', logoPath);
-            res.json({ success: true, path: logoPath });
+
+            if (legacyRow) {
+              db.run(
+                `UPDATE configuracoes SET chave = 'logo', valor = ?, tipo = 'text', descricao = 'Logo do cliente', updated_at = datetime('now', 'localtime') WHERE id = ?`,
+                [logoPath, legacyRow.id],
+                function(updateLegacyErr) {
+                  if (updateLegacyErr) {
+                    console.error('[LOGO] Erro ao migrar logo legada:', updateLegacyErr);
+                    return res.status(500).json({ error: 'Erro ao salvar logo: ' + updateLegacyErr.message });
+                  }
+                  console.log('[LOGO] Logo legada migrada e salva com sucesso:', logoPath);
+                  res.json({ success: true, path: logoPath });
+                }
+              );
+              return;
+            }
+
+            db.run(
+              `INSERT INTO configuracoes (chave, valor, tipo, descricao) VALUES ('logo', ?, 'text', 'Logo do cliente')`,
+              [logoPath],
+              function(insertErr) {
+                if (insertErr) {
+                  console.error('[LOGO] Erro ao inserir DB:', insertErr);
+                  return res.status(500).json({ error: 'Erro ao salvar logo: ' + insertErr.message });
+                }
+                console.log('[LOGO] Logo salva com sucesso:', logoPath);
+                res.json({ success: true, path: logoPath });
+              }
+            );
           }
         );
         return;
@@ -297,11 +326,15 @@ router.put('/:chave', (req, res) => {
   const { chave } = req.params;
   const { valor } = req.body;
 
-  db.run(`
-    UPDATE configuracoes
-    SET valor = ?, updated_at = datetime('now', 'localtime')
-    WHERE chave = ?
-  `, [valor, chave], function(err) {
+  const query = `
+    INSERT INTO configuracoes (chave, valor, tipo, descricao, updated_at)
+    VALUES (?, ?, 'text', '', datetime('now', 'localtime'))
+    ON CONFLICT(chave) DO UPDATE SET
+      valor = excluded.valor,
+      updated_at = excluded.updated_at
+  `;
+
+  db.run(query, [chave, valor], function(err) {
     if (err) {
       res.status(500).json({ error: err.message });
       return;

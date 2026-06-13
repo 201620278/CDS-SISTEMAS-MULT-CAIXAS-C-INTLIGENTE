@@ -126,10 +126,14 @@ const fiscalRoutes = require('./rotas/fiscal');
 const fornecedoresRoutes = require('./rotas/fornecedores');
 const impressaoRoutes = require('./rotas/impressao');
 const caixaRoutes = require('./rotas/caixa');
+const caixasRoutes = require('./rotas/caixas');
+const terminaisRoutes = require('./rotas/terminais');
 const backupRoutes = require('./rotas/backup');
 const tefRoutes = require('./rotas/tef');
 const pixRoutes = require('./rotas/pix');
 const dashboardRoutes = require('./rotas/dashboard');
+const alertasRoutes = require('./rotas/alertas');
+const auditoriaRoutes = require('./rotas/auditoria');
 const licencaRoutes = require('./rotas/licenca');
 const licencaMiddleware = require('./middleware/licencaMiddleware');
 // const usuariosRoutes = require('./rotas/usuarios');
@@ -147,9 +151,13 @@ app.use('/api/fiscal', verificarToken, fiscalRoutes);
 app.use('/api/fornecedores', verificarToken, fornecedoresRoutes);
 app.use('/api/impressao', verificarToken, impressaoRoutes);
 app.use('/api/caixa', verificarToken, caixaRoutes);
+app.use('/api/caixas', verificarToken, caixasRoutes);
+app.use('/api/terminais', verificarToken, terminaisRoutes);
 app.use('/api/backup', verificarToken, backupRoutes);
 app.use('/api/tef', tefRoutes);
 app.use('/api/pix', verificarToken, pixRoutes);
+app.use('/api/alertas', verificarToken, alertasRoutes);
+app.use('/api/auditoria', verificarToken, auditoriaRoutes);
 // app.use('/api/usuarios', verificarToken, usuariosRoutes);
 
 // Rotas de licença (públicas)
@@ -184,7 +192,7 @@ app.use((err, req, res, next) => {
 });
 
 // Iniciar servidor
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Servidor rodando na porta ${PORT}`);
     console.log(`Acesse: http://localhost:${PORT}/login`);
 });

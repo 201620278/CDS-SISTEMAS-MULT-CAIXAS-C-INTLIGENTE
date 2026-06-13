@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const { verificarToken } = require('./auth');
+const { gravarAuditoria } = require('../services/auditoria');
 
 router.get('/', verificarToken, (req, res) => {
   db.all(
@@ -93,9 +94,18 @@ router.delete('/:id', verificarToken, (req, res) => {
             });
           }
 
-          console.log(
-            `[AUDITORIA] Usuário ${usuarioLogado.nome} (${perfilBanco}) desativou usuário ID ${idUsuarioRemover}`
-          );
+          const detalhes = { alvo_id: idUsuarioRemover };
+
+          gravarAuditoria({
+            usuario_id: usuarioLogado.id,
+            usuario_nome: usuarioLogado.nome,
+            modulo: 'usuarios',
+            acao: 'desativar_usuario',
+            referencia_tipo: 'usuario',
+            referencia_id: idUsuarioRemover,
+            detalhes,
+            ip_requisicao: req.ip || null
+          }).catch((auditErr) => console.error('Erro ao gravar auditoria de desativação de usuário:', auditErr));
 
           res.json({
             sucesso: true,

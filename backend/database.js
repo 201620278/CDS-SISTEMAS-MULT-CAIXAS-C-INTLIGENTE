@@ -31,6 +31,29 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
 db.dbDir = DB_DIR;
 db.dbPath = DB_PATH;
 
+// Helper: insert seguro que só usa colunas existentes na tabela
+db.insertSafe = function(table, data, callback) {
+  const keys = Object.keys(data || {});
+  if (keys.length === 0) {
+    if (callback) return callback(new Error('No data provided for insert'));
+    return;
+  }
+  db.all(`PRAGMA table_info(${table})`, [], (err, cols) => {
+    if (err) return callback ? callback(err) : null;
+    const colNames = (cols || []).map(c => c.name);
+    const useKeys = keys.filter(k => colNames.includes(k));
+    if (useKeys.length === 0) {
+      return callback ? callback(new Error(`No matching columns found on table ${table}`)) : null;
+    }
+    const placeholders = useKeys.map(() => '?').join(', ');
+    const sql = `INSERT INTO ${table} (${useKeys.join(', ')}) VALUES (${placeholders})`;
+    const values = useKeys.map(k => data[k]);
+    db.run(sql, values, function(runErr) {
+      if (callback) callback(runErr, this);
+    });
+  });
+};
+
 function aplicarAlteracaoSegura(tabela, sql) {
   db.run(sql, (err) => {
     if (err) {
@@ -51,7 +74,11 @@ function aplicarAlteracaoSegura(tabela, sql) {
 function aplicarAlteracoesPosCriacao() {
   aplicarAlteracaoSegura('categorias', `ALTER TABLE categorias ADD COLUMN tipo TEXT DEFAULT 'produto'`);
   aplicarAlteracaoSegura('caixa', `ALTER TABLE caixa ADD COLUMN status TEXT DEFAULT 'aberto'`);
+  aplicarAlteracaoSegura('caixa', `ALTER TABLE caixa ADD COLUMN terminal_id INTEGER REFERENCES terminais(id)`);
   aplicarAlteracaoSegura('vendas', `ALTER TABLE vendas ADD COLUMN caixa_id INTEGER REFERENCES caixa(id)`);
+  aplicarAlteracaoSegura('vendas', `ALTER TABLE vendas ADD COLUMN terminal_id INTEGER REFERENCES terminais(id)`);
+  aplicarAlteracaoSegura('vendas', `ALTER TABLE vendas ADD COLUMN operador_id INTEGER REFERENCES usuarios(id)`);
+  aplicarAlteracaoSegura('caixa_movimentacoes', `ALTER TABLE caixa_movimentacoes ADD COLUMN terminal_id INTEGER`);
 
   // Adicionar colunas faltantes na tabela vendas_itens (para suportar promoções e desconto atacado)
   aplicarAlteracaoSegura('vendas_itens', `ALTER TABLE vendas_itens ADD COLUMN desconto_percentual DECIMAL(5,2) DEFAULT 0`);
@@ -72,12 +99,20 @@ function aplicarAlteracoesPosCriacao() {
   aplicarAlteracaoSegura('caixa', `ALTER TABLE caixa ADD COLUMN observacao TEXT`);
   aplicarAlteracaoSegura('caixa', `ALTER TABLE caixa ADD COLUMN aberto_em DATETIME`);
   aplicarAlteracaoSegura('caixa', `ALTER TABLE caixa ADD COLUMN fechado_em DATETIME`);
+  aplicarAlteracaoSegura('caixa', `ALTER TABLE caixa ADD COLUMN fechado_por INTEGER REFERENCES usuarios(id)`);
+  aplicarAlteracaoSegura('caixa', `ALTER TABLE caixa ADD COLUMN ja_reimpresso INTEGER DEFAULT 0`);
+  aplicarAlteracaoSegura('caixa', `ALTER TABLE caixa ADD COLUMN reoperturas_count INTEGER DEFAULT 0`);
+  aplicarAlteracaoSegura('caixas', `ALTER TABLE caixas ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP`);
+  aplicarAlteracaoSegura('caixas', `ALTER TABLE caixas ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP`);
+  aplicarAlteracaoSegura('caixa_movimentacoes', `ALTER TABLE caixa_movimentacoes ADD COLUMN operador_nome TEXT`);
 
   // Adicionar colunas na tabela usuarios
   aplicarAlteracaoSegura('usuarios', `ALTER TABLE usuarios ADD COLUMN ativo INTEGER DEFAULT 1`);
   aplicarAlteracaoSegura('usuarios', `ALTER TABLE usuarios ADD COLUMN nome TEXT`);
   aplicarAlteracaoSegura('usuarios', `ALTER TABLE usuarios ADD COLUMN perfil TEXT DEFAULT 'USUARIO'`);
   aplicarAlteracaoSegura('usuarios', `ALTER TABLE usuarios ADD COLUMN pode_alterar_senhas INTEGER DEFAULT 0`);
+  // Garantir coluna criado_em na tabela auditoria (compatibilidade com migrações anteriores)
+  aplicarAlteracaoSegura('auditoria', `ALTER TABLE auditoria ADD COLUMN criado_em DATETIME DEFAULT CURRENT_TIMESTAMP`);
 
   const alteracoesProdutos = [
     `ALTER TABLE produtos ADD COLUMN categoria_id INTEGER`,
@@ -598,6 +633,22 @@ function criarTabelas() {
       else console.log('Tabela vendas criada/verificada');
     });
 
+    // Tabela de alertas persistentes gerados pela auditoria/deteccao de anomalias
+    db.run(`
+      CREATE TABLE IF NOT EXISTS auditoria_alertas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tipo TEXT NOT NULL,
+        descricao TEXT,
+        dados TEXT,
+        resolvido INTEGER DEFAULT 0,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+        resolvido_em DATETIME
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela auditoria_alertas:', err);
+      else console.log('Tabela auditoria_alertas criada/verificada');
+    });
+
     // Tabela de itens de venda
     db.run(`
       CREATE TABLE IF NOT EXISTS vendas_itens (
@@ -626,6 +677,13 @@ function criarTabelas() {
         venda_id INTEGER NOT NULL,
         forma_pagamento TEXT NOT NULL,
         valor DECIMAL(10,2) NOT NULL,
+        tef_transacao_id INTEGER,
+        tef_nsu TEXT,
+        tef_autorizacao TEXT,
+        tef_bandeira TEXT,
+        tef_adquirente TEXT,
+        tef_comprovante_cliente TEXT,
+        tef_comprovante_estabelecimento TEXT,
         criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (venda_id) REFERENCES vendas(id)
       )
@@ -1085,6 +1143,31 @@ function seedUsuarioAdmin() {
 
 db.serialize(() => {
   db.run(`
+    CREATE TABLE IF NOT EXISTS caixas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome TEXT NOT NULL,
+      descricao TEXT,
+      ativo INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS terminais (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome TEXT NOT NULL,
+      hostname TEXT NOT NULL UNIQUE,
+      caixa_id INTEGER,
+      ativo INTEGER DEFAULT 1,
+      ultima_conexao DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (caixa_id) REFERENCES caixas(id)
+    )
+  `);
+
+  db.run(`
     CREATE TABLE IF NOT EXISTS caixa (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       data DATE NOT NULL,
@@ -1096,7 +1179,11 @@ db.serialize(() => {
       status TEXT DEFAULT 'aberto',
       observacao TEXT,
       aberto_em DATETIME DEFAULT CURRENT_TIMESTAMP,
-      fechado_em DATETIME
+      fechado_em DATETIME,
+      aberto_por INTEGER REFERENCES usuarios(id),
+      fechado_por INTEGER REFERENCES usuarios(id),
+      ja_reimpresso INTEGER DEFAULT 0,
+      terminal_id INTEGER REFERENCES terminais(id)
     )
   `);
 
@@ -1108,11 +1195,74 @@ db.serialize(() => {
       valor DECIMAL(10,2) DEFAULT 0,
       motivo TEXT,
       usuario_id INTEGER,
+      operador_nome TEXT,
+      terminal_id INTEGER,
       criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (caixa_id) REFERENCES caixa(id),
-      FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+      FOREIGN KEY (usuario_id) REFERENCES usuarios(id),
+      FOREIGN KEY (terminal_id) REFERENCES terminais(id)
     )
   `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS caixa_fechamentos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      caixa_id INTEGER NOT NULL,
+      operador_id INTEGER,
+      terminal_id INTEGER,
+      data_fechamento DATETIME NOT NULL,
+      valor_inicial DECIMAL(10,2) DEFAULT 0,
+      vendas_dinheiro DECIMAL(10,2) DEFAULT 0,
+      vendas_pix DECIMAL(10,2) DEFAULT 0,
+      vendas_debito DECIMAL(10,2) DEFAULT 0,
+      vendas_credito DECIMAL(10,2) DEFAULT 0,
+      vendas_prazo DECIMAL(10,2) DEFAULT 0,
+      vendas_tef DECIMAL(10,2) DEFAULT 0,
+      total_sangrias DECIMAL(10,2) DEFAULT 0,
+      total_suprimentos DECIMAL(10,2) DEFAULT 0,
+      total_vendido DECIMAL(10,2) DEFAULT 0,
+      total_esperado DECIMAL(10,2) DEFAULT 0,
+      total_informado DECIMAL(10,2) DEFAULT 0,
+      diferenca DECIMAL(10,2) DEFAULT 0,
+      observacao TEXT,
+      criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (caixa_id) REFERENCES caixa(id),
+      FOREIGN KEY (operador_id) REFERENCES usuarios(id),
+      FOREIGN KEY (terminal_id) REFERENCES terminais(id)
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS auditoria_caixa (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      caixa_id INTEGER,
+      operador_id INTEGER,
+      acao TEXT NOT NULL,
+      tipo_movimentacao TEXT,
+      valor DECIMAL(10,2),
+      detalhes TEXT,
+      ip_requisicao TEXT,
+      criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (caixa_id) REFERENCES caixa(id),
+      FOREIGN KEY (operador_id) REFERENCES usuarios(id)
+    )
+  `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS auditoria (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        usuario_id INTEGER,
+        usuario_nome TEXT,
+        modulo TEXT,
+        acao TEXT NOT NULL,
+        referencia_tipo TEXT,
+        referencia_id INTEGER,
+        detalhes TEXT,
+        ip_requisicao TEXT,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+      )
+    `);
 });
 
 module.exports = db;

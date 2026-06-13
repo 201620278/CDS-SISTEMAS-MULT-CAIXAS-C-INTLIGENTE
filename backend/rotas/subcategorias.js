@@ -3,6 +3,7 @@ const router = express.Router();
 
 
 const db = require('../database');
+const { gravarAuditoria } = require('../services/auditoria');
 
 // LISTAR TODAS
 router.get('/', (req, res) => {
@@ -43,6 +44,17 @@ router.post('/', (req, res) => {
         if (err) {
             return res.status(500).json({ erro: 'Erro ao criar subcategoria' });
         }
+        gravarAuditoria({
+            usuario_id: req.user?.id || null,
+            usuario_nome: req.user?.nome || req.user?.username || null,
+            modulo: 'subcategorias',
+            acao: 'criar_subcategoria',
+            referencia_tipo: 'subcategoria',
+            referencia_id: this.lastID,
+            detalhes: { nome: nome.trim(), categoria_id },
+            ip_requisicao: req.ip || null
+        }).catch((auditErr) => console.error('Erro ao gravar auditoria de subcategoria:', auditErr));
+
         res.json({ id: this.lastID, message: 'Subcategoria criada com sucesso' });
     });
 });
@@ -61,6 +73,17 @@ router.put('/:id', (req, res) => {
         [nome.trim(), categoria_id, req.params.id],
         function(err) {
             if (err) return res.status(500).json({ erro: 'Erro ao atualizar' });
+            gravarAuditoria({
+                usuario_id: req.user?.id || null,
+                usuario_nome: req.user?.nome || req.user?.username || null,
+                modulo: 'subcategorias',
+                acao: 'atualizar_subcategoria',
+                referencia_tipo: 'subcategoria',
+                referencia_id: req.params.id,
+                detalhes: { nome, categoria_id },
+                ip_requisicao: req.ip || null
+            }).catch((auditErr) => console.error('Erro ao gravar auditoria de atualização de subcategoria:', auditErr));
+
             res.json({ message: 'Subcategoria atualizada com sucesso' });
         }
     );
@@ -73,6 +96,17 @@ router.delete('/:id', (req, res) => {
         [req.params.id],
         function(err) {
             if (err) return res.status(500).json({ erro: 'Erro ao excluir' });
+            gravarAuditoria({
+                usuario_id: req.user?.id || null,
+                usuario_nome: req.user?.nome || req.user?.username || null,
+                modulo: 'subcategorias',
+                acao: 'excluir_subcategoria',
+                referencia_tipo: 'subcategoria',
+                referencia_id: req.params.id,
+                detalhes: {},
+                ip_requisicao: req.ip || null
+            }).catch((auditErr) => console.error('Erro ao gravar auditoria de exclusão de subcategoria:', auditErr));
+
             res.json({ message: 'Subcategoria excluída com sucesso' });
         }
     );

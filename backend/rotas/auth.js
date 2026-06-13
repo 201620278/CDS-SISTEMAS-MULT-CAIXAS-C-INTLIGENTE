@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const { gravarAuditoria } = require('../services/auditoria');
 const db = require('../database');
 
 const JWT_SECRET = 'mercantil_do_nando_secret_key_2024';
@@ -19,6 +20,7 @@ const PERMISSOES_DISPONIVEIS = [
   'configuracoes',
   'usuarios',
   'relatorios',
+  'auditoria',
   'categorias',
   'gerenciar_faixa_atacado'
 ];
@@ -225,6 +227,18 @@ router.post('/login', (req, res) => {
             permissoes
           }
         });
+        gravarAuditoria({
+          usuario_id: usuario.id,
+          usuario_nome: usuario.username,
+          modulo: 'auth',
+          acao: 'login',
+          referencia_tipo: 'usuario',
+          referencia_id: usuario.id,
+          detalhes: { ip: req.ip, username },
+          ip_requisicao: req.ip || null
+        }).catch((auditErr) => {
+          console.error('Erro ao gravar auditoria de login:', auditErr);
+        });
       });
     }
   );
@@ -234,7 +248,21 @@ router.post('/verificar', verificarToken, (req, res) => {
   res.json({ valid: true, user: req.user });
 });
 
-router.post('/logout', (req, res) => {
+router.post('/logout', verificarToken, (req, res) => {
+  const usuario = req.user;
+  gravarAuditoria({
+    usuario_id: usuario?.id || null,
+    usuario_nome: usuario?.username || usuario?.nome || null,
+    modulo: 'auth',
+    acao: 'logout',
+    referencia_tipo: 'usuario',
+    referencia_id: usuario?.id || null,
+    detalhes: { ip: req.ip },
+    ip_requisicao: req.ip || null
+  }).catch((auditErr) => {
+    console.error('Erro ao gravar auditoria de logout:', auditErr);
+  });
+
   res.json({ message: 'Logout realizado com sucesso' });
 });
 

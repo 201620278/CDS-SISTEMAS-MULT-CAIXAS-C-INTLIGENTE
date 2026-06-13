@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database');
+const { gravarAuditoria } = require('../services/auditoria');
 
 // LISTAR
 router.get('/', (req, res) => {
@@ -55,7 +56,19 @@ router.post('/', (req, res) => {
 
         db.get('SELECT * FROM categorias WHERE id = ?', [this.lastID], (getErr, row) => {
             if (getErr) return res.status(500).json({ erro: 'Categoria criada, mas não foi possível retornar os dados' });
-            res.json(row);
+                // auditoria de criação de categoria
+                gravarAuditoria({
+                    usuario_id: req.user?.id || null,
+                    usuario_nome: req.user?.nome || req.user?.username || null,
+                    modulo: 'categorias',
+                    acao: 'criar_categoria',
+                    referencia_tipo: 'categoria',
+                    referencia_id: this.lastID,
+                    detalhes: { nome: nome.trim() },
+                    ip_requisicao: req.ip || null
+                }).catch((auditErr) => console.error('Erro ao gravar auditoria de categoria:', auditErr));
+
+                res.json(row);
         });
     });
 });
@@ -85,6 +98,18 @@ router.put('/:id', (req, res) => {
 
             db.get('SELECT * FROM categorias WHERE id = ?', [req.params.id], (getErr, row) => {
                 if (getErr) return res.status(500).json({ erro: 'Categoria atualizada, mas não foi possível retornar os dados' });
+                // auditoria de atualização
+                gravarAuditoria({
+                    usuario_id: req.user?.id || null,
+                    usuario_nome: req.user?.nome || req.user?.username || null,
+                    modulo: 'categorias',
+                    acao: 'atualizar_categoria',
+                    referencia_tipo: 'categoria',
+                    referencia_id: req.params.id,
+                    detalhes: { antes: null, depois: { nome: nome.trim(), tipo: tipo || 'produto' } },
+                    ip_requisicao: req.ip || null
+                }).catch((auditErr) => console.error('Erro ao gravar auditoria de atualização de categoria:', auditErr));
+
                 res.json(row);
             });
         }
@@ -118,6 +143,18 @@ router.delete('/:id', (req, res) => {
 
                 db.run(`DELETE FROM categorias WHERE id = ?`, [categoriaId], function(errDelete) {
                     if (errDelete) return res.status(500).json({ erro: 'Erro ao excluir categoria' });
+                    // auditoria de exclusão
+                    gravarAuditoria({
+                        usuario_id: req.user?.id || null,
+                        usuario_nome: req.user?.nome || req.user?.username || null,
+                        modulo: 'categorias',
+                        acao: 'excluir_categoria',
+                        referencia_tipo: 'categoria',
+                        referencia_id: categoriaId,
+                        detalhes: {},
+                        ip_requisicao: req.ip || null
+                    }).catch((auditErr) => console.error('Erro ao gravar auditoria de exclusão de categoria:', auditErr));
+
                     res.json({ message: 'Categoria excluída com sucesso' });
                 });
             });

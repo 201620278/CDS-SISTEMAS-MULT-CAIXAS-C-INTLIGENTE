@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database');
+const { gravarAuditoria } = require('../services/auditoria');
 
 // LISTAR TODOS
 router.get('/', (req, res) => {
@@ -135,6 +136,18 @@ router.post('/', (req, res) => {
       });
     }
 
+    // registrar auditoria
+    gravarAuditoria({
+      usuario_id: req.user?.id || null,
+      usuario_nome: req.user?.nome || req.user?.username || null,
+      modulo: 'fornecedores',
+      acao: 'criar_fornecedor',
+      referencia_tipo: 'fornecedor',
+      referencia_id: this.lastID,
+      detalhes: { nome: nomeLimpo, cpf_cnpj: cpfCnpjLimpo },
+      ip_requisicao: req.ip || null
+    }).catch((auditErr) => console.error('Erro ao gravar auditoria de fornecedor:', auditErr));
+
     res.json({
       id: this.lastID,
       message: 'Fornecedor cadastrado com sucesso.'
@@ -230,6 +243,18 @@ router.put('/:id', (req, res) => {
       return res.status(404).json({ error: 'Fornecedor não encontrado.' });
     }
 
+    // auditoria de atualização
+    gravarAuditoria({
+      usuario_id: req.user?.id || null,
+      usuario_nome: req.user?.nome || req.user?.username || null,
+      modulo: 'fornecedores',
+      acao: 'atualizar_fornecedor',
+      referencia_tipo: 'fornecedor',
+      referencia_id: id,
+      detalhes: { antes: null, depois: { nome: nomeLimpo, cpf_cnpj: cpfCnpjLimpo } },
+      ip_requisicao: req.ip || null
+    }).catch((auditErr) => console.error('Erro ao gravar auditoria de atualização de fornecedor:', auditErr));
+
     res.json({ message: 'Fornecedor atualizado com sucesso.' });
   });
 });
@@ -247,6 +272,18 @@ router.delete('/:id', (req, res) => {
     if (this.changes === 0) {
       return res.status(404).json({ error: 'Fornecedor não encontrado.' });
     }
+
+    // auditoria de exclusão
+    gravarAuditoria({
+      usuario_id: req.user?.id || null,
+      usuario_nome: req.user?.nome || req.user?.username || null,
+      modulo: 'fornecedores',
+      acao: 'excluir_fornecedor',
+      referencia_tipo: 'fornecedor',
+      referencia_id: id,
+      detalhes: {},
+      ip_requisicao: req.ip || null
+    }).catch((auditErr) => console.error('Erro ao gravar auditoria de exclusão de fornecedor:', auditErr));
 
     res.json({ message: 'Fornecedor excluído com sucesso.' });
   });

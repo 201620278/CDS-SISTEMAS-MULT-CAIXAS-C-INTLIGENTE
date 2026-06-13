@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../database');
 const moment = require('moment');
 const multer = require('multer');
+const { gravarAuditoria } = require('../services/auditoria');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 const { emitirNFeDevolucaoCompra } = require('../services/fiscal/nfeDevolucaoCompra');
@@ -600,6 +601,18 @@ router.post('/:id/devolver', (req, res) => {
                 }
 
                 db.run('COMMIT');
+                // auditoria de devolução
+                gravarAuditoria({
+                  usuario_id: req.user?.id || null,
+                  usuario_nome: req.user?.nome || req.user?.username || null,
+                  modulo: 'compras',
+                  acao: 'devolucao_compra',
+                  referencia_tipo: 'compra',
+                  referencia_id: compraId,
+                  detalhes: { status_compra: statusNovo, valor_devolvido: Number(valorTotalDevolvido.toFixed(2)), motivo },
+                  ip_requisicao: req.ip || null
+                }).catch((auditErr) => console.error('Erro ao gravar auditoria de devolução de compra:', auditErr));
+
                 res.json({
                   success: true,
                   message: statusNovo === 'devolvida'
@@ -808,6 +821,18 @@ router.post('/', (req, res) => {
             }
 
             db.run('COMMIT');
+
+            gravarAuditoria({
+              usuario_id: req.user?.id || null,
+              usuario_nome: req.user?.nome || req.user?.username || null,
+              modulo: 'compras',
+              acao: 'criar_compra',
+              referencia_tipo: 'compra',
+              referencia_id: compraId,
+              detalhes: { total: totalXml, fornecedor },
+              ip_requisicao: req.ip || null
+            }).catch((auditErr) => console.error('Erro ao gravar auditoria de criação de compra:', auditErr));
+
             res.json({
               id: compraId,
               message: 'Compra registrada com sucesso e integrada ao estoque/financeiro.',
@@ -963,6 +988,18 @@ router.post('/:id/cancelar', (req, res) => {
               }
 
               db.run('COMMIT');
+              // gravar auditoria do cancelamento
+              gravarAuditoria({
+                usuario_id: req.user?.id || null,
+                usuario_nome: req.user?.nome || req.user?.username || null,
+                modulo: 'compras',
+                acao: 'cancelar_compra',
+                referencia_tipo: 'compra',
+                referencia_id: id,
+                detalhes: { motivo },
+                ip_requisicao: req.ip || null
+              }).catch((auditErr) => console.error('Erro ao gravar auditoria de cancelamento de compra:', auditErr));
+
               res.json({ message: 'Compra cancelada com segurança. Estoque e financeiro foram ajustados.' });
             });
           });

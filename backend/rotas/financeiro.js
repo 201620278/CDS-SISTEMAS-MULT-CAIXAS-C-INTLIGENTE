@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const moment = require('moment');
+const { gravarAuditoria } = require('../services/auditoria');
 
 console.log('ROTA FINANCEIRO CARREGADA:', __filename);
 
@@ -247,6 +248,18 @@ router.post('/', (req, res) => {
     referencia_tipo: 'manual',
     status: status || (tipo === 'despesa' ? 'pendente' : 'recebido')
   }).then((id) => {
+    // gravar auditoria de criação de movimentação financeira
+    gravarAuditoria({
+      usuario_id: req.user?.id || null,
+      usuario_nome: req.user?.nome || req.user?.username || null,
+      modulo: 'financeiro',
+      acao: 'criar_movimentacao',
+      referencia_tipo: 'financeiro',
+      referencia_id: id,
+      detalhes: { tipo, descricao, valor, data_movimento, categoria },
+      ip_requisicao: req.ip || null
+    }).catch((auditErr) => console.error('Erro ao gravar auditoria de movimentação financeira:', auditErr));
+
     res.json({ id, message: 'Movimentação registrada com sucesso' });
   }).catch((err) => {
     res.status(500).json({ error: err.message });
@@ -313,6 +326,18 @@ router.put('/:id', (req, res) => {
         return;
       }
 
+      // gravar auditoria de atualização
+      gravarAuditoria({
+        usuario_id: req.user?.id || null,
+        usuario_nome: req.user?.nome || req.user?.username || null,
+        modulo: 'financeiro',
+        acao: 'atualizar_movimentacao',
+        referencia_tipo: 'financeiro',
+        referencia_id: id,
+        detalhes: { antes: row, depois: req.body },
+        ip_requisicao: req.ip || null
+      }).catch((auditErr) => console.error('Erro ao gravar auditoria de atualização financeiro:', auditErr));
+
       res.json({
         success: true,
         message: 'Movimentação atualizada com sucesso.'
@@ -342,6 +367,18 @@ router.post('/receber/:id/baixar', (req, res) => {
         res.status(500).json({ success: false, error: upErr.message });
         return;
       }
+      // auditoria de baixa/recebimento
+      gravarAuditoria({
+        usuario_id: req.user?.id || null,
+        usuario_nome: req.user?.nome || req.user?.username || null,
+        modulo: 'financeiro',
+        acao: 'baixar_movimentacao',
+        referencia_tipo: 'financeiro',
+        referencia_id: id,
+        detalhes: { novo_status: novoStatus },
+        ip_requisicao: req.ip || null
+      }).catch((auditErr) => console.error('Erro ao gravar auditoria de baixa financeiro:', auditErr));
+
       res.json({ success: true, message: 'Recebimento baixado com sucesso.', status: novoStatus });
     });
   });
@@ -390,6 +427,18 @@ router.post('/pagar/:id/baixar', (req, res) => {
         res.status(500).json({ success: false, error: upErr.message });
         return;
       }
+      // auditoria de baixa de pagamento
+      gravarAuditoria({
+        usuario_id: req.user?.id || null,
+        usuario_nome: req.user?.nome || req.user?.username || null,
+        modulo: 'financeiro',
+        acao: 'baixar_pagamento',
+        referencia_tipo: 'financeiro',
+        referencia_id: id,
+        detalhes: { valor_pago: valorPago, forma_pagamento: forma_pagamento || null, status: novoStatus },
+        ip_requisicao: req.ip || null
+      }).catch((auditErr) => console.error('Erro ao gravar auditoria de baixa de pagamento financeiro:', auditErr));
+
       res.json({ success: true, message: 'Pagamento baixado com sucesso.', status: novoStatus });
     });
   });

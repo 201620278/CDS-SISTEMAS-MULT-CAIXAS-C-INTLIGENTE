@@ -247,7 +247,7 @@ function createWindow(serverPort) {
 
   // IPC para abrir comprovante em nova janela que fica na frente
   ipcMain.on('abrir-comprovante', (event, html, options = {}) => {
-    const { deviceName } = options;
+    const { deviceName, silent = false } = options;
 
     const cupomWindow = new BrowserWindow({
       width: 380,
@@ -255,7 +255,7 @@ function createWindow(serverPort) {
       title: 'DANFE NFC-e',
       parent: mainWindow,
       modal: false,
-      show: true,
+      show: !silent,
       alwaysOnTop: true,
       autoHideMenuBar: true,
       webPreferences: {
@@ -363,11 +363,10 @@ function createWindow(serverPort) {
           console.log('[IMPRESSAO] DANFE NFC-e impresso.');
         } else {
           console.error('[IMPRESSAO] Falha:', errorType);
+        }
 
-          cupomWindow.webContents.print({
-            silent: false,
-            printBackground: true
-          });
+        if (!cupomWindow.isDestroyed()) {
+          cupomWindow.close();
         }
       });
     });

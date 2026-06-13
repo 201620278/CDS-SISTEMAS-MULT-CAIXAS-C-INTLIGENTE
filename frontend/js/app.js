@@ -299,6 +299,7 @@ const PERMISSOES_PAGINAS = {
     'configuracoes': 'configuracoes',
     'usuarios': 'usuarios',
     'relatorios': 'relatorios'
+    , 'auditoria': 'auditoria'
 };
 
 function obterPermissoesUsuario() {
@@ -345,6 +346,25 @@ function renderSidebarBrandPadrao() {
     `;
 }
 
+function normalizeLogoPath(logoPath) {
+    const value = String(logoPath || '').trim();
+    if (!value) return '';
+
+    // Already a relative web route
+    if (value.startsWith('/storage/')) return value;
+    if (value.startsWith('storage/')) return `/${value}`;
+
+    // Convert Windows path separators to URL format
+    const normalized = value.replace(/\\/g, '/');
+
+    const storageIndex = normalized.indexOf('/storage/');
+    if (storageIndex !== -1) {
+        return normalized.slice(storageIndex);
+    }
+
+    return value;
+}
+
 async function carregarLogoSidebar() {
     const brand = document.getElementById('sidebar-brand');
     if (!brand) return;
@@ -363,9 +383,10 @@ async function carregarLogoSidebar() {
 
         const configuracoes = await response.json();
         const logoConfig = Array.isArray(configuracoes)
-            ? configuracoes.find((config) => config.chave === 'logo')
+            ? configuracoes.find((config) => config.chave === 'logo' || config.chave === 'caminho_logomarca')
             : null;
-        const logoPath = logoConfig && logoConfig.valor ? String(logoConfig.valor).trim() : '';
+        const rawLogoPath = logoConfig && logoConfig.valor ? String(logoConfig.valor).trim() : '';
+        const logoPath = normalizeLogoPath(rawLogoPath);
 
         if (!logoPath) {
             renderSidebarBrandPadrao();
@@ -540,6 +561,24 @@ function loadPage(page) {
                     loadCategoriasAndSubcategorias();
                 } else if (typeof loadCategorias === 'function') {
                     loadCategorias();
+                }
+            });
+        case 'auditoria':
+            return carregarPaginaHtml('auditoria.html', function() {
+                if (typeof carregarAuditoria === 'function') {
+                    carregarAuditoria(1);
+                } else if (typeof loadAuditoria === 'function') {
+                    loadAuditoria();
+                } else {
+                    $('#page-content').html('<div class="alert alert-danger">Erro ao carregar auditoria.</div>');
+                }
+            });
+        case 'caixas':
+            return carregarPaginaHtml('caixas.html', function() {
+                if (typeof loadCaixas === 'function') {
+                    buscarCaixas();
+                } else {
+                    $('#page-content').html('<div class="alert alert-danger">Erro ao carregar gerenciamento de caixas.</div>');
                 }
             });
         default:

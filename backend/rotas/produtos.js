@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database');
+const { gravarAuditoria } = require('../services/auditoria');
 const { verificarPermissaoEspecifica } = require('./auth');
 
 
@@ -163,10 +164,31 @@ router.get('/consulta-pdv/buscar', (req, res) => {
   if (!termo) {
     return res.json([]);
   }
+  // Normalizar termo (remover acentos) para busca sem acento
+  function removeDiacritics(str) {
+    if (!str) return '';
+    return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  }
 
+  const termoNormalized = removeDiacritics(termo.toLowerCase());
   const buscaLike = `%${termo}%`;
+  const buscaLikeNormalized = `%${termoNormalized}%`;
   const buscaNumero = termo.replace(/\D/g, '') || termo;
   const hoje = new Date().toISOString().split('T')[0];
+  // Construir cadeia de REPLACE para remover acentos no campo p.nome dentro do SQL
+  const replacements = {
+    'á':'a','à':'a','â':'a','ã':'a','ä':'a',
+    'é':'e','è':'e','ê':'e','ë':'e',
+    'í':'i','ì':'i','î':'i','ï':'i',
+    'ó':'o','ò':'o','ô':'o','õ':'o','ö':'o',
+    'ú':'u','ù':'u','û':'u','ü':'u',
+    'ç':'c','ñ':'n'
+  };
+
+  const replaceChain = Object.keys(replacements).reduce((acc, ch) => {
+    const to = replacements[ch];
+    return `REPLACE(${acc}, '${ch}', '${to}')`;
+  }, 'LOWER(p.nome)');
 
   db.all(`
     SELECT
@@ -202,7 +224,7 @@ router.get('/consulta-pdv/buscar', (req, res) => {
       CAST(p.id AS TEXT) = ?
       OR p.codigo LIKE ?
       OR p.codigo_barras LIKE ?
-      OR p.nome LIKE ?
+      OR (${replaceChain}) LIKE ?
     ORDER BY p.nome ASC
     LIMIT 30
   `, [
@@ -211,7 +233,7 @@ router.get('/consulta-pdv/buscar', (req, res) => {
     buscaNumero,
     buscaLike,
     buscaLike,
-    buscaLike
+    buscaLikeNormalized
   ], (err, rows) => {
     if (err) {
       console.error('Erro na consulta de produtos PDV:', err.message);
@@ -807,6 +829,16 @@ router.post('/', (req, res) => {
           subcategoria: row.subcategoria_nome || '',
           message: 'Produto criado com sucesso'
         });
+        gravarAuditoria({
+          usuario_id: req.user?.id || null,
+          usuario_nome: req.user?.username || req.user?.nome || null,
+          modulo: 'produtos',
+          acao: 'criar_produto',
+          referencia_tipo: 'produto',
+          referencia_id: this.lastID,
+          detalhes: { nome, codigo, categoria_id, estoque_atual, preco_venda },
+          ip_requisicao: req.ip || null
+        }).catch((auditErr) => console.error('Erro ao gravar auditoria de criação de produto:', auditErr));
       });
     });
 });
@@ -889,6 +921,16 @@ router.put('/:id', (req, res) => {
       } else {
         responderComProdutoAtualizado();
       }
+      gravarAuditoria({
+        usuario_id: req.user?.id || null,
+        usuario_nome: req.user?.username || req.user?.nome || null,
+        modulo: 'produtos',
+        acao: 'atualizar_produto',
+        referencia_tipo: 'produto',
+        referencia_id: id,
+        detalhes: { antes: old, depois: updates },
+        ip_requisicao: req.ip || null
+      }).catch((auditErr) => console.error('Erro ao gravar auditoria de atualização de produto:', auditErr));
     });
   });
 });
@@ -901,6 +943,16 @@ router.delete('/:id', (req, res) => {
       res.status(500).json({ error: err.message });
       return;
     }
+    gravarAuditoria({
+      usuario_id: req.user?.id || null,
+      usuario_nome: req.user?.username || req.user?.nome || null,
+      modulo: 'produtos',
+      acao: 'deletar_produto',
+      referencia_tipo: 'produto',
+      referencia_id: id,
+      detalhes: { id },
+      ip_requisicao: req.ip || null
+    }).catch((auditErr) => console.error('Erro ao gravar auditoria de exclusão de produto:', auditErr));
     res.json({ message: 'Produto deletado com sucesso' });
   });
 });

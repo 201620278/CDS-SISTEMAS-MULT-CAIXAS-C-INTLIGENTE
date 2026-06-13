@@ -10,6 +10,8 @@ let caixaAberto = false;
 let pagamentosMistos = [];
 let formaPagamentoSelecionadaPDV = null;
 let supervisorAuthToken = null;
+let terminalId = null;
+let terminalHostname = null;
 const DESCONTO_MANUAL_LIMITE = 50;
 
 function normalizarTexto(texto) {
@@ -42,6 +44,9 @@ async function buscarPromocaoAtivaProduto(produtoId) {
 function loadPDV() {
     console.log('Carregando PDV...');
 
+    // Auto-registrar terminal no backend
+    autoRegistrarTerminal();
+
     $.ajax({
         url: `${API_URL}/produtos`,
         method: 'GET',
@@ -62,6 +67,39 @@ function loadPDV() {
             showNotification('Erro ao carregar produtos do PDV.', 'danger');
         }
     });
+}
+
+// Auto-registrar terminal no backend
+function autoRegistrarTerminal() {
+    try {
+        // Obter hostname do sistema
+        if (typeof window.electronAPI !== 'undefined' && typeof window.electronAPI.getTerminalInfo === 'function') {
+            const terminalInfo = window.electronAPI.getTerminalInfo();
+            terminalHostname = terminalInfo.hostname;
+            console.log('Terminal detectado:', terminalHostname);
+        } else {
+            terminalHostname = 'web-browser';
+            console.log('Terminal não detectado (browser web), usando hostname padrão');
+        }
+
+        // Chamar API de auto-registro
+        $.ajax({
+            url: `${API_URL}/terminais/auto`,
+            method: 'GET',
+            data: { hostname: terminalHostname },
+            success: function(terminal) {
+                terminalId = terminal.id;
+                console.log('Terminal registrado com sucesso:', terminal);
+            },
+            error: function(xhr) {
+                console.warn('Erro ao registrar terminal:', xhr);
+                terminalId = null;
+            }
+        });
+    } catch (err) {
+        console.error('Erro ao detectar terminal:', err);
+        terminalId = null;
+    }
 }
 
 function nomePerfilUsuario(usuario) {
@@ -2415,6 +2453,14 @@ function emitirNFCeVenda(vendaId) {
             }
 
             limparModaisTravados();
+
+            if (!response || response.success === false) {
+                const mensagem = response?.message || 'NFC-e não autorizada pela SEFAZ.';
+                showNotification(mensagem, 'danger');
+                mostrarModalErroNFCe(vendaId, mensagem);
+                return;
+            }
+
             showNotification('NFC-e autorizada pela SEFAZ!', 'success');
             imprimirDANFEFiscal(vendaId);
         },
@@ -2770,11 +2816,39 @@ VOLTE SEMPRE.
         success: function() {
             showNotification('Cupom enviado para impressora ESC/POS.', 'success');
         },
-        error: function(xhr) {
+        error: async function(xhr) {
             console.warn('Falha ao imprimir via ESC/POS, usando fallback.', xhr);
-            // No Electron, mostrar comprovante e imprimir silenciosamente
+
+            if (window.electronAPI?.imprimirDANFESilencioso) {
+                let deviceName = null;
+
+                try {
+                    const respImpressora = await fetch(`${API_URL}/configuracoes/impressora_cupom`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+
+                    const impressoraData = await respImpressora.json();
+                    if (impressoraData.caminho) {
+                        deviceName = impressoraData.caminho;
+                    }
+                } catch (fetchError) {
+                    console.warn('Não foi possível buscar impressora configurada:', fetchError);
+                }
+
+                try {
+                    await window.electronAPI.imprimirDANFESilencioso(cupomHtml, deviceName);
+                    showNotification('Cupom fiscal enviado para impressora.', 'success');
+                    return;
+                } catch (printError) {
+                    console.error('Erro na impressão silenciosa:', printError);
+                    showNotification('Falha na impressão silenciosa do cupom.', 'danger');
+                    return;
+                }
+            }
+
             if (window.electronAPI?.abrirComprovante) {
                 window.electronAPI.abrirComprovante(cupomHtml, { silent: true });
+                showNotification('Cupom fiscal enviado para impressora.', 'success');
                 return;
             }
 
@@ -3593,8 +3667,8 @@ function confirmarTroco() {
 }
 
 function mostrarModalDecisaoFiscal() {
-    if (pdvModoFiscalAtivo()) {
-        finalizarComFiscal();
+    if (!pdvModoFiscalAtivo()) {
+        executarFinalizacaoVenda(false, null, formaPagamentoSelecionadaPDV);
         return;
     }
 

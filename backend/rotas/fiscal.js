@@ -158,7 +158,11 @@ router.post('/emitir/venda/:vendaId', async (req, res) => {
     res.json(resultado);
   } catch (error) {
     console.error('Erro ao emitir NFC-e:', error);
-    res.status(500).json({ error: error.message });
+    res.json({
+      success: false,
+      status: 'erro_emissao',
+      message: error?.message || 'Erro ao emitir NFC-e.'
+    });
   }
 });
 

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const { verificarToken: autenticarToken } = require('./auth');
+const { gravarAuditoria } = require('../services/auditoria');
 
 function normalizarTexto(texto) {
   return String(texto || '')
@@ -144,6 +145,18 @@ function inserirCliente(req, res) {
         res.status(500).json({ error: 'Erro ao criar cliente: ' + err.message });
         return;
       }
+      // auditoria de criação de cliente
+      gravarAuditoria({
+        usuario_id: req.user?.id || null,
+        usuario_nome: req.user?.nome || req.user?.username || null,
+        modulo: 'clientes',
+        acao: 'criar_cliente',
+        referencia_tipo: 'cliente',
+        referencia_id: this.lastID,
+        detalhes: { nome },
+        ip_requisicao: req.ip || null
+      }).catch((auditErr) => console.error('Erro ao gravar auditoria de cliente:', auditErr));
+
       res.json({ id: this.lastID, message: 'Cliente criado com sucesso' });
     });
 }
@@ -167,6 +180,17 @@ router.put('/:id', (req, res) => {
         res.status(500).json({ error: 'Erro ao atualizar cliente: ' + err.message });
         return;
       }
+      gravarAuditoria({
+        usuario_id: req.user?.id || null,
+        usuario_nome: req.user?.nome || req.user?.username || null,
+        modulo: 'clientes',
+        acao: 'atualizar_cliente',
+        referencia_tipo: 'cliente',
+        referencia_id: id,
+        detalhes: { antes: null, depois: req.body },
+        ip_requisicao: req.ip || null
+      }).catch((auditErr) => console.error('Erro ao gravar auditoria de atualização de cliente:', auditErr));
+
       res.json({ message: 'Cliente atualizado com sucesso' });
     });
 });
@@ -193,6 +217,17 @@ router.delete('/:id', (req, res) => {
         if (err) {
           return res.status(500).json({ error: err.message });
         }
+
+        gravarAuditoria({
+          usuario_id: req.user?.id || null,
+          usuario_nome: req.user?.nome || req.user?.username || null,
+          modulo: 'clientes',
+          acao: 'excluir_cliente',
+          referencia_tipo: 'cliente',
+          referencia_id: id,
+          detalhes: {},
+          ip_requisicao: req.ip || null
+        }).catch((auditErr) => console.error('Erro ao gravar auditoria de exclusão de cliente:', auditErr));
 
         res.json({ message: 'Cliente deletado com sucesso' });
       });

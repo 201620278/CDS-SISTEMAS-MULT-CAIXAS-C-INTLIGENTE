@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const moment = require('moment');
+const { gravarAuditoria } = require('../services/auditoria');
 
 // Listar contas a receber em aberto
 router.get('/em-aberto', (req, res) => {
@@ -14,19 +15,32 @@ router.get('/em-aberto', (req, res) => {
     WHERE cr.status = 'aberto'
     ORDER BY cr.data_vencimento ASC
   `, (err, rows) => {
-    if (err) {
-      res.status(500).json({ error: err.message });
-      return;
-    }
-    res.json(rows);
-  });
-});
+                          if (credErr) {
+                            db.run('ROLLBACK');
+                            res.status(500).json({ error: credErr.message });
+                            return;
+                          }
+                          db.run('COMMIT');
 
-// Listar contas vencidas
-router.get('/vencidas', (req, res) => {
-  const hoje = moment().format('YYYY-MM-DD');
-  db.all(`
-    SELECT cr.*, c.nome as cliente_nome, v.codigo as venda_codigo
+                          // registrar auditoria do pagamento de parcela
+                          gravarAuditoria({
+                            usuario_id: req.user?.id || null,
+                            usuario_nome: req.user?.nome || req.user?.username || null,
+                            modulo: 'contas_receber',
+                            acao: 'pagar_parcela',
+                            referencia_tipo: 'conta_receber',
+                            referencia_id: id,
+                            detalhes: { valor_pago: valorNum, forma_pagamento: forma_pagamento || null },
+                            ip_requisicao: req.ip || null
+                          }).catch((auditErr) => console.error('Erro ao gravar auditoria de pagamento de parcela:', auditErr));
+
+                          res.json({
+                            message: 'Pagamento registrado',
+                            id,
+                            valor_pago: valorNum,
+                            valor_restante_anterior: restante,
+                            valor_restante_novo: restante - valorNum
+                          });
     FROM contas_receber cr
     LEFT JOIN clientes c ON cr.cliente_id = c.id
     LEFT JOIN vendas v ON cr.venda_id = v.id

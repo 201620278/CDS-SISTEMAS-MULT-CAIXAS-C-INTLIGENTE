@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database');
+const fs = require('fs');
+const path = require('path');
+const { listarHistoricoBackups } = require('../services/backupManual');
 
 function parseNumber(valor) {
   const n = Number(valor);
@@ -209,6 +212,72 @@ router.get('/resumo', async (req, res) => {
       `)
     ]);
 
+    // Contagem de auditoria últimos 7 dias
+    const auditoriaUltimos7 = await dbGet(`SELECT COUNT(*) AS total FROM auditoria WHERE date(criado_em) >= date(?)`, [seteDiasAtras.toISOString().slice(0,10)]);
+
+    // Histórico de backups (local)
+    let historicoBackups = [];
+    try {
+      historicoBackups = listarHistoricoBackups(null, 1000);
+    } catch (e) {
+      console.error('Erro ao listar backups no dashboard:', e);
+      historicoBackups = [];
+    }
+
+    // Detectar ações suspeitas: deleções nas últimas 24h
+    const delecoes24 = await dbGet(`
+      SELECT COUNT(*) AS total FROM auditoria
+      WHERE date(criado_em) >= date('now','-1 day')
+      AND (
+        acao LIKE '%excluir%' OR acao LIKE '%delete%' OR acao LIKE '%remover%' OR acao LIKE '%cancel%'
+      )
+    `);
+
+    // Usuários com atividade muito alta na última hora (limiar 20)
+    const usuariosAltamenteAtivos = await dbAll(`
+      SELECT usuario_nome, COUNT(*) AS total FROM auditoria
+      WHERE datetime(criado_em) >= datetime('now','localtime','-1 hour')
+      GROUP BY usuario_nome
+      HAVING total > ?
+      ORDER BY total DESC
+    `, [20]);
+
+    // Verificar última execução de backup (horas desde o último backup)
+    let ultimoBackupHoras = null;
+    if (historicoBackups.length > 0) {
+      try {
+        const iso = historicoBackups[0].modificado_em;
+        const diffMs = new Date() - new Date(iso);
+        ultimoBackupHoras = Math.floor(diffMs / (1000 * 60 * 60));
+      } catch (e) {
+        ultimoBackupHoras = null;
+      }
+    }
+
+    const alertaBackupAtrasado = ultimoBackupHoras !== null && ultimoBackupHoras > 24;
+
+    // Persistir alertas se necessário (evitar duplicatas: apenas um alerta não resolvido por tipo)
+    try {
+      if (parseNumber(delecoes24.total) > 0) {
+        const existente = await dbGet(`SELECT id FROM auditoria_alertas WHERE tipo = ? AND resolvido = 0 LIMIT 1`, ['delecoes_24h']);
+        if (!existente || !existente.id) {
+          db.run(`INSERT INTO auditoria_alertas (tipo, descricao, dados) VALUES (?, ?, ?)`, ['delecoes_24h', 'Deleções detectadas nas últimas 24 horas', JSON.stringify({ quantidade: delecoes24.total })]);
+        }
+      }
+
+      if (alertaBackupAtrasado) {
+        const existenteB = await dbGet(`SELECT id FROM auditoria_alertas WHERE tipo = ? AND resolvido = 0 LIMIT 1`, ['backup_atrasado']);
+        if (!existenteB || !existenteB.id) {
+          db.run(`INSERT INTO auditoria_alertas (tipo, descricao, dados) VALUES (?, ?, ?)`, ['backup_atrasado', 'Último backup com mais de 24 horas', JSON.stringify({ horas: ultimoBackupHoras })]);
+        }
+      }
+    } catch (e) {
+      console.error('Erro ao persistir alertas:', e);
+    }
+
+    // Buscar alertas não resolvidos para exibir no dashboard
+    const alertasNaoResolvidos = await dbAll(`SELECT id, tipo, descricao, dados, criado_em FROM auditoria_alertas WHERE resolvido = 0 ORDER BY criado_em DESC LIMIT 50`);
+
     const idsMais = maisVendidos.map((p) => p.id);
     const filtroExcluirMais = idsMais.length
       ? `AND p.id NOT IN (${idsMais.map(() => '?').join(',')})`
@@ -288,6 +357,20 @@ router.get('/resumo', async (req, res) => {
       // Validade de produtos
       produtos_vencidos: produtosVencidos,
       produtos_proximo_vencimento: produtosProximoVencimento
+      , auditoria: {
+        ultimos_7_dias: parseNumber(auditoriaUltimos7.total)
+      }
+      , backups: {
+        total: historicoBackups.length,
+        recentes: historicoBackups.slice(0, 10)
+      }
+      , alerts: {
+        delecoes_24h: parseNumber(delecoes24.total),
+        usuarios_ativos_ultima_hora: usuariosAltamenteAtivos,
+        ultimo_backup_horas: ultimoBackupHoras,
+        backup_atrasado: !!alertaBackupAtrasado,
+        persistentes: alertasNaoResolvidos
+      }
     };
 
     res.json(resposta);

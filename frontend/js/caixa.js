@@ -593,6 +593,17 @@ function renderizarCaixaDoDia(resposta) {
             <div class="col-md-3"><strong>Fechado em:</strong><br>${caixa.fechado_em || '-'}</div>
           </div>
 
+          ${caixa.status === 'fechado' ? `
+            <div class="mb-3">
+              <button class="btn btn-sm btn-outline-primary me-2" onclick="abrirDetalhesFechamento(${caixa.id})">
+                <i class="fas fa-info-circle"></i> Detalhes do Fechamento
+              </button>
+              <button class="btn btn-sm btn-secondary" onclick="reimprimirFechamento(${caixa.id})">
+                <i class="fas fa-print"></i> Reimprimir Fechamento
+              </button>
+            </div>
+          ` : ''}
+
           <hr>
           <h5>Movimentações do Caixa</h5>
           <div class="table-responsive">
@@ -616,5 +627,125 @@ function renderizarCaixaDoDia(resposta) {
         </div>
       </div>
     `);
+  });
+}
+
+function abrirDetalhesFechamento(caixaId) {
+  $.get(`${API_URL}/caixa/fechamento/${caixaId}`, function(res) {
+    const caixa = res.caixa || {};
+    const fechamento = res.fechamento || {};
+    const auditoria = res.auditoria || [];
+    const movimentacoes = res.movimentacoes || [];
+
+    const html = `
+      <div class="modal fade" id="modalDetalhesFechamento" tabindex="-1" style="display: block;">
+        <div class="modal-dialog modal-xl">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Detalhes do Fechamento do Caixa #${caixa.id}</h5>
+              <button type="button" class="btn-close" onclick="fecharModalDetalhesFechamento()"></button>
+            </div>
+            <div class="modal-body">
+              <div class="row mb-3">
+                <div class="col-md-4"><strong>Valor Inicial:</strong> ${dinheiro(fechamento.valor_inicial)}</div>
+                <div class="col-md-4"><strong>Vendas Dinheiro:</strong> ${dinheiro(fechamento.vendas_dinheiro)}</div>
+                <div class="col-md-4"><strong>Total Informado:</strong> ${dinheiro(fechamento.total_informado)}</div>
+              </div>
+              <div class="row mb-3">
+                <div class="col-md-4"><strong>PIX:</strong> ${dinheiro(fechamento.vendas_pix)}</div>
+                <div class="col-md-4"><strong>Crédito:</strong> ${dinheiro(fechamento.vendas_credito)}</div>
+                <div class="col-md-4"><strong>Débito:</strong> ${dinheiro(fechamento.vendas_debito)}</div>
+              </div>
+              <div class="row mb-3">
+                <div class="col-md-4"><strong>Prazo:</strong> ${dinheiro(fechamento.vendas_prazo)}</div>
+                <div class="col-md-4"><strong>TEF:</strong> ${dinheiro(fechamento.vendas_tef)}</div>
+                <div class="col-md-4"><strong>Diferença:</strong> ${dinheiro(fechamento.diferenca)}</div>
+              </div>
+              <div class="row mb-3">
+                <div class="col-md-4"><strong>Suprimentos:</strong> ${dinheiro(fechamento.total_suprimentos)}</div>
+                <div class="col-md-4"><strong>Sangrias:</strong> ${dinheiro(fechamento.total_sangrias)}</div>
+                <div class="col-md-4"><strong>Status:</strong> ${caixa.status}</div>
+              </div>
+              <div class="mb-3">
+                <strong>Observação:</strong>
+                <p>${caixa.observacao || '<em>Sem observação</em>'}</p>
+              </div>
+              <h6>Movimentações</h6>
+              <div class="table-responsive mb-3">
+                <table class="table table-sm table-striped">
+                  <thead>
+                    <tr><th>Tipo</th><th>Valor</th><th>Motivo</th><th>Usuário</th><th>Data</th></tr>
+                  </thead>
+                  <tbody>
+                    ${movimentacoes.length ? movimentacoes.map(m => `
+                      <tr>
+                        <td>${m.tipo}</td>
+                        <td>${dinheiro(m.valor)}</td>
+                        <td>${m.motivo || '-'}</td>
+                        <td>${m.usuario_nome || 'Sistema'}</td>
+                        <td>${m.criado_em || m.data_movimento || '-'}</td>
+                      </tr>
+                    `).join('') : '<tr><td colspan="5" class="text-center text-muted">Nenhuma movimentação registrada.</td></tr>'}
+                  </tbody>
+                </table>
+              </div>
+              <h6>Auditoria</h6>
+              <div class="table-responsive">
+                <table class="table table-sm table-striped">
+                  <thead>
+                    <tr><th>Data</th><th>Ação</th><th>Tipo</th><th>Valor</th><th>Detalhes</th></tr>
+                  </thead>
+                  <tbody>
+                    ${auditoria.length ? auditoria.map(a => `
+                      <tr>
+                        <td>${a.criado_em || '-'}</td>
+                        <td>${a.acao}</td>
+                        <td>${a.tipo_movimentacao || '-'}</td>
+                        <td>${dinheiro(a.valor)}</td>
+                        <td>${a.detalhes || '-'}</td>
+                      </tr>
+                    `).join('') : '<tr><td colspan="5" class="text-center text-muted">Nenhum registro de auditoria.</td></tr>'}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" onclick="fecharModalDetalhesFechamento()">Fechar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-backdrop fade show" id="modal-backdrop-detalhes"></div>
+    `;
+
+    $('body').append(html);
+    $('body').addClass('modal-open').css('overflow', 'hidden');
+  }).fail(function(xhr) {
+    showNotification(xhr.responseJSON?.error || 'Erro ao carregar detalhes de fechamento.', 'danger');
+  });
+}
+
+function fecharModalDetalhesFechamento() {
+  $('#modalDetalhesFechamento').remove();
+  $('#modal-backdrop-detalhes').remove();
+  $('body').removeClass('modal-open').css('overflow', '');
+}
+
+function reimprimirFechamento(caixaId) {
+  if (!confirm('Deseja reimprimir o fechamento deste caixa?')) return;
+
+  $.ajax({
+    url: `${API_URL}/caixa/${caixaId}/reimprimir`,
+    method: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify({}),
+    success: function(res) {
+      showNotification(res.message || 'Reimpressão registrada.', 'success');
+      fecharModalDetalhesFechamento();
+      abrirDetalhesFechamento(caixaId);
+    },
+    error: function(xhr) {
+      showNotification(xhr.responseJSON?.error || 'Erro ao reimprimir fechamento.', 'danger');
+    }
   });
 }

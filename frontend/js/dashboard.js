@@ -105,6 +105,81 @@ function montarListaValidadeProdutos(lista) {
     `).join('');
 }
 
+function montarListaBackups(lista) {
+    if (!lista || lista.length === 0) {
+        return '<div class="text-muted">Nenhum backup encontrado.</div>';
+    }
+
+    return lista.slice(0,5).map(item => `
+        <div class="d-flex justify-content-between border-bottom py-2">
+            <div class="text-truncate" style="max-width:70%">${escapeHtmlDashboard(item.arquivo)}</div>
+            <div class="text-end"><small class="text-muted">${formatarDataBr(item.modificado_em.slice(0,10))}</small></div>
+        </div>
+    `).join('');
+}
+
+function montarListaAlerts(alerts) {
+    if (!alerts) return '<div class="text-muted">Sem alertas no momento.</div>';
+
+    const parts = [];
+    if (Number(alerts.delecoes_24h || 0) > 0) {
+        parts.push(`<div class="mb-2">Deleções últimas 24h: <strong>${Number(alerts.delecoes_24h)}</strong></div>`);
+    }
+
+    if (alerts.usuarios_ativos_ultima_hora && alerts.usuarios_ativos_ultima_hora.length) {
+        parts.push('<div class="mb-2"><strong>Usuários com alta atividade (última hora):</strong></div>');
+        parts.push('<div>');
+        parts.push(alerts.usuarios_ativos_ultima_hora.map(u => `<div class="d-flex justify-content-between py-1"><span>${escapeHtmlDashboard(u.usuario_nome || 'Anônimo')}</span><small>${Number(u.total)}</small></div>`).join(''));
+        parts.push('</div>');
+    }
+
+    if (alerts.ultimo_backup_horas !== null) {
+        parts.push(`<div class="mt-2">Horas desde último backup: <strong>${alerts.ultimo_backup_horas}</strong></div>`);
+        if (alerts.backup_atrasado) {
+            parts.push('<div class="text-danger">Backup atrasado: último backup tem mais de 24 horas.</div>');
+        }
+    }
+
+    if (Array.isArray(alerts.persistentes) && alerts.persistentes.length) {
+        parts.push('<hr>');
+        parts.push('<div class="mb-1"><strong>Alertas persistentes:</strong></div>');
+        parts.push(alerts.persistentes.map(a => `
+            <div class="d-flex justify-content-between align-items-center py-1">
+                <div>
+                    <strong>${escapeHtmlDashboard(a.tipo)}</strong>
+                    <div class="small text-muted">${escapeHtmlDashboard(a.descricao || '')}</div>
+                </div>
+                <div class="text-end">
+                    <small class="text-muted">${formatarDataBr((a.criado_em||'').slice(0,10))}</small>
+                    <div><button class="btn btn-sm btn-outline-success ms-2" data-alert-id="${a.id}" onclick="resolverAlerta(${a.id})">Resolver</button></div>
+                </div>
+            </div>
+        `).join(''));
+    }
+
+    if (parts.length === 0) return '<div class="text-muted">Sem alertas no momento.</div>';
+    return parts.join('');
+}
+
+async function resolverAlerta(id) {
+    const apiUrl = (typeof API_URL === 'string' && API_URL.trim() !== '') ? API_URL : `${window.location.origin}/api`;
+    try {
+        const resp = await fetch(`${apiUrl}/alertas/${id}/resolve`, {
+            method: 'PATCH',
+            headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('token') || '') }
+        });
+        if (!resp.ok) {
+            const body = await resp.json().catch(() => ({}));
+            throw new Error(body.error || 'Erro ao resolver alerta');
+        }
+        showNotification('Alerta resolvido', 'success');
+        carregarDashboard();
+    } catch (e) {
+        console.error('Erro resolver alerta:', e);
+        showNotification(e.message || 'Erro ao resolver alerta', 'danger');
+    }
+}
+
 function preencherDashboard(data) {
     const periodo = data.periodo || {};
     const labelPeriodo = document.getElementById('dashboardPeriodoLabel');
@@ -129,6 +204,8 @@ function preencherDashboard(data) {
     setDashboardText('dashboardContasReceberQtd', `${receber.quantidade || 0} pendência(s)`);
     setDashboardText('dashboardContasPagar', formatarMoedaDashboard(pagar.total));
     setDashboardText('dashboardContasPagarQtd', `${pagar.quantidade || 0} pendência(s)`);
+
+    setDashboardText('dashboardAuditoriaUltimos7', data.auditoria?.ultimos_7_dias ?? 0);
 
     const mais = document.getElementById('dashboardMaisVendidos');
     const menos = document.getElementById('dashboardMenosVendidos');
@@ -157,6 +234,12 @@ function preencherDashboard(data) {
     if (vencidos) {
         vencidos.innerHTML = montarListaValidadeProdutos(data.produtos_vencidos);
     }
+
+    const backupsEl = document.getElementById('dashboardBackupsRecentes');
+    if (backupsEl) backupsEl.innerHTML = montarListaBackups(data.backups?.recentes || []);
+
+    const alertsEl = document.getElementById('dashboardAlerts');
+    if (alertsEl) alertsEl.innerHTML = montarListaAlerts(data.alerts || {});
 }
 
 function mostrarErroDashboard(mensagem) {

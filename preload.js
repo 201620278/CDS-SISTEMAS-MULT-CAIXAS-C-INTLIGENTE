@@ -1,7 +1,14 @@
 const { contextBridge, ipcRenderer } = require('electron');
+const os = require('os');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   app: 'cds-sistemas',
+
+  getTerminalInfo: () => ({
+    hostname: os.hostname(),
+    platform: os.platform(),
+    arch: os.arch()
+  }),
 
   forcarReflow: () => ipcRenderer.send('forcar-reflow'),
 

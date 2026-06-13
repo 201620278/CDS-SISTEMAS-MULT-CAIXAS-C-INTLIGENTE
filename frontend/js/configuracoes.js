@@ -89,7 +89,31 @@ function loadConfiguracoes() {
 }
 
 // Render configuracoes
+function normalizeConfiguracoes(configuracoes) {
+    const normalizedMap = new Map();
+
+    (configuracoes || []).forEach(config => {
+        const key = config.chave === 'caminho_logomarca' ? 'logo' : config.chave;
+        if (key === 'logo') {
+            normalizedMap.set(key, {
+                ...config,
+                chave: key
+            });
+            return;
+        }
+        if (!normalizedMap.has(key)) {
+            normalizedMap.set(key, {
+                ...config,
+                chave: key
+            });
+        }
+    });
+
+    return Array.from(normalizedMap.values());
+}
+
 function renderConfiguracoes(configuracoes, usuarios, usuariosInativos) {
+    configuracoes = normalizeConfiguracoes(configuracoes);
     const currentUsername = getUsernameLogado();
 
     const fiscalConfigKeys = new Set([
@@ -895,10 +919,8 @@ async function removerUsuario(id) {
 function renderConfigField(config) {
     const value = config.valor || '';
 
-    if (config.chave === 'logo') {
-        const previewUrl = value && value.startsWith('/')
-            ? `${API_URL.replace('/api', '')}${value}`
-            : value;
+    if (config.chave === 'logo' || config.chave === 'caminho_logomarca') {
+        const previewUrl = normalizeConfigImageUrl(value);
 
         const previewImg = previewUrl
             ? `<img src="${escapeHtml(previewUrl)}" alt="Logo atual" style="max-height: 100px;" />`
@@ -963,6 +985,27 @@ function renderConfigField(config) {
     }
 }
 
+function normalizeConfigImageUrl(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+
+    if (raw.startsWith('/')) {
+        return `${API_URL.replace('/api', '')}${raw}`;
+    }
+
+    if (raw.startsWith('storage/')) {
+        return `${API_URL.replace('/api', '')}/${raw}`;
+    }
+
+    const normalized = raw.replace(/\\/g, '/');
+    const storageIndex = normalized.indexOf('/storage/');
+    if (storageIndex !== -1) {
+        return `${API_URL.replace('/api', '')}${normalized.slice(storageIndex)}`;
+    }
+
+    return raw;
+}
+
 async function uploadLogoFile() {
     const logoInput = document.getElementById('logoUpload');
     if (!logoInput || !logoInput.files || logoInput.files.length === 0) {
@@ -988,7 +1031,7 @@ async function uploadLogoFile() {
     const data = await resp.json();
     if (data.path) {
         $('#logo_path').val(data.path);
-        $('#logoPreview').html(`<img src="${escapeHtml(data.path)}" alt="Logo atual" style="max-height: 100px;" />`);
+        $('#logoPreview').html(`<img src="${escapeHtml(normalizeConfigImageUrl(data.path))}" alt="Logo atual" style="max-height: 100px;" />`);
         // Recarrega a logo na sidebar imediatamente
         setTimeout(() => {
             if (typeof carregarLogoSidebar === 'function') {
@@ -1057,6 +1100,14 @@ async function saveConfiguracoes() {
         if (chave === 'login_background_path') {
             configs.push({
                 chave: 'login_background',
+                valor: valor
+            });
+            return;
+        }
+
+        if (chave === 'caminho_logomarca') {
+            configs.push({
+                chave: 'logo',
                 valor: valor
             });
             return;
