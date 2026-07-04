@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const { gravarAuditoria } = require('../services/auditoria');
-const { verificarPermissaoEspecifica } = require('./auth');
+const { verificarPermissaoEspecifica } = require('../middleware/auth');
 
 function obterColunasCaixas(callback) {
   db.all(`PRAGMA table_info('caixas')`, [], (err, rows) => {

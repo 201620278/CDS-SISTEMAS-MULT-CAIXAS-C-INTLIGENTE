@@ -227,8 +227,73 @@
 
 .lista-produtos-dropdown {
   margin-top: 6px;
-  max-height: 140px;
+  max-height: 280px;
   overflow-y: auto;
+}
+
+.lista-produtos-dropdown.aberta {
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #fff;
+  padding: 4px;
+}
+
+.pdv-autocomplete-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.pdv-autocomplete-item:hover,
+.pdv-autocomplete-item.ativo {
+  background: #eff6ff;
+  border-color: #2563eb;
+}
+
+.pdv-autocomplete-item.sem-estoque {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pdv-autocomplete-nome {
+  font-weight: 700;
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.pdv-autocomplete-meta {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.pdv-autocomplete-codigo {
+  font-family: Consolas, Monaco, monospace;
+}
+
+.pdv-autocomplete-preco {
+  color: #15803d;
+  font-size: 14px;
+}
+
+.pdv-autocomplete-promo {
+  color: #dc2626;
+  font-weight: 700;
 }
 
 .btn-calc-topo {

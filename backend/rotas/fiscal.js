@@ -8,6 +8,8 @@ const { getFiscalConfig, setConfiguracao } = require('../services/fiscal/configS
 const { carregarCertificadoPfx } = require('../services/fiscal/certificateService');
 const { emitirPorVendaId } = require('../services/fiscal/emissor');
 const cancelarNfce = require('../services/fiscal/cancelarNfce');
+const { gravarAuditoria } = require('../services/auditoria');
+const { validarMotivoTexto } = require('../services/validacao/validarMotivoTexto');
 const { getFiscalSubDir } = require('../services/fiscal/paths');
 const {
   exportarContabilidade,
@@ -86,6 +88,17 @@ router.post('/certificado/upload', upload.single('certificado'), async (req, res
       'Caminho interno do certificado A1'
     );
 
+    gravarAuditoria({
+      usuario_id: req.user?.id || null,
+      usuario_nome: req.user?.username || req.user?.nome || null,
+      modulo: 'fiscal',
+      acao: 'upload_certificado',
+      referencia_tipo: 'certificado',
+      referencia_id: null,
+      detalhes: { path: caminhoCompleto, ip: req.ip || null },
+      ip_requisicao: req.ip || null
+    }).catch((auditErr) => console.error('Erro ao gravar auditoria de certificado:', auditErr));
+
     res.json({
       success: true,
       message: 'Certificado enviado com sucesso.',
@@ -122,25 +135,54 @@ router.put('/config', carregarPerfilUsuario, async (req, res) => {
       // Proteção: apenas SUPER_ADMIN pode alterar numeração NFC-e
       const usuario = req.user || {};
       if (usuario.perfil !== 'SUPER_ADMIN') {
-        console.log(`[AUDITORIA] Tentativa não autorizada de alterar numeração NFC-e por usuário: ${usuario.username || 'desconhecido'} (perfil: ${usuario.perfil || 'desconhecido'})`);
+        gravarAuditoria({
+          usuario_id: usuario.id || null,
+          usuario_nome: usuario.username || usuario.nome || null,
+          modulo: 'fiscal',
+          acao: 'tentativa_alterar_numeracao_nfce_negada',
+          referencia_tipo: 'nfce',
+          referencia_id: null,
+          detalhes: {
+            numero_solicitado: numeroAtual,
+            perfil: usuario.perfil || null,
+            ip: req.ip || null
+          },
+          ip_requisicao: req.ip || null
+        }).catch((auditErr) => console.error('Erro ao gravar auditoria fiscal:', auditErr));
         return res.status(403).json({
           error: 'Apenas SUPER ADMIN pode alterar a numeração NFC-e.'
         });
       }
 
-      // Log de auditoria
-      console.log(`[AUDITORIA] SUPER ADMIN ${usuario.username || 'desconhecido'} alterou numeração NFC-e para: ${numeroAtual}`);
+      gravarAuditoria({
+        usuario_id: usuario.id || null,
+        usuario_nome: usuario.username || usuario.nome || null,
+        modulo: 'fiscal',
+        acao: 'alterar_numeracao_nfce',
+        referencia_tipo: 'nfce',
+        referencia_id: null,
+        detalhes: { numero_atual: numeroAtual, ip: req.ip || null },
+        ip_requisicao: req.ip || null
+      }).catch((auditErr) => console.error('Erro ao gravar auditoria fiscal:', auditErr));
     }
 
     const entries = Object.entries(payload);
-    console.log(`[FISCAL CONFIG PUT] Salvando ${entries.length} configurações:`, JSON.stringify(payload, null, 2));
 
     for (const [chave, valor] of entries) {
-      console.log(`[FISCAL CONFIG PUT] Salvando: ${chave} = ${valor}`);
       await setConfiguracao(chave, String(valor ?? ''), 'string', `Configuração fiscal: ${chave}`);
-      console.log(`[FISCAL CONFIG PUT] Salvo com sucesso: ${chave}`);
     }
-    console.log('[FISCAL CONFIG PUT] Todas as configurações salvas com sucesso');
+
+    gravarAuditoria({
+      usuario_id: req.user?.id || null,
+      usuario_nome: req.user?.username || req.user?.nome || null,
+      modulo: 'fiscal',
+      acao: 'atualizar_config_fiscal',
+      referencia_tipo: 'configuracao_fiscal',
+      referencia_id: null,
+      detalhes: { chaves: entries.map(([chave]) => chave), ip: req.ip || null },
+      ip_requisicao: req.ip || null
+    }).catch((auditErr) => console.error('Erro ao gravar auditoria fiscal:', auditErr));
+
     res.json({ message: 'Configurações fiscais atualizadas com sucesso.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -164,6 +206,22 @@ router.post('/emitir/venda/:vendaId', async (req, res) => {
   try {
     const vendaId = Number(req.params.vendaId);
     const resultado = await emitirPorVendaId(vendaId);
+
+    gravarAuditoria({
+      usuario_id: req.user?.id || null,
+      usuario_nome: req.user?.username || req.user?.nome || null,
+      modulo: 'fiscal',
+      acao: 'emitir_nfce',
+      referencia_tipo: 'venda',
+      referencia_id: vendaId,
+      detalhes: {
+        status: resultado?.status || null,
+        nota_id: resultado?.notaId || resultado?.id || null,
+        ip: req.ip || null
+      },
+      ip_requisicao: req.ip || null
+    }).catch((auditErr) => console.error('Erro ao gravar auditoria de emissão NFC-e:', auditErr));
+
     res.json(resultado);
   } catch (error) {
     console.error('Erro ao emitir NFC-e:', error);
@@ -230,9 +288,10 @@ router.post('/notas/:id/cancelar', async (req, res) => {
     const id = Number(req.params.id);
     const { justificativa } = req.body || {};
 
-    if (!justificativa || justificativa.trim().length < 15) {
+    const validacaoJustificativa = validarMotivoTexto(justificativa);
+    if (!validacaoJustificativa.valido) {
       return res.status(400).json({
-        error: 'A justificativa deve ter no mínimo 15 caracteres.'
+        error: validacaoJustificativa.erro
       });
     }
 
@@ -338,6 +397,22 @@ justificativa: ${justificativa.trim()}
               retorno: cancelamento.sefaz,
               dadosCancelamento
             });
+
+            gravarAuditoria({
+              usuario_id: req.user?.id || null,
+              usuario_nome: req.user?.username || req.user?.nome || null,
+              modulo: 'fiscal',
+              acao: 'cancelar_nfce',
+              referencia_tipo: 'nfce',
+              referencia_id: notaIdAutorizada,
+              detalhes: {
+                venda_id: nota.venda_id,
+                justificativa: justificativa.trim(),
+                protocolo: dadosCancelamento.protocoloCancelamento || null,
+                ip: req.ip || null
+              },
+              ip_requisicao: req.ip || null
+            }).catch((auditErr) => console.error('Erro ao gravar auditoria de cancelamento NFC-e:', auditErr));
           });
         } catch (cancelErr) {
           res.status(500).json({

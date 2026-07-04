@@ -399,17 +399,18 @@ function abrirCaixa() {
     return;
   }
 
-  $.ajax({
-    url: `${API_URL}/caixa/abrir`,
-    method: 'POST',
-    contentType: 'application/json',
-    data: JSON.stringify(getTerminalRequestData({ valor_inicial: valor })),
-    success: function() {
+  enviarOperacaoCaixa(PERMISSOES_CAIXA.ABRIR, '/caixa/abrir', { valor_inicial: valor }, {
+    global: false,
+    senha: {
+      titulo: 'Abrir caixa',
+      mensagem: 'Informe a senha do administrador para abrir o caixa.'
+    },
+    onSuccess: function() {
       showNotification('Caixa aberto com sucesso.', 'success');
       carregarCaixaAberto();
     },
-    error: function(xhr) {
-      showNotification(xhr.responseJSON?.error || 'Erro ao abrir caixa.', 'danger');
+    onError: function(mensagem) {
+      showNotification(mensagem, 'danger');
     }
   });
 }
@@ -423,111 +424,25 @@ function registrarSangria() {
     return;
   }
 
-  // Criar modal para senha de administrador
-  const modalHtml = `
-    <div class="modal fade" id="modalSenhaAdmin" tabindex="-1" style="display: none;">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">Senha de Administrador</h5>
-            <button type="button" class="btn-close" onclick="fecharModalSenha()"></button>
-          </div>
-          <div class="modal-body">
-            <p>Confirme a sangria de <strong>${dinheiro(valor)}</strong></p>
-            <label for="senha-admin-input">Digite a senha do administrador:</label>
-            <input type="password" id="senha-admin-input" class="form-control" placeholder="Senha">
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" onclick="fecharModalSenha()">Cancelar</button>
-            <button type="button" class="btn btn-primary" onclick="confirmarSangriaComSenha()">Confirmar</button>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="modal-backdrop fade show" id="modal-backdrop-senha" style="display: none;"></div>
-  `;
-
-  // Adicionar modal ao body
-  $('body').append(modalHtml);
-  
-  // Mostrar modal e backdrop
-  $('#modalSenhaAdmin').css('display', 'block').addClass('show');
-  $('#modal-backdrop-senha').css('display', 'block');
-  $('body').addClass('modal-open').css('overflow', 'hidden');
-
-  // Focar no campo de senha
-  setTimeout(() => {
-    $('#senha-admin-input').focus();
-  }, 300);
-
-  $('#senha-admin-input').on('keydown', function(e) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (typeof window.confirmarSangriaComSenha === 'function') {
-        window.confirmarSangriaComSenha();
+  enviarOperacaoCaixa(PERMISSOES_CAIXA.SANGRIA, '/caixa/sangria', { valor, motivo }, {
+    global: false,
+    senha: {
+      titulo: 'Senha de Administrador',
+      mensagem: `Confirme a sangria de <strong>${dinheiro(valor)}</strong> com a senha do administrador.`
+    },
+    onSuccess: function() {
+      showNotification('Sangria registrada com sucesso.', 'success');
+      carregarCaixaAberto();
+    },
+    onCancel: function() {
+      showNotification('Sangria cancelada.', 'warning');
+    },
+    onError: function(mensagem, xhr) {
+      if (typeof isErroSessaoExpirada === 'function' && isErroSessaoExpirada(xhr)) {
+        handleUnauthorized();
+        return;
       }
-    }
-  });
-
-  // Funções globais para o modal
-  window.fecharModalSenha = function() {
-    $('#modalSenhaAdmin').remove();
-    $('#modal-backdrop-senha').remove();
-    $('body').removeClass('modal-open').css('overflow', '');
-    showNotification('Sangria cancelada.', 'warning');
-  };
-
-  window.confirmarSangriaComSenha = function() {
-    const senhaAdmin = $('#senha-admin-input').val();
-    
-    if (!senhaAdmin) {
-      showNotification('Digite a senha do administrador.', 'warning');
-      return;
-    }
-
-    // Fechar modal
-    $('#modalSenhaAdmin').remove();
-    $('#modal-backdrop-senha').remove();
-    $('body').removeClass('modal-open').css('overflow', '');
-
-    // Enviar requisição
-    $.ajax({
-      url: `${API_URL}/caixa/sangria`,
-      method: 'POST',
-      contentType: 'application/json',
-      global: false,
-      data: JSON.stringify(getTerminalRequestData({
-        valor,
-        motivo,
-        senha_admin: senhaAdmin
-      })),
-      success: function() {
-        showNotification('Sangria registrada com sucesso.', 'success');
-        carregarCaixaAberto();
-      },
-      error: function(xhr) {
-        if (typeof isErroSessaoExpirada === 'function' && isErroSessaoExpirada(xhr)) {
-          handleUnauthorized();
-          return;
-        }
-        showNotification(xhr.responseJSON?.error || 'Erro ao registrar sangria.', 'danger');
-      }
-    });
-  };
-
-  // Fechar modal com ESC
-  $(document).one('keydown', function(e) {
-    if (e.key === 'Escape') {
-      if (window.fecharModalSenha) {
-        window.fecharModalSenha();
-      }
-    }
-  });
-
-  // Fechar modal clicando no backdrop
-  $('#modal-backdrop-senha').one('click', function() {
-    if (window.fecharModalSenha) {
-      window.fecharModalSenha();
+      showNotification(mensagem, 'danger');
     }
   });
 }
@@ -536,17 +451,30 @@ function registrarSuprimento() {
   const valor = pegarValorCampo('#valor-suprimento');
   const motivo = $('#motivo-suprimento').val();
 
-  $.ajax({
-    url: `${API_URL}/caixa/suprimento`,
-    method: 'POST',
-    contentType: 'application/json',
-    data: JSON.stringify(getTerminalRequestData({ valor, motivo })),
-    success: function() {
+  if (valor <= 0) {
+    showNotification('Informe um valor válido para suprimento.', 'warning');
+    return;
+  }
+
+  enviarOperacaoCaixa(PERMISSOES_CAIXA.SUPRIMENTO, '/caixa/suprimento', { valor, motivo }, {
+    global: false,
+    senha: {
+      titulo: 'Senha de Administrador',
+      mensagem: `Confirme o suprimento de <strong>${dinheiro(valor)}</strong> com a senha do administrador.`
+    },
+    onSuccess: function() {
       showNotification('Suprimento registrado com sucesso.', 'success');
       carregarCaixaAberto();
     },
-    error: function(xhr) {
-      showNotification(xhr.responseJSON?.error || 'Erro ao registrar suprimento.', 'danger');
+    onCancel: function() {
+      showNotification('Suprimento cancelado.', 'warning');
+    },
+    onError: function(mensagem, xhr) {
+      if (typeof isErroSessaoExpirada === 'function' && isErroSessaoExpirada(xhr)) {
+        handleUnauthorized();
+        return;
+      }
+      showNotification(mensagem, 'danger');
     }
   });
 }

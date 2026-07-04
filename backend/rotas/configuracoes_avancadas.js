@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const configService = require('../services/configuracaoService');
-const { exigirSuperAdmin } = require('./auth');
+const { exigirSuperAdmin } = require('../middleware/auth');
 
 router.get('/confirmacao-fiscal', (req, res) => {
   try {

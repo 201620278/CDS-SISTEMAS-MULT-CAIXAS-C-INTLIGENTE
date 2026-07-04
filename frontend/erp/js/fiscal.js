@@ -239,12 +239,12 @@ function carregarFiscalConfig(targetSelector = '#fiscal-config-form-area') {
                 proximoNumeroEl.value = (parseInt(cfg.numeroAtual || 0) + 1);
             }
 
-            const usuario = JSON.parse(localStorage.getItem('user') || '{}');
+            const usuario = typeof obterUsuarioLogado === 'function' ? obterUsuarioLogado() : {};
             const campoNumero = $target.find('#proximoNumeroNfce')[0];
             const msgNumero = $target.find('#msgNumeroNfceSuperUser')[0];
 
             if (campoNumero) {
-                if (usuario.perfil !== 'SUPER_ADMIN') {
+                if (!isSuperAdminUser()) {
                     campoNumero.disabled = true;
                 } else if (msgNumero) {
                     msgNumero.style.display = 'none';
@@ -781,8 +781,9 @@ function cancelarNfce(id) {
     document.getElementById('btnConfirmarCancelarNfce').addEventListener('click', () => {
         const justificativa = textarea.value.trim();
 
-        if (!justificativa || justificativa.length < 15) {
-            showNotification('A justificativa precisa ter no mínimo 15 caracteres.', 'warning');
+        const validacaoJustificativa = validarMotivoTexto(justificativa);
+        if (!validacaoJustificativa.valido) {
+            showNotification(validacaoJustificativa.erro, 'warning');
             textarea.focus();
             return;
         }

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { exigirAdmin } = require('./auth');
+const { exigirAdmin } = require('../middleware/auth');
 const db = require('../database');
 
 function dbAll(sql, params = []) {

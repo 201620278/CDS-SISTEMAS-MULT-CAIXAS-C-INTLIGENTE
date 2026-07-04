@@ -4,6 +4,21 @@ const fs = require('fs');
 const multer = require('multer');
 const router = express.Router();
 const db = require('../database');
+const { gravarAuditoria } = require('../services/auditoria');
+
+function auditarConfiguracao(req, acao, chave, detalhes = {}) {
+  const usuario = req.user || {};
+  gravarAuditoria({
+    usuario_id: usuario.id || null,
+    usuario_nome: usuario.username || usuario.nome || null,
+    modulo: 'configuracoes',
+    acao,
+    referencia_tipo: 'configuracao',
+    referencia_id: chave || null,
+    detalhes: { chave, ...detalhes, ip: req.ip || null },
+    ip_requisicao: req.ip || null
+  }).catch((auditErr) => console.error('Erro ao gravar auditoria de configuração:', auditErr));
+}
 
 function getWritableStoragePath() {
   if (process.platform === 'win32') {
@@ -100,6 +115,7 @@ const saveLogoConfig = (req, res) => {
                     return res.status(500).json({ error: 'Erro ao salvar logo: ' + updateLegacyErr.message });
                   }
                   console.log('[LOGO] Logo legada migrada e salva com sucesso:', logoPath);
+                  auditarConfiguracao(req, 'atualizar_logo', 'logo', { path: logoPath });
                   res.json({ success: true, path: logoPath });
                 }
               );
@@ -115,6 +131,7 @@ const saveLogoConfig = (req, res) => {
                   return res.status(500).json({ error: 'Erro ao salvar logo: ' + insertErr.message });
                 }
                 console.log('[LOGO] Logo salva com sucesso:', logoPath);
+                auditarConfiguracao(req, 'atualizar_logo', 'logo', { path: logoPath });
                 res.json({ success: true, path: logoPath });
               }
             );
@@ -124,6 +141,7 @@ const saveLogoConfig = (req, res) => {
       }
 
       console.log('[LOGO] Logo atualizada com sucesso:', logoPath);
+      auditarConfiguracao(req, 'atualizar_logo', 'logo', { path: logoPath });
       res.json({ success: true, path: logoPath });
     }
   );
@@ -157,6 +175,7 @@ const saveLoginBackgroundConfig = (req, res) => {
               return res.status(500).json({ error: 'Erro ao salvar imagem: ' + insertErr.message });
             }
             console.log('[LOGIN_BG] Imagem salva com sucesso:', bgPath);
+            auditarConfiguracao(req, 'atualizar_login_background', 'login_background', { path: bgPath });
             res.json({ success: true, path: bgPath });
           }
         );
@@ -164,6 +183,7 @@ const saveLoginBackgroundConfig = (req, res) => {
       }
 
       console.log('[LOGIN_BG] Imagem atualizada com sucesso:', bgPath);
+      auditarConfiguracao(req, 'atualizar_login_background', 'login_background', { path: bgPath });
       res.json({ success: true, path: bgPath });
     }
   );
@@ -211,6 +231,8 @@ router.post('/backup-path', (req, res) => {
     if (err) {
       return res.status(500).json({ sucesso: false, erro: err.message });
     }
+
+    auditarConfiguracao(req, 'atualizar_backup_path', 'backup_path', { caminho });
 
     res.json({ sucesso: true, mensagem: 'Pasta de backup salva!' });
   });
@@ -273,6 +295,8 @@ router.post('/impressora_cupom', (req, res) => {
       return res.status(500).json({ sucesso: false, erro: err.message });
     }
 
+    auditarConfiguracao(req, 'atualizar_impressora_cupom', 'impressora_cupom', { caminho });
+
     res.json({ sucesso: true, mensagem: 'Impressora salva!' });
   });
 });
@@ -320,6 +344,7 @@ router.put('/:chave', (req, res) => {
     }
 
     console.log(`[CONFIG] Configuração ${chave} salva com sucesso. Changes: ${this.changes}`);
+    auditarConfiguracao(req, 'atualizar_configuracao', chave, { valor });
     res.json({ message: 'Configuração atualizada com sucesso' });
   });
 });
@@ -335,6 +360,7 @@ router.post('/', (req, res) => {
       res.status(500).json({ error: err.message });
       return;
     }
+    auditarConfiguracao(req, 'criar_configuracao', chave, { valor, tipo, descricao });
     res.json({ id: this.lastID, message: 'Configuração criada com sucesso' });
   });
 });

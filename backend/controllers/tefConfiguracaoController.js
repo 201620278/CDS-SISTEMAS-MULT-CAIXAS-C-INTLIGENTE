@@ -1,4 +1,19 @@
 const tefConfigService = require('../services/tef/tefConfigService');
+const { gravarAuditoria } = require('../services/auditoria');
+
+function auditarConfiguracaoTef(req, acao, detalhes = {}) {
+  const usuario = req.user || {};
+  gravarAuditoria({
+    usuario_id: usuario.id || null,
+    usuario_nome: usuario.username || usuario.nome || null,
+    modulo: 'tef',
+    acao,
+    referencia_tipo: 'tef_configuracao',
+    referencia_id: null,
+    detalhes: { ...detalhes, ip: req.ip || null },
+    ip_requisicao: req.ip || null
+  }).catch((auditErr) => console.error('Erro ao gravar auditoria TEF config:', auditErr));
+}
 
 function responderErro(res, error, mensagemPadrao) {
   const status = error.statusCode || 500;
@@ -21,6 +36,10 @@ async function postConfiguracao(req, res) {
   try {
     const config = await tefConfigService.salvarConfiguracao(req.body || {});
 
+    auditarConfiguracaoTef(req, 'salvar_configuracao', {
+      chaves: Object.keys(req.body || {})
+    });
+
     res.json({
       success: true,
       message: 'Configuração TEF salva com sucesso.',
@@ -35,6 +54,9 @@ async function postConfiguracao(req, res) {
 async function putConfiguracao(req, res) {
   try {
     const config = await tefConfigService.atualizarConfiguracao(req.body || {});
+    auditarConfiguracaoTef(req, 'atualizar_configuracao', {
+      chaves: Object.keys(req.body || {})
+    });
     res.json({
       success: true,
       message: 'Configuração TEF atualizada com sucesso.',

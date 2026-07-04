@@ -335,15 +335,6 @@ function formatarEstoqueDetalheProduto(produto) {
     `;
 }
 
-function usuarioPodeAjustarEstoque() {
-    try {
-        const usuario = JSON.parse(localStorage.getItem('user') || '{}');
-        const perfil = String(usuario?.perfil || usuario?.nivel || '').trim().toUpperCase();
-        return usuario?.role === 'admin' || perfil === 'SUPER_ADMIN' || perfil === 'ADMIN';
-    } catch (e) {
-        return false;
-    }
-}
 
 function resolverItemFiscalParaSalvar(saldosIniciais) {
     const modoFiscal = typeof isModoFiscalVisualizacaoAtivo === 'function' && isModoFiscalVisualizacaoAtivo();
@@ -438,7 +429,7 @@ function montarHtmlCamposEstoqueProduto(produto, isEdit, opcoes = {}) {
         `;
     }
 
-    const avisoAjuste = temMovimentacoes && usuarioPodeAjustarEstoque()
+    const avisoAjuste = temMovimentacoes && podeAjustarEstoque()
         ? '<small class="text-muted d-block mt-1">Use o botão <strong>Ajustar Estoque</strong> na lista para alterar saldos.</small>'
         : '';
 
@@ -1100,7 +1091,7 @@ function renderProdutoRow(p) {
                 <button class="btn btn-sm btn-warning" onclick="editProduto(${p.id})">
                     <i class="fas fa-edit"></i>
                 </button>
-                ${usuarioPodeAjustarEstoque() ? `
+                ${podeAjustarEstoque() ? `
                 <button class="btn btn-sm btn-success" onclick="abrirModalAjustarEstoque(${p.id})" title="Ajustar Estoque">
                     <i class="fas fa-boxes"></i>
                 </button>
@@ -3113,7 +3104,7 @@ window.editProduto = editProduto;
 
 
 function abrirModalAjustarEstoque(produtoId) {
-    if (!usuarioPodeAjustarEstoque()) {
+    if (!podeAjustarEstoque()) {
         showNotification('Acesso restrito: apenas ADMIN ou SUPER_ADMIN podem ajustar estoque.', 'warning');
         return;
     }

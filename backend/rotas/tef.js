@@ -9,10 +9,11 @@ const tefConciliacaoService = require('../services/tef/tefConciliacaoService');
 const tefDiagnosticoService = require('../services/tef/tefDiagnosticoService');
 const tefEvents = require('../services/tef/tefEvents');
 const tefContrato = require('../services/tef/tefContrato');
-const { verificarToken } = require('./auth');
+const { verificarToken } = require('../middleware/auth');
 const tefConfigService = require('../services/tef/tefConfigService');
 const tefFluxoPagamento = require('../services/tef/tefFluxoPagamento');
 const configService = require('../services/configuracaoService');
+const { gravarAuditoria } = require('../services/auditoria');
 
 router.use(tefConfiguracaoRoutes);
 router.use(tefConciliacaoRoutes);
@@ -65,6 +66,23 @@ router.post('/pagar', async (req, res) => {
     if (resultado.sucesso === false && resultado.codigo && !tefContrato.estaAprovado(resultado)) {
       return res.status(422).json(resultado);
     }
+
+    gravarAuditoria({
+      usuario_id: req.user?.id || null,
+      usuario_nome: req.user?.username || req.user?.nome || null,
+      modulo: 'tef',
+      acao: 'iniciar_pagamento',
+      referencia_tipo: 'tef_transacao',
+      referencia_id: resultado?.transacao_id || resultado?.id || null,
+      detalhes: {
+        venda_id: venda_id || null,
+        tipo,
+        valor: Number(valor),
+        aprovado: tefContrato.estaAprovado(resultado),
+        ip: req.ip || null
+      },
+      ip_requisicao: req.ip || null
+    }).catch((auditErr) => console.error('Erro ao gravar auditoria TEF pagar:', auditErr));
 
     res.json(resultado);
   } catch (error) {
@@ -182,6 +200,17 @@ router.post('/cancelar', async (req, res) => {
       Number(transacao_id),
       motivo || 'Cancelamento da venda'
     );
+
+    gravarAuditoria({
+      usuario_id: req.user?.id || null,
+      usuario_nome: req.user?.username || req.user?.nome || null,
+      modulo: 'tef',
+      acao: 'cancelar_pagamento',
+      referencia_tipo: 'tef_transacao',
+      referencia_id: Number(transacao_id),
+      detalhes: { motivo: motivo || 'Cancelamento da venda', ip: req.ip || null },
+      ip_requisicao: req.ip || null
+    }).catch((auditErr) => console.error('Erro ao gravar auditoria TEF cancelar:', auditErr));
 
     res.json(resultado);
 

@@ -1,5 +1,23 @@
 const db = require('../database');
 
+function obterIpRequisicao(req) {
+  if (!req) return null;
+  const encaminhado = req.headers?.['x-forwarded-for'];
+  if (encaminhado) {
+    return String(encaminhado).split(',')[0].trim();
+  }
+  return req.ip || req.connection?.remoteAddress || null;
+}
+
+function contextoAuditoriaRequisicao(req) {
+  const usuario = req?.user || {};
+  return {
+    usuario_id: req?.operadorId || usuario.id || usuario.usuario_id || null,
+    usuario_nome: usuario.username || usuario.nome || null,
+    ip_requisicao: obterIpRequisicao(req)
+  };
+}
+
 function gravarAuditoria({
   usuario_id = null,
   usuario_nome = null,
@@ -81,7 +99,9 @@ function obterAuditoria({ modulo, acao, usuario_nome, inicio, fim, limite = 100 
 module.exports = {
   gravarAuditoria,
   obterAuditoria,
-  obterAuditoriaPaginada
+  obterAuditoriaPaginada,
+  obterIpRequisicao,
+  contextoAuditoriaRequisicao
 };
 
 function obterAuditoriaPaginada({ modulo, acao, usuario_nome, inicio, fim, page = 1, pageSize = 50 }) {

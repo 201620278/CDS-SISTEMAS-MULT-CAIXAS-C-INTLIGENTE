@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { verificarToken, exigirSuperAdmin } = require('./auth');
+const { verificarToken, exigirSuperAdmin } = require('../middleware/auth');
 const tefConfiguracaoController = require('../controllers/tefConfiguracaoController');
 
 router.get(

@@ -1,95 +1,10 @@
-function isAdminUser() {
-    try {
-        const u = JSON.parse(localStorage.getItem('user') || '{}');
-        return u.role === 'admin';
-    } catch (e) {
-        return false;
-    }
-}
-
-function isSuperAdminUser() {
-    try {
-        const u = JSON.parse(localStorage.getItem('user') || '{}');
-        return String(u.perfil || '').toUpperCase() === 'SUPER_ADMIN';
-    } catch (e) {
-        return false;
-    }
-}
-
-function getUsernameLogado() {
-    try {
-        return JSON.parse(localStorage.getItem('user') || '{}').username || '';
-    } catch (e) {
-        return '';
-    }
-}
-
-function renderLinhaUsuario(u, inativo = false) {
-    const perfil = u.perfil || 'USUARIO';
-    let badgePerfil = 'bg-secondary';
-    let labelPerfil = 'Usuário';
-    if (perfil === 'SUPER_ADMIN') {
-        badgePerfil = 'bg-dark';
-        labelPerfil = 'SUPER ADMIN';
-    } else if (perfil === 'ADMIN') {
-        badgePerfil = 'bg-danger';
-        labelPerfil = 'ADMIN';
-    }
-
-    const acoes = u.username === getUsernameLogado()
-        ? '<span class="text-muted small">você</span>'
-        : (inativo
-            ? `
-                <button type="button" class="btn btn-sm btn-outline-success me-1" onclick="reativarUsuario(${u.id})" title="Reativar">
-                    <i class="fas fa-user-check"></i>
-                </button>
-                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removerUsuario(${u.id})" title="Excluir permanentemente">
-                    <i class="fas fa-trash"></i>
-                </button>
-            `
-            : `
-                <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick='showModalNovoUsuario(${JSON.stringify(u)})' title="Editar">
-                    <i class="fas fa-edit"></i>
-                </button>
-                <button type="button" class="btn btn-sm btn-outline-warning me-1" onclick="desativarUsuario(${u.id})" title="Desativar">
-                    <i class="fas fa-user-slash"></i>
-                </button>
-                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removerUsuario(${u.id})" title="Excluir permanentemente">
-                    <i class="fas fa-trash"></i>
-                </button>
-            `);
-
-    return `
-        <tr>
-            <td>${escapeHtml(u.username)}</td>
-            <td><span class="badge ${badgePerfil}">${labelPerfil}</span></td>
-            <td>${obterBadgePermissao(u.perfil)}</td>
-            <td>${u.created_at ? formatDateTime(u.created_at) : '-'}</td>
-            <td>${acoes}</td>
-        </tr>
-    `;
-}
-
 // Load configuracoes page
 function loadConfiguracoes() {
     $.ajax({
         url: `${API_URL}/configuracoes`,
         method: 'GET',
         success: function(configuracoes) {
-            if (isAdminUser()) {
-                $.when(
-                    $.get(`${API_URL}/auth/usuarios`),
-                    $.get(`${API_URL}/auth/usuarios?status=inativos`)
-                ).done(function(ativosResp, inativosResp) {
-                    const usuarios = ativosResp[0] || [];
-                    const usuariosInativos = inativosResp[0] || [];
-                    renderConfiguracoes(configuracoes, usuarios, usuariosInativos);
-                }).fail(function() {
-                    renderConfiguracoes(configuracoes, null, null);
-                });
-            } else {
-                renderConfiguracoes(configuracoes, null, null);
-            }
+            renderConfiguracoes(configuracoes);
         },
         error: function() {
             $('#page-content').html('<div class="alert alert-danger">Erro ao carregar configurações!</div>');
@@ -121,9 +36,8 @@ function normalizeConfiguracoes(configuracoes) {
     return Array.from(normalizedMap.values());
 }
 
-function renderConfiguracoes(configuracoes, usuarios, usuariosInativos) {
+function renderConfiguracoes(configuracoes) {
     configuracoes = normalizeConfiguracoes(configuracoes);
-    const currentUsername = getUsernameLogado();
 
     const fiscalConfigKeys = new Set([
         'nome_empresa',
@@ -197,59 +111,6 @@ function renderConfiguracoes(configuracoes, usuarios, usuariosInativos) {
         return ia - ib;
     });
 
-    const blocoUsuarios = usuarios && isAdminUser() ? `
-        <div class="card mt-3">
-            <div class="card-header">
-                <i class="fas fa-user-shield"></i> Usuários do sistema
-            </div>
-            <div class="card-body">
-                <p class="text-muted small">
-                    Desativar bloqueia o login, mas mantém o histórico — o usuário pode ser reativado depois.
-                    Excluir remove o cadastro permanentemente do sistema.
-                </p>
-                <div class="table-responsive mb-3">
-                    <table id="usuariosTable" class="table table-sm table-striped">
-                        <thead>
-                            <tr>
-                                <th>Usuário</th>
-                                <th>Perfil</th>
-                                <th>Permissões</th>
-                                <th>Cadastro</th>
-                                <th></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${usuarios.map(u => renderLinhaUsuario(u, false)).join('')}
-                        </tbody>
-                    </table>
-                </div>
-                <button type="button" class="btn btn-primary btn-sm" onclick="showModalNovoUsuario()">
-                    <i class="fas fa-user-plus"></i> Novo usuário
-                </button>
-                ${usuariosInativos && usuariosInativos.length ? `
-                <hr class="my-3">
-                <h6 class="text-muted"><i class="fas fa-user-slash"></i> Usuários desativados</h6>
-                <div class="table-responsive">
-                    <table id="usuariosInativosTable" class="table table-sm table-striped">
-                        <thead>
-                            <tr>
-                                <th>Usuário</th>
-                                <th>Perfil</th>
-                                <th>Permissões</th>
-                                <th>Cadastro</th>
-                                <th></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${usuariosInativos.map(u => renderLinhaUsuario(u, true)).join('')}
-                        </tbody>
-                    </table>
-                </div>
-                ` : ''}
-            </div>
-        </div>
-    ` : '';
-
     const html = `
         <div class="card">
             <div class="card-header">
@@ -309,6 +170,23 @@ function renderConfiguracoes(configuracoes, usuarios, usuariosInativos) {
 
         <div class="card mt-3">
             <div class="card-header">
+                <i class="fas fa-weight"></i> Equipamentos
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Cadastre balanças, configure IP/porta TCP, teste conexão e visualize status em tempo real.
+                </p>
+                <button type="button" class="btn btn-primary" onclick="loadPage('equipamentos')">
+                    <i class="fas fa-weight"></i> Gerenciar Balanças
+                </button>
+                <button type="button" class="btn btn-outline-primary ms-2" onclick="loadPage('laboratorio-equipamentos')">
+                    <i class="fas fa-flask"></i> Laboratório de Engenharia
+                </button>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">
                 <i class="fas fa-print"></i> Impressão
             </div>
             <div class="card-body">
@@ -357,7 +235,6 @@ function renderConfiguracoes(configuracoes, usuarios, usuariosInativos) {
                 <p><strong>Desenvolvido por:</strong> Cicero Diego</p>
             </div>
         </div>
-        ${blocoUsuarios}
     `;
     
     $('#page-content').html(html);
@@ -564,330 +441,6 @@ function escapeHtml(s) {
     const div = document.createElement('div');
     div.textContent = s;
     return div.innerHTML;
-}
-
-async function showModalNovoUsuario(usuario = null) {
-    const editando = !!usuario;
-    const permissoesUsuario = usuario?.permissoes || [];
-
-    // Tentar obter lista de permissões do backend; em falha, usar fallback
-    let permissoesLista = null;
-    try {
-        const resp = await fetch(`${API_URL}/auth/permissoes-disponiveis`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-        });
-        if (resp.ok) {
-            const data = await resp.json();
-            // data é esperado como array de strings
-            permissoesLista = Array.isArray(data) ? data : null;
-        }
-    } catch (e) {
-        console.warn('Não foi possível obter permissões do servidor, usando fallback.');
-    }
-
-    const labelMap = {
-        pdv: 'PDV', vendas: 'Vendas', produtos: 'Produtos', clientes: 'Clientes', compras: 'Compras',
-        fornecedores: 'Fornecedores', financeiro: 'Financeiro', caixa: 'Caixa', fiscal: 'Fiscal',
-        configuracoes: 'Configurações', usuarios: 'Usuários', relatorios: 'Relatórios', categorias: 'Categorias',
-        auditoria: 'Auditoria', gerenciar_faixa_atacado: 'Gerenciar Faixa Atacado'
-    };
-
-    const fallback = Object.entries(labelMap).map(([k, v]) => [k, v]);
-
-    const permissoesDisponiveis = (permissoesLista || []).length
-        ? permissoesLista.map(p => [p, labelMap[p] || (p.charAt(0).toUpperCase() + p.slice(1))])
-        : fallback;
-
-    const modalHtml = `
-        <div class="modal fade" id="novoUsuarioModal" tabindex="-1">
-            <div class="modal-dialog modal-lg">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">${editando ? 'Editar usuário' : 'Novo usuário'}</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
-
-                    <div class="modal-body">
-                        <input type="hidden" id="usuario_id_edicao" value="${editando ? usuario.id : ''}">
-
-                        <div class="mb-3">
-                            <label class="form-label">Nome de usuário</label>
-                            <input 
-                                type="text" 
-                                class="form-control" 
-                                id="novo_usuario_login" 
-                                value="${editando ? escapeHtml(usuario.username) : ''}"
-                                ${editando ? 'disabled' : ''}
-                            >
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label">
-                                Senha ${editando ? '<small class="text-muted">(deixe vazio para não alterar)</small>' : ''}
-                            </label>
-                            <input type="password" class="form-control" id="novo_usuario_senha" autocomplete="new-password">
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label">Tipo de Acesso (role)</label>
-                            <select class="form-control" id="novo_usuario_role" onchange="togglePermissoesUsuario()">
-                                <option value="operador" ${usuario?.role === 'operador' ? 'selected' : ''}>Operador</option>
-                                <option value="admin" ${usuario?.role === 'admin' ? 'selected' : ''}>Administrador</option>
-                            </select>
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label">Perfil de Permissão</label>
-                            <select class="form-control" id="novo_usuario_perfil">
-                                <option value="USUARIO" ${(usuario?.perfil || 'USUARIO') === 'USUARIO' ? 'selected' : ''}>Usuário Comum</option>
-                                <option value="ADMIN" ${usuario?.perfil === 'ADMIN' ? 'selected' : ''}>Administrador (ADMIN)</option>
-                                <option value="SUPER_ADMIN" ${usuario?.perfil === 'SUPER_ADMIN' ? 'selected' : ''}>Super Administrador</option>
-                            </select>
-                            <small class="text-muted">
-                                SUPER_ADMIN: pode tudo | ADMIN: pode gerenciar usuários comuns | USUARIO: acesso limitado
-                            </small>
-                        </div>
-
-                        <div class="mb-3" id="boxPodeAlterarSenhas">
-                            <label class="form-check">
-                                <input 
-                                    type="checkbox" 
-                                    class="form-check-input" 
-                                    id="novo_usuario_pode_alterar_senhas"
-                                    ${usuario?.pode_alterar_senhas ? 'checked' : ''}
-                                >
-                                <span class="form-check-label">
-                                    Pode alterar senhas de outros usuários
-                                </span>
-                            </label>
-                            <small class="text-muted d-block">
-                                Apenas ADMINs com esta permissão podem alterar senhas de USUARIOs comuns
-                            </small>
-                        </div>
-
-                        <div id="boxPermissoesUsuario">
-                            <label class="form-label fw-bold">Permissões do operador</label>
-
-                            <div class="row">
-                                ${permissoesDisponiveis.map(([valor, label]) => `
-                                    <div class="col-md-4 mb-2">
-                                        <label class="form-check">
-                                            <input 
-                                                type="checkbox" 
-                                                class="form-check-input permissao-usuario" 
-                                                value="${valor}"
-                                                ${permissoesUsuario.includes(valor) ? 'checked' : ''}
-                                            >
-                                            <span class="form-check-label">${label}</span>
-                                        </label>
-                                    </div>
-                                `).join('')}
-                            </div>
-                        </div>
-
-                        <div id="novo-usuario-erro" class="alert alert-danger py-2 d-none"></div>
-                    </div>
-
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                        <button type="button" class="btn btn-primary" onclick="salvarNovoUsuario()">
-                            ${editando ? 'Salvar alterações' : 'Cadastrar'}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-
-    // Limpar modais travados antes de criar novo
-    if (typeof limparModaisTravados === 'function') {
-        limparModaisTravados();
-    }
-
-    $('#modal-container').html(modalHtml);
-    $('#novoUsuarioModal').modal('show');
-    togglePermissoesUsuario();
-}
-
-function salvarNovoUsuario() {
-    const id = $('#usuario_id_edicao').val();
-    const username = $('#novo_usuario_login').val().trim();
-    const password = $('#novo_usuario_senha').val();
-    const role = $('#novo_usuario_role').val();
-    const perfil = $('#novo_usuario_perfil').val();
-    const podeAlterarSenhas = $('#novo_usuario_pode_alterar_senhas').is(':checked') ? 1 : 0;
-
-    const permissoes = $('.permissao-usuario:checked')
-        .map(function () {
-            return $(this).val();
-        })
-        .get();
-
-    const $err = $('#novo-usuario-erro');
-    $err.addClass('d-none').text('');
-
-    if (!id && (!username || !password)) {
-        $err.removeClass('d-none').text('Preencha usuário e senha.');
-        return;
-    }
-
-    const payload = {
-        username,
-        password,
-        role,
-        perfil,
-        pode_alterar_senhas: podeAlterarSenhas,
-        permissoes
-    };
-
-    $.ajax({
-        url: id ? `${API_URL}/auth/usuarios/${id}` : `${API_URL}/auth/usuarios`,
-        method: id ? 'PUT' : 'POST',
-        contentType: 'application/json',
-        data: JSON.stringify(payload),
-        success: function () {
-            $('#novoUsuarioModal').modal('hide');
-            showNotification(id ? 'Usuário atualizado com sucesso!' : 'Usuário cadastrado com sucesso!');
-            loadConfiguracoes();
-        },
-        error: function (xhr) {
-            $err.removeClass('d-none').text(
-                xhr.responseJSON && xhr.responseJSON.error
-                    ? xhr.responseJSON.error
-                    : 'Erro ao salvar usuário.'
-            );
-        }
-    });
-}
-
-function togglePermissoesUsuario() {
-    const role = $('#novo_usuario_role').val();
-
-    if (role === 'admin') {
-        $('#boxPermissoesUsuario').hide();
-    } else {
-        $('#boxPermissoesUsuario').show();
-    }
-}
-
-function obterBadgePermissao(perfil) {
-    const p = String(perfil || '').trim().toUpperCase();
-
-    if (p === 'SUPER_ADMIN') {
-        return `<span class="badge bg-dark">SUPER ADMIN</span>`;
-    }
-
-    if (p === 'ADMIN') {
-        return `<span class="badge bg-danger">ADMIN</span>`;
-    }
-
-    return `<span class="badge bg-secondary">OPERADOR</span>`;
-}
-
-async function carregarUsuarios() {
-    try {
-        const resposta = await fetch(`${API_URL}/auth/usuarios`, {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-        });
-
-        if (!resposta.ok) {
-            throw new Error('Erro ao carregar usuários.');
-        }
-
-        const usuarios = await resposta.json();
-        renderizarUsuarios(usuarios);
-    } catch (erro) {
-        console.error('Erro ao carregar usuários:', erro);
-    }
-}
-
-function renderizarUsuarios(usuarios) {
-    const tbody = document.querySelector('#usuariosTable tbody');
-    if (!tbody) return;
-    tbody.innerHTML = usuarios.map(u => renderLinhaUsuario(u, false)).join('');
-}
-
-async function desativarUsuario(id) {
-    if (!confirm('Deseja desativar este usuário? Ele não poderá mais fazer login, mas poderá ser reativado depois.')) return;
-
-    try {
-        const resposta = await fetch(`${API_URL}/auth/usuarios/${id}/desativar`, {
-            method: 'PATCH',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-        });
-
-        const dados = await resposta.json();
-
-        if (!resposta.ok) {
-            alert(dados.erro || dados.error || 'Erro ao desativar usuário.');
-            return;
-        }
-
-        showNotification(dados.mensagem || 'Usuário desativado com sucesso.', 'success');
-        loadConfiguracoes();
-    } catch (erro) {
-        console.error('Erro ao desativar usuário:', erro);
-        alert('Erro ao desativar usuário.');
-    }
-}
-
-async function reativarUsuario(id) {
-    if (!confirm('Deseja reativar este usuário?')) return;
-
-    try {
-        const resposta = await fetch(`${API_URL}/auth/usuarios/${id}/ativar`, {
-            method: 'PATCH',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-        });
-
-        const dados = await resposta.json();
-
-        if (!resposta.ok) {
-            alert(dados.erro || dados.error || 'Erro ao reativar usuário.');
-            return;
-        }
-
-        showNotification(dados.mensagem || 'Usuário reativado com sucesso.', 'success');
-        loadConfiguracoes();
-    } catch (erro) {
-        console.error('Erro ao reativar usuário:', erro);
-        alert('Erro ao reativar usuário.');
-    }
-}
-
-async function removerUsuario(id) {
-    if (!confirm('ATENÇÃO: esta ação exclui o usuário permanentemente do sistema. Deseja continuar?')) return;
-
-    try {
-        const resposta = await fetch(`${API_URL}/auth/usuarios/${id}`, {
-            method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-        });
-
-        const dados = await resposta.json();
-
-        if (!resposta.ok) {
-            alert(dados.erro || dados.error || 'Erro ao excluir usuário.');
-            return;
-        }
-
-        showNotification(dados.mensagem || 'Usuário excluído com sucesso.', 'success');
-        loadConfiguracoes();
-    } catch (erro) {
-        console.error('Erro ao excluir usuário:', erro);
-        alert('Erro ao excluir usuário.');
-    }
 }
 
 // Render config field based on type

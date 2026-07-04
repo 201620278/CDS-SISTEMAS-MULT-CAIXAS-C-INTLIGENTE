@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database');
-const { verificarToken: autenticarToken } = require('./auth');
+const { verificarToken: autenticarToken } = require('../middleware/auth');
 const { gravarAuditoria } = require('../services/auditoria');
 
 function normalizarTexto(texto) {

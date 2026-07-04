@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const { listarHistoricoBackups } = require('../services/backupManual');
-const { verificarPermissaoEspecifica } = require('./auth');
+const { verificarPermissaoEspecifica } = require('../middleware/auth');
 const {
   FILTRO_VENDA_VALIDA,
   isModoFiscalRelatorio,
@@ -14,6 +14,10 @@ const {
   getExprLucroItem,
   sqlRankingProdutos
 } = require('../services/reportFiscalHelpers');
+const {
+  sqlExcluirContaVendaCancelada,
+  sqlExcluirFinanceiroVendaCancelada
+} = require('../services/vendas/VendaFinanceiroService');
 
 function parseNumber(valor) {
   const n = Number(valor);
@@ -196,26 +200,29 @@ router.get('/resumo', verificarPermissaoEspecifica('relatorios'), async (req, re
         SELECT
           COALESCE(SUM(valor_restante), 0) AS total,
           COUNT(*) AS quantidade
-        FROM contas_receber
-        WHERE status IN ('aberto', 'parcial')
+        FROM contas_receber cr
+        WHERE cr.status IN ('aberto', 'parcial')
+          AND ${sqlExcluirContaVendaCancelada('cr')}
       `),
 
       dbGet(`
         SELECT
           COALESCE(SUM(valor), 0) AS total,
           COUNT(*) AS quantidade
-        FROM financeiro
-        WHERE tipo = 'receita'
-          AND status NOT IN ('recebido', 'pago', 'cancelado')
+        FROM financeiro f
+        WHERE f.tipo = 'receita'
+          AND f.status NOT IN ('recebido', 'pago', 'cancelado')
+          AND ${sqlExcluirFinanceiroVendaCancelada('f')}
       `),
 
       dbGet(`
         SELECT
           COALESCE(SUM(valor), 0) AS total,
           COUNT(*) AS quantidade
-        FROM financeiro
-        WHERE tipo = 'despesa'
-          AND status NOT IN ('pago', 'recebido', 'cancelado')
+        FROM financeiro f
+        WHERE f.tipo = 'despesa'
+          AND f.status NOT IN ('pago', 'recebido', 'cancelado')
+          AND ${sqlExcluirFinanceiroVendaCancelada('f')}
       `),
 
       dbAll(`
@@ -456,7 +463,25 @@ router.get('/resumo', verificarPermissaoEspecifica('relatorios'), async (req, re
         ultimo_backup_horas: ultimoBackupHoras,
         backup_atrasado: !!alertaBackupAtrasado,
         persistentes: alertasNaoResolvidos
-      }
+      },
+
+      equipamentos: await (async () => {
+        try {
+          const equipamentosRepository = require('../motores/equipamentos/repositories/EquipamentosRepository');
+          return await equipamentosRepository.obterResumoDashboard();
+        } catch (e) {
+          return { quantidade: 0, online: 0, offline: 0, fila: 0 };
+        }
+      })(),
+
+      sincronizacoes: await (async () => {
+        try {
+          const equipamentosRepository = require('../motores/equipamentos/repositories/EquipamentosRepository');
+          return await equipamentosRepository.obterResumoSincronizacoes();
+        } catch (e) {
+          return { pendentes: 0, concluidas: 0, erros: 0, ultima_sincronizacao: null };
+        }
+      })()
     });
   } catch (err) {
     console.error('Erro no dashboard /resumo:', err);

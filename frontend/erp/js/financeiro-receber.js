@@ -1,15 +1,6 @@
 // Contas a Receber
 let modalDetalhesRecebimento = null;
 
-function isAdminFinanceiro() {
-  try {
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
-    return user.role === 'admin';
-  } catch (e) {
-    return false;
-  }
-}
-
 function escapeHtmlFinanceiroSafe(texto) {
   return String(texto || '')
     .replace(/&/g, '&amp;')
@@ -815,7 +806,7 @@ function abrirDetalhesReceber(id) {
         throw new Error(dados.error || 'Falha ao carregar detalhes do recebimento.');
       }
 
-      const adminAcoes = isAdminFinanceiro() ? `
+      const adminAcoes = podeAdministrarFinanceiro() ? `
         <hr>
         <div class="d-flex gap-2 justify-content-end flex-wrap">
           <button class="btn btn-primary" onclick="abrirEdicaoReceber(${dados.id})">

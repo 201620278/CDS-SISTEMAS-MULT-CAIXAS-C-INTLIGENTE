@@ -65,6 +65,18 @@ function loadPage(page) {
             return typeof loadConfiguracoes === 'function'
                 ? loadConfiguracoes()
                 : $('#page-content').html('<div class="alert alert-danger">Erro ao carregar configurações.</div>');
+        case 'usuarios':
+            return typeof loadUsuarios === 'function'
+                ? loadUsuarios()
+                : $('#page-content').html('<div class="alert alert-danger">Erro ao carregar usuários.</div>');
+        case 'equipamentos':
+            return typeof loadEquipamentos === 'function'
+                ? loadEquipamentos()
+                : $('#page-content').html('<div class="alert alert-danger">Erro ao carregar equipamentos.</div>');
+        case 'laboratorio-equipamentos':
+            return typeof loadLaboratorioEquipamentos === 'function'
+                ? loadLaboratorioEquipamentos()
+                : $('#page-content').html('<div class="alert alert-danger">Erro ao carregar laboratório.</div>');
         case 'configuracoes-avancadas':
             return typeof loadConfiguracoesAvancadas === 'function'
                 ? loadConfiguracoesAvancadas()

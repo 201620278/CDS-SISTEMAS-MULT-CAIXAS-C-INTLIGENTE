@@ -327,18 +327,10 @@ function cancelarVendaNaoFiscal(vendaId) {
     document.getElementById('btnConfirmarCancelamento').addEventListener('click', async () => {
         const motivo = document.getElementById('motivoCancelamento').value.trim();
 
-        if (!motivo) {
-            showNotification('Informe o motivo do cancelamento.', 'warning');
+        const validacaoMotivo = validarMotivoTexto(motivo);
+        if (!validacaoMotivo.valido) {
+            showNotification(validacaoMotivo.erro, 'warning');
             return;
-        }
-
-        if (motivo.length < 15) {
-            const confirmarCurto = window.confirm(
-                'O motivo tem menos de 15 caracteres. Vendas com NFC-e exigem no mínimo 15. Deseja continuar mesmo assim?'
-            );
-            if (!confirmarCurto) {
-                return;
-            }
         }
 
         modal.hide();

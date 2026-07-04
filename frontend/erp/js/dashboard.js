@@ -238,6 +238,17 @@ function preencherDashboard(data) {
     setDashboardText('dashboardLucroHoje', formatarMoedaDashboard(data.lucro_estimado_hoje));
     setDashboardText('dashboardTicketHoje', formatarMoedaDashboard(data.ticket_medio_hoje));
 
+    const eq = data.equipamentos || {};
+    setDashboardText('dashboardEquipamentosQtd', eq.quantidade ?? 0);
+    setDashboardText('dashboardEquipamentosOnline', eq.online ?? 0);
+    setDashboardText('dashboardEquipamentosOffline', eq.offline ?? 0);
+    setDashboardText('dashboardEquipamentosFila', eq.fila ?? 0);
+
+    const sync = data.sincronizacoes || {};
+    setDashboardText('dashboardSyncPendentes', sync.pendentes ?? 0);
+    setDashboardText('dashboardSyncConcluidas', sync.concluidas ?? 0);
+    setDashboardText('dashboardSyncErros', sync.erros ?? 0);
+
     aplicarFaturamentoDashboard(
         'dashboardFaturamento',
         data.faturamento,

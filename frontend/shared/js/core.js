@@ -526,13 +526,13 @@ function filtrarMenuPorPermissoes() {
     });
 
     $('#nav-config-avancadas').toggle(isSuperAdminUser());
-    $('#nav-abrir-pdv').toggle(window.CDS_MODULE === 'erp' && podeAcessarModulo('pdv'));
+    $('#nav-abrir-pdv').toggle(window.CDS_MODULE === 'erp' && podeAbrirPDV());
     $('#nav-config-rede-pdv').toggle(window.CDS_MODULE === 'pdv' && isSuperAdminUser());
     $('#nav-nome-terminal-pdv').toggle(window.CDS_MODULE === 'pdv' && isSuperAdminUser());
     $('#nav-abrir-erp').toggle(
         window.CDS_MODULE === 'pdv' &&
-        typeof isUsuarioAdministrador === 'function' &&
-        isUsuarioAdministrador(obterUsuarioLogado())
+        typeof podeAbrirERP === 'function' &&
+        podeAbrirERP(obterUsuarioLogado())
     );
 }
 

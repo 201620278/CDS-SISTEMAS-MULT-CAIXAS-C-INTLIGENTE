@@ -6,14 +6,12 @@ console.log('SERVER FILE:', __filename);
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const jwt = require('jsonwebtoken');
 const http = require('http');
-const { getJwtSecret, isCorsOriginAllowed } = require('./config/secrets');
+const { isCorsOriginAllowed } = require('./config/secrets');
+const { verificarToken } = require('./middleware/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-
-const JWT_SECRET = getJwtSecret();
 
 // Middleware
 app.use((req, res, next) => {
@@ -56,56 +54,6 @@ function getWritableStoragePath() {
   
   // fallback (para desenvolvimento)
   app.use('/storage', express.static(path.join(__dirname, '../storage')));
-
-// Função para verificar token
-function verificarToken(req, res, next) {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    const isApiRequest = req.originalUrl.startsWith('/api');
-
-    if (!token) {
-        // Redireciona somente páginas HTML; API deve sempre retornar JSON
-        if (!isApiRequest && req.accepts('html')) {
-            return res.redirect('/login');
-        }
-        return res.status(401).json({ error: 'Acesso negado' });
-    }
-
-    jwt.verify(token, JWT_SECRET, (err, user) => {
-        if (err) {
-            if (!isApiRequest && req.accepts('html')) {
-                return res.redirect('/login');
-            }
-            return res.status(403).json({ error: 'Token inválido ou expirado' });
-        }
-
-        // Usar dados do token diretamente para evitar consulta ao banco
-        req.user = user;
-        next();
-
-        // Se precisar do perfil, consulte na rota específica
-        // db.get(
-        //     'SELECT id, username, nome, role, COALESCE(perfil, \'USUARIO\') as perfil FROM usuarios WHERE id = ?',
-        //     [user.id],
-        //     (err, usuario) => {
-        //         if (err || !usuario) {
-        //             req.user = user;
-        //             return next();
-        //         }
-
-        //         req.user = {
-        //             id: usuario.id,
-        //             username: usuario.username,
-        //             nome: usuario.nome,
-        //             role: usuario.role,
-        //             perfil: usuario.perfil
-        //         };
-
-        //         next();
-        //     }
-        // );
-    });
-}
 
 // Rotas públicas
 const { router: authRouter } = require('./rotas/auth');
@@ -163,11 +111,13 @@ const alertasRoutes = require('./rotas/alertas');
 const auditoriaRoutes = require('./rotas/auditoria');
 const licencaRoutes = require('./rotas/licenca');
 const dfeRoutes = require('./rotas/dfe');
+const equipamentosRoutes = require('./rotas/equipamentos');
+const laboratorioEquipamentosRoutes = require('./rotas/laboratorioEquipamentos');
+const engenhariaReversaRoutes = require('./rotas/engenhariaReversa');
 const licencaMiddleware = require('./middleware/licencaMiddleware');
 const configuracoesAvancadasRoutes = require('./rotas/configuracoes_avancadas');
 const { exigirRecurso } = require('./middleware/validarRecursoImplantacao');
 const configService = require('./services/configuracaoService');
-// const usuariosRoutes = require('./rotas/usuarios');
 
 configService.ensureConfigFile();
 configService.reloadGlobalConfig();
@@ -210,7 +160,9 @@ app.use('/api/pix', verificarToken, pixRoutes);
 app.use('/api/alertas', verificarToken, alertasRoutes);
 app.use('/api/auditoria', verificarToken, auditoriaRoutes);
 app.use('/api/dfe', verificarToken, exigirRecurso('fiscal'), dfeRoutes);
-// app.use('/api/usuarios', verificarToken, usuariosRoutes);
+app.use('/api/equipamentos', verificarToken, equipamentosRoutes);
+app.use('/api/laboratorio-equipamentos', verificarToken, laboratorioEquipamentosRoutes);
+app.use('/api/engenharia-reversa', verificarToken, engenhariaReversaRoutes);
 
 // Rotas de licença (públicas)
 app.use('/api/licenca', licencaRoutes);
@@ -218,9 +170,9 @@ app.use('/api/licenca', licencaRoutes);
 // Middleware de licença para todas as APIs exceto auth e licença
 app.use('/api', licencaMiddleware);
 
-// Rota principal (protegida)
+// Rota principal — redireciona para o ERP modular
 app.get('/', verificarToken, (req, res) => {
-    res.sendFile(path.join(__dirname, '../frontend/index.html'));
+    res.redirect('/erp');
 });
 
 // Rota para arquivos estáticos (não proteger)
@@ -258,11 +210,45 @@ app.use((err, req, res, next) => {
 const server = http.createServer(app);
 module.exports = server;
 
-db.whenReady((readyErr) => {
+const motorEquipamentos = require('./motores/equipamentos');
+const monitorService = require('./motores/equipamentos/monitor/MonitorService');
+const driverManager = require('./motores/equipamentos/core/DriverManager');
+
+async function inicializarMotorEquipamentos() {
+    await motorEquipamentos.inicializar();
+    driverManager.obterRelatorioCarregamento();
+    monitorService.iniciar();
+    console.log('Motor de Equipamentos inicializado (fila, drivers, monitor).');
+}
+
+const { sincronizarFinanceiroVendasCanceladas } = require('./services/vendas/VendaFinanceiroService');
+
+async function inicializarFinanceiroVendas() {
+    const resultado = await sincronizarFinanceiroVendasCanceladas();
+    if (resultado.registros_corrigidos > 0) {
+        console.log(
+            `Financeiro: ${resultado.registros_corrigidos} registro(s) sincronizado(s) em ${resultado.vendas} venda(s) cancelada(s).`
+        );
+    }
+}
+
+db.whenReady(async (readyErr) => {
     if (readyErr) {
         console.error('Servidor não iniciado: banco indisponível.', readyErr.message);
         process.exit(1);
         return;
+    }
+
+    try {
+        await inicializarFinanceiroVendas();
+    } catch (err) {
+        console.error('Falha ao sincronizar financeiro de vendas canceladas:', err.message);
+    }
+
+    try {
+        await inicializarMotorEquipamentos();
+    } catch (err) {
+        console.error('Falha ao inicializar Motor de Equipamentos:', err.message);
     }
 
     server.listen(PORT, () => {

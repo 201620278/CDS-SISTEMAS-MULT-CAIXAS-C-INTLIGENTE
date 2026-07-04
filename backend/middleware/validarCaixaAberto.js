@@ -135,4 +135,36 @@ function validarCaixaAbertoCancelamentoVenda(req, res, next) {
   );
 }
 
-module.exports = { validarCaixaAberto, validarCaixaAbertoCancelamentoVenda };
+function validarCaixaAbertoDevolucaoVenda(req, res, next) {
+  const vendaId = parsePositiveInteger(req.params.id);
+  if (!vendaId) {
+    return validarCaixaAberto(req, res, next);
+  }
+
+  db.get(
+    'SELECT terminal_id, caixa_sessao_id, operador_id FROM vendas WHERE id = ?',
+    [vendaId],
+    (err, venda) => {
+      if (err) {
+        console.error('Erro ao buscar venda para devolução:', err);
+        return res.status(500).json({ error: 'Erro ao verificar venda.' });
+      }
+
+      if (!venda) {
+        return res.status(404).json({ error: 'Venda não encontrada.' });
+      }
+
+      req.body = req.body || {};
+      if (!obterTerminalId(req) && venda.terminal_id) {
+        req.body.terminal_id = venda.terminal_id;
+      }
+      if (!obterSessaoId(req) && venda.caixa_sessao_id) {
+        req.body.caixa_sessao_id = venda.caixa_sessao_id;
+      }
+
+      return validarCaixaAberto(req, res, next);
+    }
+  );
+}
+
+module.exports = { validarCaixaAberto, validarCaixaAbertoCancelamentoVenda, validarCaixaAbertoDevolucaoVenda };

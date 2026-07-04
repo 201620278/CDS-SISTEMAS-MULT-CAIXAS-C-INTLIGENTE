@@ -5,16 +5,10 @@ const moment = require('moment');
 const { gravarAuditoria } = require('../services/auditoria');
 const { validarCaixaAberto } = require('../middleware/validarCaixaAberto');
 const { FILTRO_VENDA_VALIDA, isModoFiscalRelatorio } = require('../services/reportFiscalHelpers');
-
-console.log('ROTA FINANCEIRO CARREGADA:', __filename);
-
-router.get('/teste-rota-financeiro', (req, res) => {
-  res.json({
-    ok: true,
-    arquivo: __filename,
-    mensagem: 'rota financeiro ativa'
-  });
-});
+const {
+  sqlExcluirContaVendaCancelada,
+  sqlExcluirFinanceiroVendaCancelada
+} = require('../services/vendas/VendaFinanceiroService');
 
 function parseNumber(value) {
   const number = Number(value);
@@ -223,8 +217,9 @@ router.get('/resumo', (req, res) => {
       SUM(CASE WHEN tipo = 'despesa' AND status IN ('pago','recebido') THEN valor ELSE 0 END) AS total_pago,
       SUM(CASE WHEN tipo = 'receita' AND status = 'pendente' THEN valor ELSE 0 END) AS total_a_receber,
       SUM(CASE WHEN tipo = 'despesa' AND status = 'pendente' THEN valor ELSE 0 END) AS total_a_pagar
-    FROM financeiro
+    FROM financeiro f
     WHERE 1=1
+      AND ${sqlExcluirFinanceiroVendaCancelada('f')}
   `;
   const params = [];
 
@@ -761,6 +756,7 @@ function buildReceberQueryFilters(query) {
         (f.documento IS NOT NULL AND c.cpf_cnpj = f.documento)
       )
     WHERE f.tipo = 'receita'
+      AND ${sqlExcluirFinanceiroVendaCancelada('f')}
   `;
 
   const params = [];
@@ -896,6 +892,7 @@ router.get('/receber/agrupado', async (req, res) => {
       FROM clientes c
       JOIN contas_receber cr ON cr.cliente_id = c.id
       WHERE cr.status IN ('aberto','parcial')
+        AND ${sqlExcluirContaVendaCancelada('cr')}
     `;
 
     const params = [];
@@ -989,6 +986,7 @@ router.get('/receber/agrupado/:clienteId', async (req, res) => {
       FROM contas_receber cr
       JOIN vendas v ON v.id = cr.venda_id
       WHERE cr.cliente_id = ? AND cr.status IN ('aberto', 'parcial')
+        AND ${sqlExcluirContaVendaCancelada('cr')}
       ORDER BY v.data_venda ASC, cr.data_vencimento ASC
     `, [clienteId]);
 
@@ -1355,6 +1353,7 @@ router.post('/receber/agrupado/:clienteId/pagamento-parcial', async (req, res) =
       FROM contas_receber cr
       LEFT JOIN vendas v ON v.id = cr.venda_id
       WHERE cr.cliente_id = ? AND cr.status IN ('aberto','parcial')
+        AND ${sqlExcluirContaVendaCancelada('cr')}
       ORDER BY cr.data_vencimento ASC, cr.id ASC
     `, [clienteId]);
 
@@ -1834,6 +1833,7 @@ router.get('/relatorios/receber', (req, res) => {
     FROM financeiro f
     LEFT JOIN vendas v ON v.id = f.venda_id
     WHERE f.tipo = 'receita'
+      AND ${sqlExcluirFinanceiroVendaCancelada('f')}
   `;
 
   const params = [];

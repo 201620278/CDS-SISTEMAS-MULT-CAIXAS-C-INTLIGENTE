@@ -4,93 +4,34 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { gravarAuditoria } = require('../services/auditoria');
 const db = require('../database');
+const {
+  JWT_SECRET,
+  PERMISSOES_DISPONIVEIS,
+  verificarToken,
+  exigirAdmin,
+  exigirSuperAdmin,
+  verificarPermissaoEspecifica,
+  exigirPerfilAjusteEstoque,
+  buscarPermissoesUsuario
+} = require('../middleware/auth');
 
 function parsePositiveInteger(value) {
   const num = Number(value);
   return Number.isInteger(num) && num > 0 ? num : null;
 }
 
-const { getJwtSecret } = require('../config/secrets');
-const JWT_SECRET = getJwtSecret();
-
-const PERMISSOES_DISPONIVEIS = [
-  'pdv',
-  'vendas',
-  'produtos',
-  'clientes',
-  'compras',
-  'fornecedores',
-  'financeiro',
-  'caixa',
-  'fiscal',
-  'configuracoes',
-  'usuarios',
-  'relatorios',
-  'auditoria',
-  'categorias',
-  'gerenciar_faixa_atacado'
-];
-
-function extrairToken(req) {
-  const authHeader = req.headers['authorization'];
-  return authHeader && authHeader.split(' ')[1];
-}
-
-function verificarToken(req, res, next) {
-  const token = extrairToken(req);
-
-  if (!token) {
-    return res.status(401).json({ error: 'Acesso negado' });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Token inválido ou expirado' });
-    }
-
-    req.user = user;
-    next();
-  });
-}
-
-function exigirAdmin(req, res, next) {
-  verificarToken(req, res, () => {
-    // Buscar dados completos do usuário incluindo perfil
-    db.get(
-      'SELECT id, username, role, COALESCE(perfil, \'USUARIO\') as perfil, pode_alterar_senhas FROM usuarios WHERE id = ?',
-      [req.user?.id],
-      (err, usuario) => {
-        if (err || !usuario) {
-          return res.status(403).json({ error: 'Erro ao verificar permissões.' });
-        }
-
-        // Atualizar req.user com dados completos
-        req.user.perfil = usuario.perfil;
-        req.user.pode_alterar_senhas = usuario.pode_alterar_senhas;
-
-        // Verificar se é admin (role) ou tem perfil de ADMIN/SUPER_ADMIN
-        const isAdmin = req.user?.role === 'admin' || usuario.perfil === 'ADMIN' || usuario.perfil === 'SUPER_ADMIN';
-
-        if (!isAdmin) {
-          return res.status(403).json({ error: 'Apenas administradores podem executar esta ação.' });
-        }
-
-        next();
-      }
-    );
-  });
-}
-
-function buscarPermissoesUsuario(usuarioId, callback) {
-  db.all(
-    `SELECT permissao FROM usuario_permissoes WHERE usuario_id = ? AND permitido = 1`,
-    [usuarioId],
-    (err, rows) => {
-      if (err) return callback(err);
-
-      callback(null, (rows || []).map(r => r.permissao));
-    }
-  );
+function auditarAcaoUsuario(req, acao, referenciaId, detalhes = {}) {
+  const usuario = req.user || {};
+  gravarAuditoria({
+    usuario_id: usuario.id || null,
+    usuario_nome: usuario.username || usuario.nome || null,
+    modulo: 'usuarios',
+    acao,
+    referencia_tipo: 'usuario',
+    referencia_id: referenciaId,
+    detalhes: { ...detalhes, ip: req.ip || null },
+    ip_requisicao: req.ip || null
+  }).catch((auditErr) => console.error(`Erro ao gravar auditoria (${acao}):`, auditErr));
 }
 
 function responderErroInternoLogin(res, contexto, err) {
@@ -353,16 +294,6 @@ function filtroStatusUsuarios(status) {
   return 'WHERE COALESCE(ativo, 1) = 1';
 }
 
-function exigirSuperAdmin(req, res, next) {
-  const perfilLogado = String(req.user?.perfil || '').toUpperCase();
-  if (perfilLogado !== 'SUPER_ADMIN') {
-    return res.status(403).json({
-      erro: 'Apenas SUPER_ADMIN pode gerenciar usuários.'
-    });
-  }
-  next();
-}
-
 router.get('/usuarios', verificarToken, (req, res) => {
   const filtro = filtroStatusUsuarios(req.query.status);
 
@@ -434,8 +365,15 @@ router.post('/usuarios', exigirAdmin, (req, res) => {
     const hash = bcrypt.hashSync(password, 10);
 
     const finalizarCadastro = (usuarioId) => {
+      const detalhesCadastro = {
+        username,
+        role,
+        perfil,
+        reativado: !!(existente && existente.ativo === 0)
+      };
 
       if (role === 'admin') {
+        auditarAcaoUsuario(req, 'criar_usuario', usuarioId, detalhesCadastro);
         return res.json({
           id: usuarioId,
           username,
@@ -450,6 +388,7 @@ router.post('/usuarios', exigirAdmin, (req, res) => {
       }
 
       salvarPermissoes(usuarioId, permissoes, () => {
+        auditarAcaoUsuario(req, 'criar_usuario', usuarioId, { ...detalhesCadastro, permissoes });
         res.json({
           id: usuarioId,
           username,
@@ -526,7 +465,9 @@ router.put('/usuarios/:id', exigirAdmin, (req, res) => {
     }
 
     const finalizar = () => {
+      const detalhesAtualizacao = { role, perfil, pode_alterar_senhas: podeAlterarSenhas, senha_alterada: !!password };
       if (role === 'admin') {
+        auditarAcaoUsuario(req, 'atualizar_usuario', id, detalhesAtualizacao);
         return res.json({
           message: 'Usuário atualizado com sucesso.',
           perfil,
@@ -535,6 +476,7 @@ router.put('/usuarios/:id', exigirAdmin, (req, res) => {
       }
 
       salvarPermissoes(id, permissoes, () => {
+        auditarAcaoUsuario(req, 'atualizar_usuario', id, { ...detalhesAtualizacao, permissoes });
         res.json({
           message: 'Usuário atualizado com sucesso.',
           perfil,
@@ -600,9 +542,7 @@ router.patch('/usuarios/:id/desativar', verificarToken, exigirSuperAdmin, (req, 
         return res.status(404).json({ erro: 'Usuário não encontrado.' });
       }
 
-      console.log(
-        `[AUDITORIA] Usuário ${req.user.username} (perfil: ${perfilLogado}) desativou usuário ID ${idUsuario}`
-      );
+      auditarAcaoUsuario(req, 'desativar_usuario', idUsuario, { perfil_executor: perfilLogado });
 
       res.json({
         sucesso: true,
@@ -629,9 +569,7 @@ router.patch('/usuarios/:id/ativar', verificarToken, exigirSuperAdmin, (req, res
         return res.status(404).json({ erro: 'Usuário não encontrado.' });
       }
 
-      console.log(
-        `[AUDITORIA] Usuário ${req.user.username} (perfil: ${perfilLogado}) reativou usuário ID ${idUsuario}`
-      );
+      auditarAcaoUsuario(req, 'reativar_usuario', idUsuario, { perfil_executor: perfilLogado });
 
       res.json({
         sucesso: true,
@@ -666,9 +604,7 @@ router.delete('/usuarios/:id', verificarToken, exigirSuperAdmin, (req, res) => {
         return res.status(404).json({ erro: 'Usuário não encontrado.' });
       }
 
-      console.log(
-        `[AUDITORIA] Usuário ${req.user.username} (perfil: ${perfilLogado}) excluiu permanentemente usuário ID ${idUsuario}`
-      );
+      auditarAcaoUsuario(req, 'excluir_usuario', idUsuario, { perfil_executor: perfilLogado });
 
       res.json({
         sucesso: true,
@@ -756,6 +692,11 @@ router.post('/usuarios/alterar-senha', verificarToken, async (req, res) => {
       });
     });
 
+    auditarAcaoUsuario(req, 'alterar_senha', usuarioAlvoId, {
+      alvo_username: alvo.username,
+      propria_senha: usuarioLogadoId === usuarioAlvoId
+    });
+
     res.json({ sucesso: true, mensagem: 'Senha alterada com sucesso.' });
 
   } catch (error) {
@@ -791,6 +732,29 @@ router.get('/meu-perfil', verificarToken, (req, res) => {
   );
 });
 
+const { obterRelatorioUsuario } = require('../services/usuarioRelatorioService');
+
+router.get('/usuarios/:id/relatorio', verificarToken, exigirAdmin, async (req, res) => {
+  const usuarioId = parsePositiveInteger(req.params.id);
+  if (!usuarioId) {
+    return res.status(400).json({ error: 'ID de usuário inválido.' });
+  }
+
+  try {
+    const relatorio = await obterRelatorioUsuario(usuarioId, {
+      inicio: req.query.inicio || null,
+      fim: req.query.fim || null
+    });
+    res.json(relatorio);
+  } catch (err) {
+    if (err.status === 404) {
+      return res.status(404).json({ error: err.message });
+    }
+    console.error('Erro ao gerar relatório do usuário:', err);
+    res.status(500).json({ error: 'Erro ao gerar relatório do usuário.' });
+  }
+});
+
 function salvarPermissoes(usuarioId, permissoes, callback) {
   const permissoesValidas = permissoes.filter(p => PERMISSOES_DISPONIVEIS.includes(p));
 
@@ -809,53 +773,6 @@ function salvarPermissoes(usuarioId, permissoes, callback) {
 
     stmt.finalize(() => callback && callback());
   });
-}
-
-// Função para verificar se o usuário tem uma permissão específica
-// Retorna um middleware que verifica: admin/supervisor role OU permissão específica
-function verificarPermissaoEspecifica(nomeDaPermissao) {
-  return (req, res, next) => {
-    verificarToken(req, res, () => {
-      // Admin, supervisor e perfis administrativos sempre têm acesso
-      const perfil = String(req.user?.perfil || '').trim().toUpperCase();
-      if (
-        req.user?.role === 'admin' ||
-        req.user?.role === 'supervisor' ||
-        ['SUPER_ADMIN', 'ADMIN'].includes(perfil)
-      ) {
-        return next();
-      }
-
-      // Verificar permissão específica para operadores
-      buscarPermissoesUsuario(req.user?.id, (err, permissoes) => {
-        if (err) {
-          return res.status(500).json({ error: 'Erro ao verificar permissões' });
-        }
-
-        if (Array.isArray(permissoes) && permissoes.includes(nomeDaPermissao)) {
-          return next();
-        }
-
-        return res.status(403).json({
-          error: `Acesso restrito: permissão "${nomeDaPermissao}" necessária.`
-        });
-      });
-    });
-  };
-}
-
-function exigirPerfilAjusteEstoque() {
-  return (req, res, next) => {
-    verificarToken(req, res, () => {
-      const perfil = String(req.user?.perfil || '').trim().toUpperCase();
-      if (req.user?.role === 'admin' || ['SUPER_ADMIN', 'ADMIN'].includes(perfil)) {
-        return next();
-      }
-      return res.status(403).json({
-        error: 'Acesso restrito: apenas SUPER_ADMIN ou ADMIN podem ajustar estoque.'
-      });
-    });
-  };
 }
 
 module.exports = {

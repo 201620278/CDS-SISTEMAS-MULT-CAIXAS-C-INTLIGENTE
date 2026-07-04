@@ -1,18 +1,9 @@
 function loadLicenca() {
-    $('#page-content').html(`
-        <div class="text-center p-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Carregando...</span>
-            </div>
-            <p class="mt-2">Carregando licença...</p>
-        </div>
-    `);
-
-    $('#page-content').load('licenca.html', function(response, status) {
-        if (status === 'error') {
-            $('#page-content').html('<div class="alert alert-danger">Erro ao carregar a página de licença.</div>');
-            return;
-        }
+    if (typeof carregarPaginaHtml !== 'function') {
+        $('#page-content').html('<div class="alert alert-danger">Erro ao carregar a página de licença.</div>');
+        return;
+    }
+    return carregarPaginaHtml('licenca.html', function () {
         loadLicencaData();
     });
 }

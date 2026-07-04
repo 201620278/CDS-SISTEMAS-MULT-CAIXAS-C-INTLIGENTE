@@ -348,6 +348,19 @@ function aplicarAlteracoesPosCriacao() {
   );
 
   ['tef_pinpads', 'tef_servidores', 'tef_operacoes'].forEach(migrarColunaTefConfiguracaoId);
+
+  // Sprint 9 — Motor Equipamentos: campos de configuração e status
+  aplicarAlteracaoSegura('equipamentos', `ALTER TABLE equipamentos ADD COLUMN timeout_ms INTEGER DEFAULT 5000`);
+  aplicarAlteracaoSegura('equipamentos', `ALTER TABLE equipamentos ADD COLUMN reconnect_auto INTEGER DEFAULT 1`);
+  aplicarAlteracaoSegura('equipamentos', `ALTER TABLE equipamentos ADD COLUMN ultima_comunicacao DATETIME`);
+  aplicarAlteracaoSegura('equipamentos', `ALTER TABLE equipamentos ADD COLUMN ultimo_erro TEXT`);
+
+  // Sprint 13A — Homologação Toledo: metadados de firmware e comunicação (nullable até homologação física)
+  aplicarAlteracaoSegura('equipamentos', `ALTER TABLE equipamentos ADD COLUMN firmware TEXT`);
+  aplicarAlteracaoSegura('equipamentos', `ALTER TABLE equipamentos ADD COLUMN protocolo_versao TEXT`);
+  aplicarAlteracaoSegura('equipamentos', `ALTER TABLE equipamentos ADD COLUMN ultimo_handshake DATETIME`);
+  aplicarAlteracaoSegura('equipamentos', `ALTER TABLE equipamentos ADD COLUMN ultimo_sync DATETIME`);
+  aplicarAlteracaoSegura('equipamentos', `ALTER TABLE equipamentos ADD COLUMN ultimo_ping DATETIME`);
 }
 
 function criarTabelas() {
@@ -2210,6 +2223,192 @@ db.serialize(() => {
       FOREIGN KEY (terminal_id) REFERENCES terminais(id)
     )
   `);
+
+    // ─── Motor de Equipamentos ───────────────────────────────────────
+    db.run(`
+      CREATE TABLE IF NOT EXISTS equipamentos_drivers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        codigo TEXT UNIQUE NOT NULL,
+        fabricante TEXT NOT NULL,
+        modelo TEXT NOT NULL,
+        nome_exibicao TEXT NOT NULL,
+        versao TEXT DEFAULT '1.0.0',
+        transportes TEXT,
+        descricao TEXT,
+        ativo INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela equipamentos_drivers:', err);
+      else console.log('Tabela equipamentos_drivers criada/verificada');
+    });
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS equipamentos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nome TEXT NOT NULL,
+        tipo TEXT NOT NULL DEFAULT 'balanca',
+        fabricante TEXT,
+        modelo TEXT,
+        driver_id INTEGER,
+        driver_codigo TEXT,
+        transporte TEXT DEFAULT 'serial',
+        porta_com TEXT,
+        ip TEXT,
+        porta_tcp INTEGER,
+        status TEXT DEFAULT 'offline',
+        ativo INTEGER DEFAULT 1,
+        terminal_id INTEGER,
+        observacao TEXT,
+        ultimo_teste DATETIME,
+        ultimo_diagnostico DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (driver_id) REFERENCES equipamentos_drivers(id),
+        FOREIGN KEY (terminal_id) REFERENCES terminais(id)
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela equipamentos:', err);
+      else console.log('Tabela equipamentos criada/verificada');
+    });
+
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_equipamentos_ip ON equipamentos(ip)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_equipamentos_driver_id ON equipamentos(driver_id)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_equipamentos_driver_codigo ON equipamentos(driver_codigo)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_equipamentos_status ON equipamentos(status)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_equipamentos_ativo ON equipamentos(ativo)
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS equipamentos_configuracoes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        equipamento_id INTEGER,
+        chave TEXT NOT NULL,
+        valor TEXT,
+        descricao TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (equipamento_id) REFERENCES equipamentos(id) ON DELETE CASCADE,
+        UNIQUE(equipamento_id, chave)
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela equipamentos_configuracoes:', err);
+      else console.log('Tabela equipamentos_configuracoes criada/verificada');
+    });
+
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_equipamentos_config_equipamento ON equipamentos_configuracoes(equipamento_id)
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS equipamentos_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        equipamento_id INTEGER,
+        nivel TEXT NOT NULL DEFAULT 'info',
+        operacao TEXT,
+        mensagem TEXT NOT NULL,
+        contexto TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (equipamento_id) REFERENCES equipamentos(id) ON DELETE SET NULL
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela equipamentos_logs:', err);
+      else console.log('Tabela equipamentos_logs criada/verificada');
+    });
+
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_equipamentos_logs_equipamento ON equipamentos_logs(equipamento_id)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_equipamentos_logs_nivel ON equipamentos_logs(nivel)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_equipamentos_logs_created ON equipamentos_logs(created_at)
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS equipamentos_eventos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        equipamento_id INTEGER,
+        evento TEXT NOT NULL,
+        payload TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (equipamento_id) REFERENCES equipamentos(id) ON DELETE SET NULL
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela equipamentos_eventos:', err);
+      else console.log('Tabela equipamentos_eventos criada/verificada');
+    });
+
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_equipamentos_eventos_equipamento ON equipamentos_eventos(equipamento_id)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_equipamentos_eventos_evento ON equipamentos_eventos(evento)
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS equipamentos_fila (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        equipamento_id INTEGER NOT NULL,
+        comando TEXT NOT NULL,
+        payload TEXT,
+        status TEXT DEFAULT 'pendente',
+        prioridade INTEGER DEFAULT 5,
+        tentativas INTEGER DEFAULT 0,
+        erro_mensagem TEXT,
+        processado_em DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (equipamento_id) REFERENCES equipamentos(id) ON DELETE CASCADE
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela equipamentos_fila:', err);
+      else console.log('Tabela equipamentos_fila criada/verificada');
+    });
+
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_equipamentos_fila_status ON equipamentos_fila(status)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_equipamentos_fila_equipamento ON equipamentos_fila(equipamento_id)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_equipamentos_fila_prioridade ON equipamentos_fila(prioridade, created_at)
+    `);
+
+    const catalogoDriversEquipamentos = [
+      ['TOLEDO_PRIX4_UNO', 'Toledo', 'Prix 4 Uno', 'Toledo Prix 4 Uno', '["serial","ethernet"]', 'Balança Toledo Prix 4 Uno (driver pendente)'],
+      ['FILIZOLA_PLATINA', 'Filizola', 'Platina', 'Filizola Platina', '["serial","ethernet"]', 'Balança Filizola Platina (driver pendente)'],
+      ['URANO_POP', 'Urano', 'POP', 'Urano POP', '["serial"]', 'Balança Urano POP (driver pendente)'],
+      ['ACLAS_LS2', 'Aclas', 'LS2', 'Aclas LS2', '["serial","usb"]', 'Balança Aclas LS2 (driver pendente)'],
+      ['ELGEN_BALANCA', 'Elgin', 'DP30', 'Elgin DP30', '["serial"]', 'Balança Elgin (driver pendente)'],
+      ['BEMATECH_BP5', 'Bematech', 'BP5', 'Bematech BP5', '["serial"]', 'Balança Bematech BP5 (driver pendente)']
+    ];
+
+    catalogoDriversEquipamentos.forEach(([codigo, fabricante, modelo, nome, transportes, descricao]) => {
+      db.run(`
+        INSERT OR IGNORE INTO equipamentos_drivers (codigo, fabricante, modelo, nome_exibicao, transportes, descricao, ativo)
+        VALUES (?, ?, ?, ?, ?, ?, 1)
+      `, [codigo, fabricante, modelo, nome, transportes, descricao]);
+    });
+
+    db.run(`
+      INSERT OR IGNORE INTO configuracoes (chave, valor, descricao)
+      VALUES ('equipamentos_ativo', 'true', 'Motor de Equipamentos habilitado')
+    `);
 
     db.run(`
       CREATE TABLE IF NOT EXISTS auditoria (

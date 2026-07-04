@@ -3,7 +3,7 @@ const router = express.Router();
 const db = require('../database');
 const licencaService = require('../services/licencaService');
 const verificarLicenca = require('../services/verificarLicenca');
-const { verificarPermissaoEspecifica } = require('./auth');
+const { verificarPermissaoEspecifica } = require('../middleware/auth');
 
 router.get('/', verificarPermissaoEspecifica('configuracoes'), async (req, res) => {
   try {

@@ -5,6 +5,7 @@ const db = require('../database');
 const moment = require('moment');
 const { gravarAuditoria } = require('../services/auditoria');
 const { validarCaixaAberto } = require('../middleware/validarCaixaAberto');
+const { sqlExcluirContaVendaCancelada } = require('../services/vendas/VendaFinanceiroService');
 
 router.get('/em-aberto', (req, res) => {
   db.all(`
@@ -13,6 +14,7 @@ router.get('/em-aberto', (req, res) => {
     LEFT JOIN clientes c ON cr.cliente_id = c.id
     LEFT JOIN vendas v ON cr.venda_id = v.id
     WHERE cr.status = 'aberto'
+      AND ${sqlExcluirContaVendaCancelada('cr')}
     ORDER BY cr.data_vencimento ASC
   `, (err, rows) => {
     if (err) {
@@ -31,6 +33,7 @@ router.get('/vencidas', (req, res) => {
     LEFT JOIN clientes c ON cr.cliente_id = c.id
     LEFT JOIN vendas v ON cr.venda_id = v.id
     WHERE cr.status = 'aberto' AND cr.data_vencimento < ?
+      AND ${sqlExcluirContaVendaCancelada('cr')}
     ORDER BY cr.data_vencimento ASC
   `, [hoje], (err, rows) => {
     if (err) {
@@ -65,8 +68,9 @@ router.get('/verificar/:cliente_id', (req, res) => {
     SELECT
       SUM(CASE WHEN status = 'aberto' THEN valor_restante ELSE 0 END) as total_em_aberto,
       COUNT(CASE WHEN status = 'aberto' AND data_vencimento < ? THEN 1 END) as parcelas_vencidas
-    FROM contas_receber
+    FROM contas_receber cr
     WHERE cliente_id = ?
+      AND ${sqlExcluirContaVendaCancelada('cr')}
   `, [hoje, cliente_id], (err, row) => {
     if (err) {
       res.status(500).json({ error: err.message });

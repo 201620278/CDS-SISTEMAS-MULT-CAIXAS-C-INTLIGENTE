@@ -1,0 +1,197 @@
+/**
+ * EquipamentosController — Camada HTTP do Motor de Equipamentos (Sprint 9).
+ * Delega regras de negócio ao EquipamentosService.
+ */
+
+const equipamentosService = require('../motores/equipamentos/services/EquipamentosService');
+const loggerService = require('../motores/equipamentos/services/LoggerService');
+
+function responderErro(res, error, mensagemPadrao, statusPadrao = 500) {
+  const status = error.statusCode || statusPadrao;
+  return res.status(status).json({
+    success: false,
+    error: error.message || mensagemPadrao
+  });
+}
+
+async function listar(req, res) {
+  try {
+    const equipamentos = await equipamentosService.listar(req.query || {});
+    res.json({ success: true, equipamentos });
+  } catch (error) {
+    await loggerService.error('Erro ao listar equipamentos', { operacao: 'listar', contexto: { erro: error.message } });
+    responderErro(res, error, 'Erro ao listar equipamentos.');
+  }
+}
+
+async function buscarPorId(req, res) {
+  try {
+    const equipamento = await equipamentosService.buscarPorId(req.params.id);
+    if (!equipamento) {
+      return res.status(404).json({ success: false, error: 'Equipamento não encontrado' });
+    }
+    res.json({ success: true, equipamento });
+  } catch (error) {
+    responderErro(res, error, 'Erro ao buscar equipamento.');
+  }
+}
+
+async function criar(req, res) {
+  try {
+    const equipamento = await equipamentosService.criar(req.body || {});
+    res.status(201).json({
+      success: true,
+      message: 'Equipamento cadastrado com sucesso.',
+      equipamento
+    });
+  } catch (error) {
+    await loggerService.error('Erro ao criar equipamento', { operacao: 'cadastro', contexto: { erro: error.message } });
+    responderErro(res, error, 'Erro ao criar equipamento.', 400);
+  }
+}
+
+async function editar(req, res) {
+  try {
+    const equipamento = await equipamentosService.editar(req.params.id, req.body || {});
+    res.json({
+      success: true,
+      message: 'Equipamento atualizado com sucesso.',
+      equipamento
+    });
+  } catch (error) {
+    const status = error.message === 'Equipamento não encontrado' ? 404 : 400;
+    responderErro(res, error, 'Erro ao atualizar equipamento.', status);
+  }
+}
+
+async function remover(req, res) {
+  try {
+    const resultado = await equipamentosService.remover(req.params.id);
+    res.json({
+      success: true,
+      message: 'Equipamento removido com sucesso.',
+      ...resultado
+    });
+  } catch (error) {
+    const status = error.statusCode || (error.message === 'Equipamento não encontrado' ? 404 : 500);
+    responderErro(res, error, 'Erro ao remover equipamento.', status);
+  }
+}
+
+async function duplicar(req, res) {
+  try {
+    const equipamento = await equipamentosService.duplicar(req.params.id);
+    res.status(201).json({
+      success: true,
+      message: 'Equipamento duplicado com sucesso.',
+      equipamento
+    });
+  } catch (error) {
+    responderErro(res, error, 'Erro ao duplicar equipamento.', error.statusCode || 400);
+  }
+}
+
+async function ativar(req, res) {
+  try {
+    const equipamento = await equipamentosService.ativar(req.params.id);
+    res.json({ success: true, message: 'Equipamento ativado.', equipamento });
+  } catch (error) {
+    responderErro(res, error, 'Erro ao ativar equipamento.', error.statusCode || 400);
+  }
+}
+
+async function desativar(req, res) {
+  try {
+    const equipamento = await equipamentosService.desativar(req.params.id);
+    res.json({ success: true, message: 'Equipamento desativado.', equipamento });
+  } catch (error) {
+    responderErro(res, error, 'Erro ao desativar equipamento.', error.statusCode || 400);
+  }
+}
+
+async function listarDrivers(req, res) {
+  try {
+    const drivers = await equipamentosService.listarDrivers();
+    res.json({ success: true, drivers });
+  } catch (error) {
+    responderErro(res, error, 'Erro ao listar drivers.');
+  }
+}
+
+async function testar(req, res) {
+  try {
+    const equipamentoId = req.body?.equipamento_id || req.params.id;
+    if (!equipamentoId) {
+      return res.status(400).json({ success: false, error: 'equipamento_id é obrigatório' });
+    }
+    const resultado = await equipamentosService.testarConexao(equipamentoId);
+    res.json(resultado);
+  } catch (error) {
+    responderErro(res, error, 'Erro ao testar equipamento.', error.statusCode || 500);
+  }
+}
+
+async function conexao(req, res) {
+  try {
+    const resultado = await equipamentosService.obterStatusConexao(req.params.id);
+    res.json({ success: true, ...resultado });
+  } catch (error) {
+    responderErro(res, error, 'Erro ao obter status de conexão.', error.statusCode || 500);
+  }
+}
+
+async function diagnostico(req, res) {
+  try {
+    const equipamentoId = req.body?.equipamento_id || req.params.id;
+
+    if (equipamentoId) {
+      const resultado = await equipamentosService.diagnosticarEquipamento(equipamentoId);
+      return res.json({ success: true, ...resultado });
+    }
+
+    const completo = req.query.completo === '1' || req.body?.completo;
+    const resultado = completo
+      ? await equipamentosService.executarDiagnosticoGeral(req.body || {})
+      : await equipamentosService.executarDiagnosticoGeral();
+
+    res.json({ success: true, ...resultado });
+  } catch (error) {
+    responderErro(res, error, 'Erro ao executar diagnóstico.', error.statusCode || 500);
+  }
+}
+
+async function resumo(req, res) {
+  try {
+    const resumoData = await equipamentosService.obterResumo();
+    res.json({ success: true, resumo: resumoData });
+  } catch (error) {
+    responderErro(res, error, 'Erro ao obter resumo de equipamentos.');
+  }
+}
+
+async function logs(req, res) {
+  try {
+    const limite = Number(req.query.limite || 50);
+    const lista = await equipamentosService.listarLogs(req.params.id, limite);
+    res.json({ success: true, logs: lista });
+  } catch (error) {
+    responderErro(res, error, 'Erro ao listar logs do equipamento.');
+  }
+}
+
+module.exports = {
+  listar,
+  buscarPorId,
+  criar,
+  editar,
+  remover,
+  duplicar,
+  ativar,
+  desativar,
+  listarDrivers,
+  testar,
+  diagnostico,
+  resumo,
+  conexao,
+  logs
+};

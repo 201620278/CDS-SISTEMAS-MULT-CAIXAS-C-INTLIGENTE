@@ -380,19 +380,6 @@ function nomePerfilUsuario(usuario) {
     return perfil || 'USUÁRIO';
 }
 
-function usuarioEhSupervisor() {
-    try {
-        const usuario = JSON.parse(localStorage.getItem('user') || '{}');
-        const perfil = String(usuario?.perfil || usuario?.nivel || '')
-            .trim()
-            .toUpperCase();
-
-        return usuario?.role === 'admin' || ['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR'].includes(perfil);
-    } catch (e) {
-        return false;
-    }
-}
-
 function mostrarModalAutorizacaoSupervisor(onAuthorized) {
     $('#modal-container').html(`
         <div class="modal fade" id="supervisorAuthModal" tabindex="-1" aria-hidden="true">
@@ -1587,32 +1574,42 @@ function bindEventosPDV() {
             abrirModalDecisaoFiscal();
         }
         if (e.key === 'Escape') {
+            if (window.PdvBuscaProduto && PdvBuscaProduto.estaAberto()) {
+                e.preventDefault();
+                e.stopPropagation();
+                PdvBuscaProduto.fechar();
+                return;
+            }
             e.preventDefault();
             e.stopPropagation();
             cancelarVendaAtual();
         }
     });
 
-    $('#buscaProdutoPdv').off('keypress').on('keypress', function(e) {
-        if (e.which === 13) {
-            const codigo = $(this).val().trim();
+    if (window.PdvBuscaProduto && typeof PdvBuscaProduto.inicializar === 'function') {
+        PdvBuscaProduto.inicializar();
+    } else {
+        $('#buscaProdutoPdv').off('keypress').on('keypress', function(e) {
+            if (e.which === 13) {
+                const codigo = $(this).val().trim();
+                if (codigo) {
+                    adicionarProdutoPorCodigo(codigo);
+                    $(this).val('');
+                }
+            }
+        });
+
+        $('#btnBuscarProdutoPdv').off('click').on('click', function() {
+            const codigo = $('#buscaProdutoPdv').val().trim();
             if (codigo) {
                 adicionarProdutoPorCodigo(codigo);
-                $(this).val('');
+                $('#buscaProdutoPdv').val('');
+            } else {
+                showNotification('Digite ou bip o código do produto.', 'warning');
             }
-        }
-    });
-
-    $('#btnBuscarProdutoPdv').off('click').on('click', function() {
-        const codigo = $('#buscaProdutoPdv').val().trim();
-        if (codigo) {
-            adicionarProdutoPorCodigo(codigo);
-            $('#buscaProdutoPdv').val('');
-        } else {
-            showNotification('Digite ou bip o código do produto.', 'warning');
-        }
-        focarCampoCodigo();
-    });
+            focarCampoCodigo();
+        });
+    }
 
     $('#btnLimparVendaPdv').off('click').on('click', limparCarrinho);
     $('#btnCancelarVendaPdv').off('click').on('click', cancelarVendaAtual);
@@ -2041,6 +2038,26 @@ function normalizarCodigoProduto(codigo) {
     return String(codigo || '').replace(/\D/g, '').replace(/^0+/, '') || String(codigo || '').trim();
 }
 
+function encontrarProdutoPorCodigoExato(termo) {
+    const busca = normalizarTexto(termo);
+    const buscaNumerica = normalizarCodigoProduto(termo);
+
+    return produtosDisponiveis.find(p => {
+        const codigo = normalizarTexto(p.codigo);
+        const codigoBarras = normalizarTexto(p.codigo_barras);
+        const codigoNumerico = normalizarCodigoProduto(p.codigo);
+        const barrasNumerico = normalizarCodigoProduto(p.codigo_barras);
+
+        return (
+            (codigo && codigo === busca) ||
+            (codigoBarras && codigoBarras === busca) ||
+            (codigoNumerico && codigoNumerico === buscaNumerica) ||
+            (barrasNumerico && barrasNumerico === buscaNumerica) ||
+            String(p.id) === buscaNumerica
+        );
+    });
+}
+
 function encontrarProdutoPorCodigoOuNome(termo) {
     const busca = normalizarTexto(termo);
     const buscaNumerica = normalizarCodigoProduto(termo);
@@ -2327,7 +2344,7 @@ function adicionarProdutoPorCodigo(codigo) {
     const dadosBalanca = interpretarCodigoBalanca(codigoDigitado);
 
     if (dadosBalanca) {
-        const produtoBalanca = encontrarProdutoPorCodigoOuNome(dadosBalanca.codigoProduto);
+        const produtoBalanca = encontrarProdutoPorCodigoExato(dadosBalanca.codigoProduto);
 
         if (!produtoBalanca) {
             showNotification(`Produto da balança não encontrado. Código interno: ${dadosBalanca.codigoProduto}`, 'danger');
@@ -2361,8 +2378,8 @@ function adicionarProdutoPorCodigo(codigo) {
         return;
     }
 
-    // 2) Produto normal
-    const produto = encontrarProdutoPorCodigoOuNome(codigoDigitado);
+    // 2) Produto normal — apenas código exato (barras/interno/id)
+    const produto = encontrarProdutoPorCodigoExato(codigoDigitado);
 
     if (!produto) {
         showNotification(`Produto não encontrado: ${codigo}`, 'danger');
@@ -4075,7 +4092,7 @@ async function mostrarModalProcessandoNFCe(vendaId) {
     }, 100);
 }
 
-// Impressão fiscal/não fiscal: ver frontend/js/fiscalImpressao.js
+// Impressão fiscal/não fiscal: ver frontend/shared/js/fiscalImpressao.js
 
 function limparModaisTravados() {
     document.querySelectorAll('.modal-backdrop').forEach(backdrop => backdrop.remove());

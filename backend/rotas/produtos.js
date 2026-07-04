@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const { gravarAuditoria } = require('../services/auditoria');
-const { verificarPermissaoEspecifica, exigirPerfilAjusteEstoque } = require('./auth');
+const { verificarPermissaoEspecifica, exigirPerfilAjusteEstoque } = require('../middleware/auth');
 const lotesService = require('../services/lotesService');
 const { recalcularEstoqueConsolidado, recalcularSaldosProduto } = require('../services/estoqueFiscalService');
 const {
@@ -516,6 +516,8 @@ router.get('/consulta-pdv/buscar', (req, res) => {
   const buscaLike = `%${termo}%`;
   const buscaLikeNormalized = `%${termoNormalized}%`;
   const buscaNumero = termo.replace(/\D/g, '') || termo;
+  const termoLower = termo.toLowerCase();
+  const limite = Math.min(Math.max(parseInt(req.query.limite, 10) || 20, 1), 20);
   const hoje = new Date().toISOString().split('T')[0];
   // Construir cadeia de REPLACE para remover acentos no campo p.nome dentro do SQL
   const replacements = {
@@ -564,7 +566,16 @@ router.get('/consulta-pdv/buscar', (req, res) => {
       CASE 
         WHEN promo.id IS NOT NULL THEN promo.desconto_percentual 
         ELSE NULL 
-      END AS desconto_percentual
+      END AS desconto_percentual,
+      CASE
+        WHEN LOWER(TRIM(COALESCE(p.codigo_barras, ''))) = ?
+          OR LOWER(TRIM(COALESCE(p.codigo, ''))) = ?
+          OR CAST(p.id AS TEXT) = ?
+          OR TRIM(COALESCE(p.codigo_barras, '')) = ?
+          OR TRIM(COALESCE(p.codigo, '')) = ?
+        THEN 1
+        ELSE 0
+      END AS match_exato
     FROM produtos p
     LEFT JOIN promocoes promo ON promo.produto_id = p.id 
       AND promo.status = 'ativa'
@@ -573,14 +584,19 @@ router.get('/consulta-pdv/buscar', (req, res) => {
     WHERE
       (
         CAST(p.id AS TEXT) = ?
-        OR p.codigo LIKE ?
-        OR p.codigo_barras LIKE ?
+        OR LOWER(COALESCE(p.codigo, '')) LIKE LOWER(?)
+        OR LOWER(COALESCE(p.codigo_barras, '')) LIKE LOWER(?)
         OR (${replaceChain}) LIKE ?
       )
       ${filtroFiscal}
-    ORDER BY p.nome ASC
-    LIMIT 30
+    ORDER BY match_exato DESC, p.nome ASC
+    LIMIT ${limite}
   `, [
+    termoLower,
+    termoLower,
+    buscaNumero,
+    termo,
+    termo,
     hoje,
     hoje,
     buscaNumero,

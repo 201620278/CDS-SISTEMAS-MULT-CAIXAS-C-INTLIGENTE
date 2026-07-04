@@ -1,9 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database');
-const { verificarToken } = require('./auth');
+const { verificarToken } = require('../middleware/auth');
 const { validarCaixaAberto } = require('../middleware/validarCaixaAberto');
-const bcrypt = require('bcryptjs');
 const { gravarAuditoria } = require('../services/auditoria');
 const { FILTRO_VENDA_VALIDA, getExprValorVenda } = require('../services/reportFiscalHelpers');
 const { isMultiCaixaAtivo, exigirTerminalId, obterTerminalIdDaRequisicao } = require('../utils/multiCaixa');
@@ -239,44 +238,7 @@ function calcularResumoCaixa(caixa, options = {}, callback) {
 });
 }
 
-function isAdminUsuario(usuario) {
-  const perfil = String(usuario?.perfil || '').trim().toUpperCase();
-  return usuario?.role === 'admin' || ['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR'].includes(perfil);
-}
-
-function validarSenhaAdmin(senhaAdmin, callback) {
-  if (!senhaAdmin) {
-    return callback(null, false);
-  }
-
-  db.all(`SELECT * FROM usuarios WHERE COALESCE(ativo, 1) = 1`, [], async (err, usuarios) => {
-    if (err) return callback(err);
-
-    if (!usuarios || usuarios.length === 0) {
-      return callback(null, false);
-    }
-
-    for (const usuario of usuarios) {
-      if (!isAdminUsuario(usuario)) continue;
-
-      const senhaBanco =
-        usuario.password_hash ||
-        usuario.senha_hash ||
-        usuario.senha ||
-        usuario.password;
-
-      if (!senhaBanco) continue;
-
-      const senhaOk = await bcrypt.compare(senhaAdmin, senhaBanco).catch(() => false);
-
-      if (senhaOk || senhaAdmin === senhaBanco) {
-        return callback(null, true);
-      }
-    }
-
-    return callback(null, false);
-  });
-}
+const { exigirPermissaoOuSenhaAdmin } = require('../middleware/exigirPermissaoOuSenhaAdmin');
 
 router.get('/aberto', (req, res) => {
   const terminalId = obterTerminalId(req);
@@ -431,7 +393,7 @@ function executarAberturaCaixa(req, res, { valorInicial, terminalId, caixaConfig
   });
 }
 
-router.post('/abrir', verificarToken, exigirTerminalId, (req, res) => {
+router.post('/abrir', exigirPermissaoOuSenhaAdmin('abrir_caixa'), exigirTerminalId, (req, res) => {
   const valorInicial = n(req.body.valor_inicial);
   const terminalId = obterTerminalId(req);
 
@@ -451,12 +413,11 @@ router.post('/abrir', verificarToken, exigirTerminalId, (req, res) => {
   });
 });
 
-router.post('/sangria', verificarToken, validarCaixaAberto, async (req, res) => {
+router.post('/sangria', verificarToken, validarCaixaAberto, exigirPermissaoOuSenhaAdmin('sangria_caixa'), async (req, res) => {
   const valor = n(req.body.valor);
   const motivo = req.body.motivo || 'Sangria de caixa';
   const operadorId = req.user?.id || null;
   const operadorNome = req.user?.nome || req.user?.username || 'Desconhecido';
-  const senhaAdmin = req.body.senha_admin;
 
   if (valor <= 0) {
     return res.status(400).json({ error: 'Informe um valor válido para sangria.' });
@@ -464,16 +425,7 @@ router.post('/sangria', verificarToken, validarCaixaAberto, async (req, res) => 
 
   const terminalId = obterTerminalId(req);
 
-  validarSenhaAdmin(senhaAdmin, (senhaErr, senhaValida) => {
-    if (senhaErr) {
-      return res.status(500).json({ error: senhaErr.message });
-    }
-
-    if (!senhaValida) {
-      return res.status(400).json({ error: 'Senha de administrador inválida para realizar sangria.' });
-    }
-
-    obterSessaoAberta(terminalId, (errSess, sessao) => {
+  obterSessaoAberta(terminalId, (errSess, sessao) => {
         if (errSess) {
           return res.status(500).json({ error: errSess.message });
         }
@@ -564,12 +516,10 @@ router.post('/sangria', verificarToken, validarCaixaAberto, async (req, res) => 
             });
           });
         });
-      }
-    );
-  });
+      });
 });
 
-router.post('/suprimento', verificarToken, validarCaixaAberto, (req, res) => {
+router.post('/suprimento', verificarToken, validarCaixaAberto, exigirPermissaoOuSenhaAdmin('suprimento_caixa'), (req, res) => {
   const valor = n(req.body.valor);
   const motivo = req.body.motivo || 'Suprimento de caixa';
   const operadorId = req.user?.id || null;

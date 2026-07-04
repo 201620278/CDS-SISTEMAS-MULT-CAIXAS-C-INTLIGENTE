@@ -109,6 +109,70 @@
     </div>
   </div>
 
+  <div class="dashboard-secao-titulo">Equipamentos</div>
+  <div class="row">
+    <div class="col-6 col-md-3 mb-3">
+      <div class="card card-dashboard" style="border-left: 4px solid #6f42c1; cursor: pointer;" onclick="loadPage('equipamentos')">
+        <div class="card-body py-3">
+          <div class="titulo-card">Equipamentos cadastrados</div>
+          <div class="valor-card" id="dashboardEquipamentosQtd">0</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3 mb-3">
+      <div class="card card-dashboard" style="border-left: 4px solid #198754;">
+        <div class="card-body py-3">
+          <div class="titulo-card">Online</div>
+          <div class="valor-card text-success" id="dashboardEquipamentosOnline">0</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3 mb-3">
+      <div class="card card-dashboard" style="border-left: 4px solid #dc3545;">
+        <div class="card-body py-3">
+          <div class="titulo-card">Offline</div>
+          <div class="valor-card text-danger" id="dashboardEquipamentosOffline">0</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3 mb-3">
+      <div class="card card-dashboard" style="border-left: 4px solid #fd7e14;">
+        <div class="card-body py-3">
+          <div class="titulo-card">Pendentes</div>
+          <div class="valor-card" id="dashboardEquipamentosFila">0</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="dashboard-secao-titulo">Sincronizações</div>
+  <div class="row">
+    <div class="col-6 col-md-4 mb-3">
+      <div class="card card-dashboard" style="border-left: 4px solid #fd7e14;">
+        <div class="card-body py-3">
+          <div class="titulo-card">Pendentes</div>
+          <div class="valor-card" id="dashboardSyncPendentes">0</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-4 mb-3">
+      <div class="card card-dashboard" style="border-left: 4px solid #198754;">
+        <div class="card-body py-3">
+          <div class="titulo-card">Concluídas</div>
+          <div class="valor-card text-success" id="dashboardSyncConcluidas">0</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-4 mb-3">
+      <div class="card card-dashboard" style="border-left: 4px solid #dc3545;">
+        <div class="card-body py-3">
+          <div class="titulo-card">Erros</div>
+          <div class="valor-card text-danger" id="dashboardSyncErros">0</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="dashboard-secao-titulo">Período selecionado</div>
   <div class="row">
     <div class="col-6 col-md-3 mb-3">

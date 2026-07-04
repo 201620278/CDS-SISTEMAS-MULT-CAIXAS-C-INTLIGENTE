@@ -20,7 +20,19 @@
     "test:fracionado": "npm run test:conversao-unidades",
     "test:tef-fluxo": "node tests/tef/tef-fluxo-pagamento.test.js",
     "test:tef-fluxo-api": "node scripts/test-tef-fluxo-api.js",
-    "test:tef": "node tests/tef/tef-fluxo-pagamento.test.js && node scripts/test-tef-fluxo-api.js"
+    "test:tef": "node tests/tef/tef-fluxo-pagamento.test.js && node scripts/test-tef-fluxo-api.js",
+    "test:equipamentos-drivers": "node tests/motor-equipamentos/drivers-framework.test.js",
+    "test:equipamentos-toledo-prix4": "node tests/motor-equipamentos/toledo-prix4-driver.test.js",
+    "test:equipamentos-toledo-tcp": "node tests/motor-equipamentos/toledo-prix4-tcp.test.js",
+    "test:equipamentos-contracts": "node tests/motor-equipamentos/contracts-framework.test.js",
+    "test:equipamentos-tcp": "node tests/motor-equipamentos/tcp-connection.test.js",
+    "test:equipamentos-service": "node tests/motor-equipamentos/equipamentos-service.test.js",
+    "test:equipamentos-sync": "node tests/motor-equipamentos/sync-framework.test.js",
+    "test:equipamentos-transport": "node tests/motor-equipamentos/transport-framework.test.js",
+    "test:equipamentos-toledo-protocol": "node tests/motor-equipamentos/toledo-prix4-protocol.test.js",
+    "test:equipamentos-laboratorio": "node tests/motor-equipamentos/laboratorio-sprint12.test.js",
+    "test:equipamentos-engenharia-reversa": "node tests/motor-equipamentos/engenharia-reversa-sprint13.test.js",
+    "test:equipamentos": "npm run test:equipamentos-contracts && npm run test:equipamentos-drivers && npm run test:equipamentos-transport && npm run test:equipamentos-tcp && npm run test:equipamentos-service && npm run test:equipamentos-sync && npm run test:equipamentos-toledo-protocol && npm run test:equipamentos-toledo-tcp && npm run test:equipamentos-toledo-prix4 && npm run test:equipamentos-laboratorio && npm run test:equipamentos-engenharia-reversa"
   },
   "dependencies": {
     "acorn": "^8.17.0",

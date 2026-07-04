@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { verificarPermissaoEspecifica } = require('./auth');
+const { verificarPermissaoEspecifica } = require('../middleware/auth');
 const { obterAuditoria, obterAuditoriaPaginada } = require('../services/auditoria');
 
 // Rota simples (compatibilidade) — exige permissão 'auditoria'

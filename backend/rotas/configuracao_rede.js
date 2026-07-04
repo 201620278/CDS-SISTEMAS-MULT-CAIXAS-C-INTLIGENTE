@@ -1,7 +1,7 @@
 const express = require('express');
 const { gravarAuditoria } = require('../services/auditoria');
 const configService = require('../services/configuracaoService');
-const { exigirAdmin, exigirSuperAdmin } = require('./auth');
+const { exigirAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 

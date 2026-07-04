@@ -5,15 +5,6 @@ window.__financeiroPagarState = window.__financeiroPagarState || {
   contaPagamentoAtual: null
 };
 
-function isAdminFinanceiroPagar() {
-  try {
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
-    return user.role === 'admin';
-  } catch (e) {
-    return false;
-  }
-}
-
 // Contas a Pagar
 function renderContasPagar(periodo) {
   const conteudo = document.getElementById('financeiroConteudo');
@@ -720,7 +711,7 @@ function abrirDetalhesPagar(id) {
         throw new Error(dados.error || 'Falha ao carregar detalhes da conta a pagar.');
       }
 
-      const adminAcoes = isAdminFinanceiroPagar() ? `
+      const adminAcoes = podeAdministrarFinanceiro() ? `
         <hr>
         <div class="d-flex gap-2 justify-content-end flex-wrap">
           <button class="btn btn-primary" onclick="abrirEdicaoPagar(${dados.id})">

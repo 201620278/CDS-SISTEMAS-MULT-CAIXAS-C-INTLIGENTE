@@ -1,0 +1,335 @@
+/**
+ * EquipamentosService — Regras de negócio do cadastro de equipamentos (Sprint 9).
+ *
+ * Orquestra repositório, transporte TCP, drivers e logs.
+ * Controllers devem delegar a este serviço.
+ */
+
+const equipamentosRepository = require('../repositories/EquipamentosRepository');
+const driverManager = require('../core/DriverManager');
+const connectionManager = require('../transport/ConnectionManager');
+const EthernetTransport = require('../transport/EthernetTransport');
+const equipamentosEvents = require('../events/EquipamentosEvents');
+const loggerService = require('./LoggerService');
+const diagnosticoService = require('../diagnostics/DiagnosticoService');
+
+class EquipamentosService {
+  /**
+   * @param {Object} dados
+   * @returns {Promise<Object>}
+   * @private
+   */
+  async _resolverDriver(dados) {
+    const payload = { ...dados };
+    if (payload.driver_codigo && !payload.driver_id) {
+      const driverCat = await equipamentosRepository.buscarDriverCatalogoPorCodigo(payload.driver_codigo);
+      if (driverCat) {
+        payload.driver_id = driverCat.id;
+        payload.fabricante = payload.fabricante || driverCat.fabricante;
+        payload.modelo = payload.modelo || driverCat.modelo;
+      }
+    }
+    return payload;
+  }
+
+  /**
+   * @param {Object} eq
+   * @returns {Object}
+   */
+  formatarParaApi(eq) {
+    if (!eq) return null;
+    const status = String(eq.status || 'desconhecido').toLowerCase();
+    return {
+      ...eq,
+      status,
+      status_label: status === 'online' ? 'Online'
+        : status === 'offline' ? 'Offline'
+        : status === 'erro' ? 'Erro'
+        : 'Desconhecido'
+    };
+  }
+
+  async listar(filtros = {}) {
+    const apenasAtivos = filtros.todos !== '1' && filtros.todos !== true;
+    const lista = await equipamentosRepository.listar({
+      apenasAtivos,
+      tipo: filtros.tipo || null,
+      status: filtros.status || null,
+      transporte: filtros.transporte || null,
+      ativo: filtros.ativo,
+      busca: filtros.busca || filtros.q || null
+    });
+    return lista.map((eq) => this.formatarParaApi(eq));
+  }
+
+  async buscarPorId(id) {
+    const eq = await equipamentosRepository.buscarPorId(id);
+    return this.formatarParaApi(eq);
+  }
+
+  async criar(dados) {
+    const payload = await this._resolverDriver(dados);
+    const equipamento = await equipamentosRepository.salvar(payload);
+    await equipamentosEvents.emitirEquipamentoCriado(equipamento);
+    await loggerService.logOperacao(equipamento.id, 'cadastro', { equipamento });
+    return this.formatarParaApi(equipamento);
+  }
+
+  async editar(id, dados) {
+    const payload = await this._resolverDriver(dados);
+    const equipamento = await equipamentosRepository.editar(id, payload);
+    await equipamentosEvents.emitirEquipamentoEditado(equipamento);
+    await loggerService.logOperacao(id, 'edicao', { equipamento });
+    return this.formatarParaApi(equipamento);
+  }
+
+  async remover(id) {
+    const existente = await equipamentosRepository.buscarPorId(id);
+    if (!existente) throw Object.assign(new Error('Equipamento não encontrado'), { statusCode: 404 });
+
+    await connectionManager.fechar(id).catch(() => {});
+    const resultado = await equipamentosRepository.remover(id);
+    await equipamentosEvents.emitirEquipamentoRemovido({ id: Number(id), equipamento: existente });
+    await loggerService.logOperacao(id, 'remocao', { equipamento: existente, resultado });
+    return resultado;
+  }
+
+  async duplicar(id) {
+    const equipamento = await equipamentosRepository.duplicar(id);
+    await equipamentosEvents.emitirEquipamentoCriado(equipamento);
+    await loggerService.logOperacao(equipamento.id, 'duplicar', { origem_id: id, equipamento });
+    return this.formatarParaApi(equipamento);
+  }
+
+  async ativar(id) {
+    const equipamento = await equipamentosRepository.editar(id, { ativo: true });
+    await loggerService.logOperacao(id, 'ativar', { equipamento });
+    return this.formatarParaApi(equipamento);
+  }
+
+  async desativar(id) {
+    await connectionManager.fechar(id).catch(() => {});
+    const equipamento = await equipamentosRepository.editar(id, { ativo: false, status: 'offline' });
+    await loggerService.logOperacao(id, 'desativar', { equipamento });
+    return this.formatarParaApi(equipamento);
+  }
+
+  async listarDrivers() {
+    return driverManager.listarDriversCompleto();
+  }
+
+  async obterResumo() {
+    return equipamentosRepository.obterResumoDashboard();
+  }
+
+  /**
+   * Teste de conexão TCP — abre e fecha conexão (sem comandos de protocolo).
+   * @param {number|string} equipamentoId
+   * @returns {Promise<Object>}
+   */
+  async testarConexao(equipamentoId) {
+    const equipamento = await equipamentosRepository.buscarPorId(equipamentoId);
+    if (!equipamento) throw Object.assign(new Error('Equipamento não encontrado'), { statusCode: 404 });
+
+    await equipamentosRepository.atualizarUltimoTeste(equipamentoId);
+
+    const driverRegistrado = equipamento.fabricante && equipamento.modelo
+      ? driverManager.possuiDriver(equipamento.fabricante, equipamento.modelo)
+      : false;
+
+    const driverInfo = driverRegistrado
+      ? driverManager.buscarDriver(equipamento.fabricante, equipamento.modelo)
+      : null;
+
+    if (equipamento.transporte !== 'ethernet' || !equipamento.ip) {
+      const resultado = {
+        success: true,
+        sucesso: true,
+        simulado: true,
+        comunicacao_real: false,
+        mensagem: 'Teste simulado — configure transporte Ethernet e IP para teste TCP real',
+        equipamento_id: Number(equipamentoId),
+        equipamento: this.formatarParaApi(equipamento),
+        driver_registrado: driverRegistrado,
+        timestamp: new Date().toISOString()
+      };
+      await loggerService.logOperacao(equipamentoId, 'teste', resultado);
+      return resultado;
+    }
+
+    const config = {
+      equipamento_id: Number(equipamentoId),
+      host: equipamento.ip,
+      porta: equipamento.porta_tcp || 9100,
+      timeout: equipamento.timeout_ms || 5000,
+      tentativas: 1,
+      intervaloReconexao: 0,
+      heartbeatInterval: 0
+    };
+
+    const transport = new EthernetTransport(config);
+
+    try {
+      await loggerService.info('Teste de conexão iniciado', {
+        operacao: 'teste.conexao',
+        equipamento_id: equipamentoId,
+        contexto: { host: config.host, porta: config.porta }
+      });
+
+      const conexao = await transport.connect();
+      const ping = await transport.ping();
+      await transport.disconnect();
+
+      await equipamentosRepository.atualizarComunicacao(equipamentoId, {
+        status: 'online',
+        ultimoErro: null
+      });
+
+      const atualizado = await equipamentosRepository.buscarPorId(equipamentoId);
+
+      const resultado = {
+        success: true,
+        sucesso: true,
+        simulado: false,
+        comunicacao_real: true,
+        mensagem: 'Conexão TCP aberta e fechada com sucesso',
+        equipamento_id: Number(equipamentoId),
+        equipamento: this.formatarParaApi(atualizado),
+        driver_registrado: driverRegistrado,
+        driver: driverInfo,
+        conexao: {
+          host: config.host,
+          porta: config.porta,
+          conectado: false,
+          teste_abrir_fechar: true
+        },
+        ping,
+        detalhe_conexao: conexao,
+        timestamp: new Date().toISOString()
+      };
+
+      await loggerService.logOperacao(equipamentoId, 'teste', resultado);
+      await loggerService.info('Conexão testada com sucesso', {
+        operacao: 'conexao',
+        equipamento_id: equipamentoId
+      });
+
+      return resultado;
+    } catch (err) {
+      await transport.disconnect().catch(() => {});
+
+      await equipamentosRepository.atualizarComunicacao(equipamentoId, {
+        status: 'erro',
+        ultimoErro: err.message
+      });
+
+      await loggerService.error('Erro no teste de conexão', {
+        operacao: 'erro',
+        equipamento_id: equipamentoId,
+        contexto: { erro: err.message }
+      });
+
+      const atualizado = await equipamentosRepository.buscarPorId(equipamentoId);
+
+      const resultado = {
+        success: false,
+        sucesso: false,
+        simulado: false,
+        comunicacao_real: true,
+        mensagem: `Falha na conexão TCP: ${err.message}`,
+        equipamento_id: Number(equipamentoId),
+        equipamento: this.formatarParaApi(atualizado),
+        driver_registrado: driverRegistrado,
+        ultimo_erro: err.message,
+        timestamp: new Date().toISOString()
+      };
+
+      await loggerService.logOperacao(equipamentoId, 'teste', resultado);
+      return resultado;
+    }
+  }
+
+  async obterStatusConexao(equipamentoId) {
+    const equipamento = await equipamentosRepository.buscarPorId(equipamentoId);
+    if (!equipamento) throw Object.assign(new Error('Equipamento não encontrado'), { statusCode: 404 });
+
+    const conexaoAtiva = connectionManager.obterStatus(equipamentoId);
+
+    return {
+      equipamento_id: Number(equipamentoId),
+      equipamento: this.formatarParaApi(equipamento),
+      conexao: conexaoAtiva,
+      ultima_comunicacao: equipamento.ultima_comunicacao,
+      ultimo_erro: equipamento.ultimo_erro || conexaoAtiva.ultimo_erro
+    };
+  }
+
+  async diagnosticarEquipamento(equipamentoId) {
+    const equipamento = await equipamentosRepository.buscarPorId(equipamentoId);
+    if (!equipamento) throw Object.assign(new Error('Equipamento não encontrado'), { statusCode: 404 });
+
+    await equipamentosRepository.atualizarUltimoDiagnostico(equipamentoId);
+
+    const drivers = await this.listarDrivers();
+    const driverMeta = drivers.find((d) => d.codigo === equipamento.driver_codigo)
+      || drivers.find((d) => d.fabricante === equipamento.fabricante && d.modelo === equipamento.modelo);
+
+    let ping = null;
+    let tempoRespostaMs = null;
+
+    if (equipamento.transporte === 'ethernet' && equipamento.ip) {
+      try {
+        const transport = new EthernetTransport({
+          host: equipamento.ip,
+          porta: equipamento.porta_tcp || 9100,
+          timeout: equipamento.timeout_ms || 5000,
+          equipamento_id: equipamentoId
+        });
+        await transport.connect();
+        ping = await transport.ping();
+        tempoRespostaMs = ping.latencia_ms ?? null;
+        await transport.disconnect();
+      } catch (err) {
+        ping = { sucesso: false, mensagem: err.message };
+      }
+    }
+
+    const resultado = {
+      equipamento_id: Number(equipamentoId),
+      sucesso: true,
+      mensagem: 'Diagnóstico de equipamento concluído',
+      equipamento: this.formatarParaApi(equipamento),
+      diagnostico: {
+        ping: ping?.sucesso === true ? 'OK' : 'Falhou',
+        tempo_resposta_ms: tempoRespostaMs,
+        porta: equipamento.porta_tcp || 9100,
+        ip: equipamento.ip,
+        driver: driverMeta?.nome_exibicao || equipamento.driver_nome || equipamento.driver_codigo,
+        driver_codigo: equipamento.driver_codigo,
+        transporte: equipamento.transporte,
+        versao_driver: driverMeta?.versao_driver || driverMeta?.versao || null,
+        ultimo_erro: equipamento.ultimo_erro,
+        ultima_comunicacao: equipamento.ultima_comunicacao,
+        driver_registrado: Boolean(driverMeta?.implementado),
+        comunicacao_real: equipamento.transporte === 'ethernet' && Boolean(equipamento.ip)
+      },
+      timestamp: new Date().toISOString()
+    };
+
+    await loggerService.logOperacao(equipamentoId, 'diagnostico', resultado);
+    return resultado;
+  }
+
+  async executarDiagnosticoGeral(opcoes = {}) {
+    return diagnosticoService.executarDiagnosticoCompleto(opcoes);
+  }
+
+  async listarLogs(equipamentoId, limite = 50) {
+    return equipamentosRepository.listarLogs(equipamentoId, limite);
+  }
+}
+
+const equipamentosService = new EquipamentosService();
+
+module.exports = equipamentosService;
+module.exports.EquipamentosService = EquipamentosService;

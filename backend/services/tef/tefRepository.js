@@ -1,5 +1,6 @@
 const db = require('../../database');
 const cryptoService = require('../crypto/cryptoService');
+const { gravarAuditoria } = require('../auditoria');
 
 function criarTransacao(dados, callback) {
   // Criptografar dados sensíveis antes de salvar
@@ -166,4 +167,19 @@ function registrarAcesso(transacaoId, dadosAcesso) {
       console.error('Erro ao registrar acesso TEF:', err);
     }
   });
+
+  gravarAuditoria({
+    usuario_id: usuario_id || null,
+    usuario_nome: usuario_nome || null,
+    modulo: 'tef',
+    acao: 'acesso_dados_sensiveis',
+    referencia_tipo: 'tef_transacao',
+    referencia_id: transacaoId,
+    detalhes: {
+      tipo_acesso,
+      user_agent: user_agent || null,
+      dados_acesso: dados_acesso || {}
+    },
+    ip_requisicao: ip_address || null
+  }).catch((auditErr) => console.error('Erro ao gravar auditoria de acesso TEF:', auditErr));
 }

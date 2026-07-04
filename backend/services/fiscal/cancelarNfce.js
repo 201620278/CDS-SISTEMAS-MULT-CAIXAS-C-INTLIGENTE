@@ -5,6 +5,7 @@ const { carregarCertificadoPfx } = require('./certificateService');
 const { compactarXml, extrairChaveEProtocoloAutorizados } = require('./utils');
 const axios = require('axios');
 const https = require('https');
+const { validarMotivoTexto } = require('../validacao/validarMotivoTexto');
 
 function getUrlRecepcaoEvento(config) {
   const ambiente = Number(config.ambiente);
@@ -23,8 +24,9 @@ async function cancelarNfce(vendaId, justificativa) {
     throw new Error('venda_id é obrigatório para cancelar NFC-e.');
   }
 
-  if (!justificativa || justificativa.trim().length < 15) {
-    throw new Error('Justificativa deve ter no mínimo 15 caracteres.');
+  const validacaoJustificativa = validarMotivoTexto(justificativa);
+  if (!validacaoJustificativa.valido) {
+    throw new Error(validacaoJustificativa.erro);
   }
 
   const notaAutorizada = await new Promise((resolve, reject) => {
