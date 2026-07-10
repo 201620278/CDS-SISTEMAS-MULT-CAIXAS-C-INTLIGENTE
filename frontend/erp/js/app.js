@@ -45,6 +45,10 @@ function loadPage(page) {
             return typeof loadCentralEntradas === 'function'
                 ? loadCentralEntradas()
                 : $('#page-content').html('<div class="alert alert-danger">Erro ao carregar Central de Entradas.</div>');
+        case 'central-diagnostico':
+            return typeof loadCentralDiagnostico === 'function'
+                ? loadCentralDiagnostico()
+                : $('#page-content').html('<div class="alert alert-danger">Erro ao carregar diagnóstico da Central.</div>');
         case 'fornecedores':
             return typeof loadFornecedores === 'function'
                 ? loadFornecedores()

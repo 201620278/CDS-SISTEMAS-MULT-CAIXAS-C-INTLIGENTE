@@ -2,13 +2,17 @@
  * Distribuição DF-e — SEFAZ → SOAP → Download XML → Central de Entradas.
  *
  * Sprint 4: responsabilidade exclusiva de sincronizar documentos na inbox.
+ * Sprint F6: envio SOAP via Plataforma Fiscal + fallback legado.
  * NÃO cria compras, NÃO altera estoque/financeiro, NÃO chama MIIP.
  *
  * @module services/fiscal/distribuicaoDFe
  */
 
 const { getFiscalConfig } = require('./configService');
-const { montarSoapDFe, enviarSoapDFe } = require('./soapClient');
+const {
+  enviarDistribuicaoDfe,
+  getDfeUrl
+} = require('./distribuicaoDfeRuntime');
 const CentralDfePersistenciaService = require('../../motores/central-entradas/services/CentralDfePersistenciaService');
 const CentralDocumentosRepository = require('../../motores/central-entradas/repositories/CentralDocumentosRepository');
 const CentralNsuRepository = require('../../motores/central-entradas/repositories/CentralNsuRepository');
@@ -22,12 +26,6 @@ const {
 } = require('./dfeRetornoParser');
 
 const MAX_ITERACOES_SYNC = 50;
-
-function getDfeUrl(ambiente) {
-  return ambiente === 1
-    ? 'https://www.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx'
-    : 'https://hom1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx';
-}
 
 /**
  * @param {Object} config
@@ -85,19 +83,31 @@ function montarXmlConsChave({ ambiente, codigoUf, cnpj, chave }) {
 }
 
 /**
+ * Envia consulta DF-e via Plataforma Fiscal (F6) com fallback legado.
+ *
  * @param {string} xmlConsulta
  * @param {Object} config
  * @param {number} ambiente
+ * @param {Object} [deps]
  * @returns {Promise<string>}
  */
-async function enviarConsultaDfe(xmlConsulta, config, ambiente) {
-  const envelope = montarSoapDFe(xmlConsulta);
-  return enviarSoapDFe(
-    envelope,
-    config.certificadoPath,
-    config.certificadoSenha,
-    getDfeUrl(ambiente)
-  );
+async function enviarConsultaDfe(xmlConsulta, config, ambiente, deps = {}) {
+  const runtimeSend = deps.enviarDistribuicaoDfe || enviarDistribuicaoDfe;
+  const resultado = await runtimeSend({
+    xmlConsulta,
+    ambiente,
+    cUF: obterCodigoUf(config),
+    certificadoPath: config.certificadoPath,
+    certificadoSenha: config.certificadoSenha,
+    versao: '1.01',
+    legadoHttpClient: deps.legadoHttpClient || null
+  });
+
+  if (!resultado.success || resultado.body == null) {
+    throw new Error(resultado.error || 'Falha na Distribuição DF-e (plataforma/legado).');
+  }
+
+  return resultado.body;
 }
 
 /**
@@ -132,10 +142,28 @@ async function persistirDocumentosRetorno(xmlRetorno, persistencia, origem) {
  * @returns {Promise<Object>}
  */
 async function sincronizarDistribuicaoDFe(deps = {}) {
-  const config = await getFiscalConfig();
-  validarConfigFiscal(config);
+  let config;
+  let ambiente;
 
-  const ambiente = Number(config.fiscal_ambiente || config.ambiente || 2);
+  if (deps.contextoCentral) {
+    const ctx = deps.contextoCentral;
+    config = {
+      certificadoPath: ctx.certificadoPath,
+      certificadoSenha: ctx.certificadoSenha,
+      cnpj: ctx.cnpj,
+      fiscal_codigo_uf: ctx.codigoUf,
+      codigo_uf: ctx.codigoUf,
+      ambiente: ctx.ambiente,
+      fiscal_ambiente: ctx.ambiente
+    };
+    ambiente = Number(ctx.ambiente) === 1 ? 1 : 2;
+  } else {
+    // DF-e não depende de URL de autorização NFC-e
+    config = await getFiscalConfig({ validarUrls: false });
+    ambiente = Number(config.fiscal_ambiente || config.ambiente || 2);
+  }
+
+  validarConfigFiscal(config);
   const cnpj = String(config.cnpj).replace(/\D/g, '');
   const codigoUf = obterCodigoUf(config);
 
@@ -162,7 +190,7 @@ async function sincronizarDistribuicaoDFe(deps = {}) {
       ultNsu: ultNsuAtual
     });
 
-    const xmlRetorno = await enviarConsultaDfe(xmlConsulta, config, ambiente);
+    const xmlRetorno = await enviarConsultaDfe(xmlConsulta, config, ambiente, deps);
     ultimoRetorno = extrairMetadadosRetorno(xmlRetorno);
 
     if (!retornoDistSucesso(ultimoRetorno.cStat)) {
@@ -229,7 +257,26 @@ async function distribuirDocumentosRecebidos() {
  * @returns {Promise<Object>}
  */
 async function consultarNotaPorChave(chave, deps = {}) {
-  const config = await getFiscalConfig();
+  let config;
+  let ambiente;
+
+  if (deps.contextoCentral) {
+    const ctx = deps.contextoCentral;
+    config = {
+      certificadoPath: ctx.certificadoPath,
+      certificadoSenha: ctx.certificadoSenha,
+      cnpj: ctx.cnpj,
+      fiscal_codigo_uf: ctx.codigoUf,
+      codigo_uf: ctx.codigoUf,
+      ambiente: ctx.ambiente,
+      fiscal_ambiente: ctx.ambiente
+    };
+    ambiente = Number(ctx.ambiente) === 1 ? 1 : 2;
+  } else {
+    config = await getFiscalConfig({ validarUrls: false });
+    ambiente = Number(config.fiscal_ambiente || config.ambiente || 2);
+  }
+
   validarConfigFiscal(config);
 
   const chaveLimpa = String(chave || '').replace(/\D/g, '');
@@ -237,7 +284,6 @@ async function consultarNotaPorChave(chave, deps = {}) {
     throw new Error('Chave deve conter 44 dígitos');
   }
 
-  const ambiente = Number(config.fiscal_ambiente || config.ambiente || 2);
   const cnpj = String(config.cnpj).replace(/\D/g, '');
   const codigoUf = obterCodigoUf(config);
   const persistencia = deps.persistenciaService ?? new CentralDfePersistenciaService();
@@ -249,7 +295,7 @@ async function consultarNotaPorChave(chave, deps = {}) {
     chave: chaveLimpa
   });
 
-  const xmlRetorno = await enviarConsultaDfe(xmlConsulta, config, ambiente);
+  const xmlRetorno = await enviarConsultaDfe(xmlConsulta, config, ambiente, deps);
   const metadados = extrairMetadadosRetorno(xmlRetorno);
 
   if (!retornoDistSucesso(metadados.cStat) && metadados.cStat !== '138') {
@@ -309,5 +355,6 @@ module.exports = {
   montarXmlConsChave,
   extrairMetadadosRetorno,
   extrairDocumentosZip,
-  persistirDocumentosRetorno
+  persistirDocumentosRetorno,
+  enviarConsultaDfe
 };

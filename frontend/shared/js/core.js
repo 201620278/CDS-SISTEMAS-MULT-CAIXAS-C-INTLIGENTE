@@ -116,6 +116,7 @@ function aplicarRecursosImplantacao() {
 function paginaPermitidaPorImplantacao(page) {
     if (page === 'fiscal' && !implantacaoPermiteFiscal()) return false;
     if (page === 'central-entradas' && !implantacaoPermiteFiscal()) return false;
+    if (page === 'central-diagnostico' && !implantacaoPermiteFiscal()) return false;
     if (page === 'caixas' && !implantacaoPermiteMultiCaixa()) return false;
     return true;
 }

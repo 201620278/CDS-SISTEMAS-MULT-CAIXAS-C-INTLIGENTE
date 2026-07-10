@@ -65,5 +65,19 @@ test('mesmo status é idempotente', () => {
   assert.strictEqual(resultado.valido, true);
 });
 
+test('REVISADA → EM_COMPRA é permitida (RC3)', () => {
+  assert.strictEqual(
+    podeTransicionar(DocumentoFiscalStatus.REVISADA, DocumentoFiscalStatus.EM_COMPRA),
+    true
+  );
+});
+
+test('EM_PROCESSAMENTO → REVISADA é bloqueada (RC3)', () => {
+  assert.strictEqual(
+    podeTransicionar(DocumentoFiscalStatus.EM_PROCESSAMENTO, DocumentoFiscalStatus.REVISADA),
+    false
+  );
+});
+
 console.log(`\nResultado: ${passou} passou, ${falhou} falhou\n`);
 process.exit(falhou > 0 ? 1 : 0);

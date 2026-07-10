@@ -327,6 +327,90 @@
         return 'Pipeline automático';
     }
 
+    function avatarFornecedorCentral(nome) {
+        const texto = String(nome || '?').trim();
+        const iniciais = texto.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || '?';
+        let hash = 0;
+        for (let i = 0; i < texto.length; i += 1) hash = texto.charCodeAt(i) + ((hash << 5) - hash);
+        const cores = ['#0d6efd', '#6610f2', '#198754', '#fd7e14', '#20c997', '#6f42c1', '#0dcaf0'];
+        const cor = cores[Math.abs(hash) % cores.length];
+        return { iniciais, cor };
+    }
+
+    function badgeStatusUx1(status, label) {
+        const mapa = {
+            PRONTA_PARA_COMPRA: { classe: 'central-ux1-badge--verde', texto: 'Pronta para Importar' },
+            REVISADA: { classe: 'central-ux1-badge--verde', texto: 'Pronta para Importar' },
+            AGUARDANDO_REVISAO: { classe: 'central-ux1-badge--amarelo', texto: 'Aguardando Revisão' },
+            EM_PROCESSAMENTO: { classe: 'central-ux1-badge--azul', texto: 'Processando' },
+            GRAVADA: { classe: 'central-ux1-badge--cinza', texto: 'Importada' },
+            ERRO: { classe: 'central-ux1-badge--vermelho', texto: 'Erro' },
+            DUPLICADA: { classe: 'central-ux1-badge--vermelho', texto: 'Duplicada' },
+            DESCARTADA: { classe: 'central-ux1-badge--cinza', texto: 'Cancelada' },
+            SINCRONIZADA: { classe: 'central-ux1-badge--azul', texto: 'Nova' }
+        };
+        const meta = mapa[status] || { classe: 'central-ux1-badge--cinza', texto: label || status || '—' };
+        return `<span class="central-ux1-badge ${meta.classe}" title="${escapeUx(meta.texto)}">${escapeUx(label || meta.texto)}</span>`;
+    }
+
+    function renderPipelineTimelineUx1(doc, historico) {
+        const status = doc?.status || 'RECEBIDA';
+        const ordem = ['RECEBIDA', 'SINCRONIZADA', 'EM_PROCESSAMENTO', 'AGUARDANDO_REVISAO', 'REVISADA', 'PRONTA_PARA_COMPRA', 'EM_COMPRA', 'GRAVADA'];
+        const idxAtual = Math.max(0, ordem.indexOf(status));
+        const etapas = [
+            { label: 'NF Recebida', icone: 'fa-inbox', minIdx: 0 },
+            { label: 'Download XML', icone: 'fa-cloud-download-alt', minIdx: 1 },
+            { label: 'Parser', icone: 'fa-file-code', minIdx: 2 },
+            { label: 'MIIP', icone: 'fa-brain', minIdx: 2 },
+            { label: 'Central Revisão', icone: 'fa-user-check', minIdx: 3 },
+            { label: 'Compra', icone: 'fa-shopping-cart', minIdx: 5 },
+            { label: 'Finalizado', icone: 'fa-check-circle', minIdx: 7 }
+        ];
+
+        const historicoPorStatus = {};
+        (historico || []).forEach((h) => {
+            if (h.statusNovo && !historicoPorStatus[h.statusNovo]) {
+                historicoPorStatus[h.statusNovo] = h.createdAt;
+            }
+        });
+
+        return `
+            <div class="central-ux1-pipeline" role="list" aria-label="Pipeline do documento">
+                ${etapas.map((etapa, i) => {
+                    const concluida = idxAtual >= etapa.minIdx || status === 'GRAVADA';
+                    const ativa = idxAtual === etapa.minIdx && status !== 'GRAVADA' && status !== 'ERRO';
+                    const erro = status === 'ERRO' && i === etapas.length - 1;
+                    const hora = historicoPorStatus[ordem[etapa.minIdx]]
+                        ? formatarDataHoraSeparadoCentral(historicoPorStatus[ordem[etapa.minIdx]]).hora
+                        : '—';
+                    const classe = erro ? 'erro' : (concluida ? 'ok' : (ativa ? 'ativo' : 'pendente'));
+                    return `
+                        <div class="central-ux1-pipeline-item central-ux1-pipeline-item--${classe}" role="listitem">
+                            ${i > 0 ? '<div class="central-ux1-pipeline-seta" aria-hidden="true">↓</div>' : ''}
+                            <div class="central-ux1-pipeline-card">
+                                <span class="central-ux1-pipeline-icone"><i class="fas ${etapa.icone}"></i></span>
+                                <div class="central-ux1-pipeline-info">
+                                    <strong>${escapeUx(etapa.label)}</strong>
+                                    <small>${concluida ? 'Concluído' : (ativa ? 'Em andamento' : 'Aguardando')} · ${escapeUx(hora)}</small>
+                                </div>
+                            </div>
+                        </div>`;
+                }).join('')}
+            </div>`;
+    }
+
+    function renderSkeletonListaDocumentosCentral(qtd = 6) {
+        return Array.from({ length: qtd }, () => `
+            <div class="central-ux1-doc-card central-ux1-doc-card--skeleton" aria-hidden="true">
+                <div class="central-ux-skeleton central-ux-skeleton-circle"></div>
+                <div class="flex-grow-1">
+                    <div class="central-ux-skeleton central-ux-skeleton-line central-ux-skeleton-line--md"></div>
+                    <div class="central-ux-skeleton central-ux-skeleton-line central-ux-skeleton-line--sm mt-1"></div>
+                </div>
+            </div>
+        `).join('');
+    }
+
     function extrairDadosExecutivoCentral(doc, parse, miip, historico) {
         const itens = parse?.parse?.itens || parse?.itens || [];
         const r = miip?.miipResumo?.resumo || miip?.resumo;
@@ -387,7 +471,11 @@
         resolverEstadoServicoCentral,
         formatarDataHoraSeparadoCentral,
         inferirOrigemTimelineCentral,
-        extrairDadosExecutivoCentral
+        extrairDadosExecutivoCentral,
+        avatarFornecedorCentral,
+        badgeStatusUx1,
+        renderPipelineTimelineUx1,
+        renderSkeletonListaDocumentosCentral
     };
 
     if (typeof module !== 'undefined' && module.exports) {

@@ -1,90 +1,48 @@
 /**
  * CentralComprasBridgeService — Ponte entre Central de Entradas e Compras.
  *
- * Sprint 5: payload parse-xml, abertura de compra e vínculo pós-saveCompra().
+ * RC1: transições via DocumentoTransitionService; reutiliza parse/MIIP persistido.
  *
  * @class CentralComprasBridgeService
  */
 
-const NFeParserService = require('../../../shared/nfe/NFeParserService');
-const { enriquecerParseComMiip } = require('../../../shared/nfe/enriquecerParseComMiip');
 const { DocumentoFiscalStatus } = require('../core/DocumentoFiscalStatus');
 const { validarTransicao } = require('../core/MaquinaEstadosDocumento');
 const { paraDocumentoDetalheDTO } = require('../utils/centralEntradasMapper');
 const CentralDocumentosRepository = require('../repositories/CentralDocumentosRepository');
-const CentralHistoricoService = require('./CentralHistoricoService');
+const DocumentoTransitionService = require('./DocumentoTransitionService');
 
 class CentralComprasBridgeService {
   /**
    * @param {Object} [deps]
-   * @param {import('../repositories/CentralDocumentosRepository')} [deps.documentosRepository]
-   * @param {import('./CentralHistoricoService')} [deps.historicoService]
    */
   constructor(deps = {}) {
     /** @private */
     this._documentosRepository = deps.documentosRepository
       ?? new CentralDocumentosRepository();
     /** @private */
-    this._historicoService = deps.historicoService
-      ?? new CentralHistoricoService();
+    this._transitionService = deps.transitionService
+      ?? new DocumentoTransitionService({
+        documentosRepository: this._documentosRepository,
+        historicoRepository: deps.historicoRepository
+      });
   }
 
   /**
    * @private
-   */
-  async _transicionar(id, statusAtual, statusNovo, opcoes = {}) {
-    const validacao = validarTransicao(statusAtual, statusNovo);
-    if (!validacao.valido) {
-      const erro = new Error(validacao.erro);
-      erro.statusCode = 400;
-      throw erro;
-    }
-
-    await this._documentosRepository.atualizar(id, {
-      status: statusNovo,
-      statusDetalhe: opcoes.detalhe ?? null,
-      usuarioId: opcoes.usuarioId ?? null
-    });
-
-    if (statusAtual !== statusNovo) {
-      await this._historicoService.registrar({
-        documentoId: id,
-        statusAnterior: statusAtual,
-        statusNovo,
-        usuarioId: opcoes.usuarioId ?? null,
-        detalhe: opcoes.detalhe ?? `Transição: ${statusAtual} → ${statusNovo}`
-      });
-    }
-  }
-
-  /**
    * @param {Object} documento
-   * @returns {Promise<Object>}
+   * @returns {Object}
    */
-  async _obterOuGerarPayloadParse(documento) {
-    if (documento.parseJson) {
-      return { ...documento.parseJson };
-    }
-
-    if (!documento.xml) {
-      const erro = new Error('XML não disponível');
+  _obterPayloadParsePersistido(documento) {
+    if (!documento.parseJson) {
+      const erro = new Error(
+        'Documento ainda não processado. O pipeline Parser + MIIP deve ser concluído antes de abrir Compras.'
+      );
       erro.statusCode = 400;
       throw erro;
     }
 
-    const parsed = await NFeParserService.parse(documento.xml);
-    const { miipImportacao } = await enriquecerParseComMiip(parsed);
-
-    await this._documentosRepository.atualizar(documento.id, {
-      parseJson: parsed,
-      miipSessaoId: miipImportacao?.operacaoId ?? null,
-      miipResumoJson: miipImportacao
-        ? { operacaoId: miipImportacao.operacaoId, resumo: miipImportacao.resumo, resultados: miipImportacao.resultados }
-        : null,
-      processadoEm: new Date().toISOString()
-    });
-
-    return parsed;
+    return { ...documento.parseJson };
   }
 
   /**
@@ -99,7 +57,7 @@ class CentralComprasBridgeService {
       throw erro;
     }
 
-    const payload = await this._obterOuGerarPayloadParse(documento);
+    const payload = this._obterPayloadParsePersistido(documento);
 
     return {
       sucesso: true,
@@ -136,7 +94,7 @@ class CentralComprasBridgeService {
     }
 
     if (documento.status !== DocumentoFiscalStatus.EM_COMPRA) {
-      await this._transicionar(
+      await this._transitionService.transicionar(
         documentoId,
         documento.status,
         DocumentoFiscalStatus.EM_COMPRA,
@@ -159,8 +117,6 @@ class CentralComprasBridgeService {
   /**
    * @param {number|string} documentoId
    * @param {Object} dados
-   * @param {Object[]} [dados.itens]
-   * @param {number} [dados.usuarioId]
    * @returns {Promise<Object>}
    */
   async concluirRevisao(documentoId, dados = {}) {
@@ -190,7 +146,7 @@ class CentralComprasBridgeService {
       processadoEm: new Date().toISOString()
     });
 
-    await this._transicionar(
+    await this._transitionService.transicionar(
       documentoId,
       DocumentoFiscalStatus.AGUARDANDO_REVISAO,
       DocumentoFiscalStatus.REVISADA,
@@ -200,7 +156,7 @@ class CentralComprasBridgeService {
       }
     );
 
-    await this._transicionar(
+    await this._transitionService.transicionar(
       documentoId,
       DocumentoFiscalStatus.REVISADA,
       DocumentoFiscalStatus.PRONTA_PARA_COMPRA,
@@ -247,7 +203,7 @@ class CentralComprasBridgeService {
     }
 
     if (statusAtual === DocumentoFiscalStatus.PRONTA_PARA_COMPRA) {
-      await this._transicionar(documentoId, statusAtual, DocumentoFiscalStatus.EM_COMPRA, {
+      await this._transitionService.transicionar(documentoId, statusAtual, DocumentoFiscalStatus.EM_COMPRA, {
         detalhe: 'Vínculo com compra gravada',
         usuarioId: opcoes.usuarioId
       });
@@ -258,7 +214,7 @@ class CentralComprasBridgeService {
       processadoEm: new Date().toISOString()
     });
 
-    await this._transicionar(
+    await this._transitionService.transicionar(
       documentoId,
       DocumentoFiscalStatus.EM_COMPRA,
       DocumentoFiscalStatus.GRAVADA,

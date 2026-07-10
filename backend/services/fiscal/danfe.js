@@ -35,6 +35,15 @@ function obterValorFiscalItemDanfe(item = {}) {
   return Number(item.valor_fiscal ?? 0);
 }
 
+/** Helpers exclusivos para a tabela de itens do DANFE (impressão). */
+function obterQuantidadeImpressao(item = {}) {
+  return Number(item.quantidade_fiscal ?? 0) + Number(item.quantidade_nao_fiscal ?? 0);
+}
+
+function obterValorImpressao(item = {}) {
+  return Number(item.valor_fiscal ?? 0) + Number(item.valor_nao_fiscal ?? 0);
+}
+
 // Formata CNPJ: 65957340000150 -> 65.957.340/0001-50
 function formatarCNPJ(cnpj) {
   if (!cnpj) return '';
@@ -60,14 +69,18 @@ function formatarCpfCnpj(valor) {
   return valor || '';
 }
 
-async function gerarDanfeHtml({ venda, itens: itensFiscal, empresa, chave, numero, serie, qrCodeUrl, tributos, nota }) {
-  console.log("===== DEBUG DANFE AMBIENTE =====");
-  console.log("venda.tpAmb:", venda?.tpAmb);
-  console.log("venda.ambiente:", venda?.ambiente);
-  console.log("nota.tpAmb:", nota?.tpAmb);
-  console.log("nota.ambiente:", nota?.ambiente);
-  console.log("================================");
-
+async function gerarDanfeHtml({
+  venda,
+  itens: itensDanfe = [],
+  itensFiscal = [],
+  empresa,
+  chave,
+  numero,
+  serie,
+  qrCodeUrl,
+  tributos,
+  nota
+}) {
   const tpAmbDanfe = Number(
     nota?.tpAmb ||
     nota?.ambiente ||
@@ -86,7 +99,7 @@ async function gerarDanfeHtml({ venda, itens: itensFiscal, empresa, chave, numer
 
   const qrCodeDataUrl = qrCodeUrl ? await QRCode.toDataURL(qrCodeUrl) : '';
 
-  const itens = Array.isArray(itensFiscal) ? itensFiscal : [];
+  const itensImpressao = Array.isArray(itensDanfe) ? itensDanfe : [];
 
   const pagamentosLista = Array.isArray(venda.pagamentos) ? venda.pagamentos : [];
   const possuiTipoRecebimento = pagamentosLista.some((p) => p.tipo_recebimento);
@@ -94,14 +107,13 @@ async function gerarDanfeHtml({ venda, itens: itensFiscal, empresa, chave, numer
     ? pagamentosLista.filter((p) => p.tipo_recebimento === 'fiscal')
     : pagamentosLista;
 
-  const subtotalItem = (item) => obterValorFiscalItemDanfe(item);
+  const valorTotalVenda = Number(venda.total ?? 0) > 0
+    ? Number(venda.total)
+    : itensImpressao.reduce((acc, item) => acc + obterValorImpressao(item), 0);
 
-  const totalFiscalItens = itens.reduce((acc, item) => acc + subtotalItem(item), 0);
-  const valorNota = Number(venda.valor_fiscal ?? totalFiscalItens);
-
-  const itensHtml = itens.map((item) => {
-    const quantidade = obterQuantidadeFiscalDanfe(item);
-    const subtotal = subtotalItem(item);
+  const itensHtml = itensImpressao.map((item) => {
+    const quantidade = obterQuantidadeImpressao(item);
+    const subtotal = obterValorImpressao(item);
     const precoUnitario = quantidade > 0
       ? subtotal / quantidade
       : Number(item.preco_unitario || 0);
@@ -162,7 +174,7 @@ async function gerarDanfeHtml({ venda, itens: itensFiscal, empresa, chave, numer
     <tbody>${itensHtml}</tbody>
   </table>
   <div class="sep"></div>
-  <p>Total: R$ ${valorNota.toFixed(2)}</p>
+  <p>Total: R$ ${valorTotalVenda.toFixed(2)}</p>
   <p>Desconto: R$ ${Number(venda.desconto || 0).toFixed(2)}</p>
   ${montarPagamentosDanfe(pagamentosFiscal) ? `<p>${montarPagamentosDanfe(pagamentosFiscal).replace(/\n/g, '<br>')}</p>` : ''}
   <div class="sep"></div>
@@ -177,4 +189,10 @@ async function gerarDanfeHtml({ venda, itens: itensFiscal, empresa, chave, numer
 </html>`;
 }
 
-module.exports = { gerarDanfeHtml };
+module.exports = {
+  gerarDanfeHtml,
+  obterQuantidadeImpressao,
+  obterValorImpressao,
+  obterQuantidadeFiscalDanfe,
+  obterValorFiscalItemDanfe
+};

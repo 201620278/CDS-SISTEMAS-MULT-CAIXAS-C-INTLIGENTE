@@ -1,8 +1,7 @@
 /**
- * Central Inteligente de Entradas — Sprint 9 (Polimento Enterprise).
+ * Central Inteligente de Entradas — Sprint UX1 (Tela Definitiva).
  *
- * UX, acabamento visual e experiência do usuário. Reutiliza 100% do backend existente.
- * Regras de negócio (MIIP, Parser, Pipeline, Compras) não são alteradas aqui.
+ * Interface moderna e integrada com APIs existentes. Sem alteração de regras de negócio.
  */
 
 function centralUx() {
@@ -42,6 +41,7 @@ const centralEntradasState = {
     fornecedorStats: null,
     servicoStatus: null,
     configuracoes: null,
+    configAbaAtiva: 'ambiente',
     viewAtiva: 'inbox',
     eventosLog: [],
     eventosTotal: 0,
@@ -50,7 +50,10 @@ const centralEntradasState = {
     tickerNotificacoes: null,
     tickerSync: null,
     uploadArquivos: [],
-    uploadEmAndamento: false
+    uploadEmAndamento: false,
+    eventosRodape: [],
+    notificacoesNaoLidas: 0,
+    buscaDebounceTimer: null
 };
 
 const CENTRAL_STATUS_META = {
@@ -409,8 +412,284 @@ async function enviarUploadCentralEntradas() {
 }
 
 /* ============================================================
- * Dashboard
+ * Dashboard — Sprint UX1
  * ============================================================ */
+
+const CENTRAL_UX1_FILTROS = [
+    { codigo: 'hoje', label: 'Hoje' },
+    { codigo: 'ontem', label: 'Ontem' },
+    { codigo: 'ultimos_7_dias', label: 'Semana' },
+    { codigo: 'este_mes', label: 'Mês' },
+    { codigo: 'pendentes', label: 'Pendentes' },
+    { codigo: '_status_gravada', label: 'Importadas', status: 'GRAVADA' },
+    { codigo: '_status_descartada', label: 'Canceladas', status: 'DESCARTADA' },
+    { codigo: '_status_erro', label: 'Erro', status: 'ERRO' },
+    { codigo: '', label: 'Todos' }
+];
+
+function renderCabecalhoUx1Central() {
+    const container = document.getElementById('centralUx1Header');
+    if (!container) return;
+
+    const UX = centralUx();
+    const estado = UX.resolverEstadoServicoCentral?.(centralEntradasState) || { label: 'Online', codigo: 'monitorando' };
+    const online = estado.codigo !== 'offline' && navigator.onLine;
+    const ultima = centralEntradasState.ultimaSincronizacao;
+    const tempoSync = tempoDesdeCentral(ultima);
+    const usuario = obterUsuarioLogadoCentral();
+    const iniciais = (usuario?.nome || 'U').split(/\s+/).slice(0, 2).map((p) => p[0]).join('').toUpperCase();
+    const podeDiagnostico = typeof usuarioPodeAcessarDiagnosticoCentral === 'function'
+        && usuarioPodeAcessarDiagnosticoCentral();
+    const notifQtd = centralEntradasState.notificacoesNaoLidas || 0;
+
+    container.innerHTML = `
+        <div class="central-ux1-header central-entradas-anim-in">
+            <div>
+                <h1 class="central-ux1-header-titulo">Central Inteligente de Entradas</h1>
+                <p class="central-ux1-header-sub">Monitoramento automático de documentos fiscais recebidos</p>
+                <div class="central-ux1-header-meta">
+                    <span class="central-ux1-online ${online ? '' : 'central-ux1-online--off'}" title="${online ? 'Sistema conectado e operacional' : 'Sem conexão'}">
+                        <span class="central-ux1-online-pulse" aria-hidden="true"></span>
+                        ${online ? 'ONLINE' : 'OFFLINE'}
+                    </span>
+                    <span class="central-ux1-sync-info" title="Última sincronização com a SEFAZ">
+                        <i class="fas fa-clock me-1" aria-hidden="true"></i>
+                        Última sync: ${ultima ? escapeHtmlCentralEntradas(formatarDataHoraCentral(ultima)) : '—'}
+                        ${tempoSync && !centralEntradasState.sincronizando ? ` · ${escapeHtmlCentralEntradas(tempoSync)}` : ''}
+                    </span>
+                </div>
+            </div>
+            <div class="central-ux1-header-acoes">
+                <button type="button" class="btn btn-light btn-sm" id="centralBtnSincronizar" title="Sincronizar agora com a SEFAZ">
+                    <i class="fas fa-sync-alt ${centralEntradasState.sincronizando ? 'fa-spin' : ''} me-1"></i> Sincronizar Agora
+                </button>
+                ${podeDiagnostico
+                    ? `<button type="button" class="btn btn-outline-light btn-sm" id="centralBtnDiagnostico" title="Painel de diagnóstico (admin)">
+                        <i class="fas fa-stethoscope me-1"></i> Diagnóstico
+                       </button>`
+                    : ''}
+                <button type="button" class="btn btn-outline-light btn-sm position-relative" id="centralBtnNotificacoes" title="Notificações da Central">
+                    <i class="fas fa-bell"></i>
+                    ${notifQtd > 0 ? `<span class="central-ux1-notif-badge">${notifQtd > 9 ? '9+' : notifQtd}</span>` : ''}
+                </button>
+                <button type="button" class="btn btn-outline-light btn-sm" id="centralBtnAdicionarDocumento" title="Adicionar documento via XML">
+                    <i class="fas fa-plus"></i>
+                </button>
+                <button type="button" class="btn btn-outline-light btn-sm central-nav-view" data-view="config" title="Configurações">
+                    <i class="fas fa-cog"></i>
+                </button>
+                <button type="button" class="btn btn-outline-light btn-sm central-nav-view" data-view="log" title="Log operacional">
+                    <i class="fas fa-list-alt"></i>
+                </button>
+                <div class="central-ux1-usuario" title="Usuário logado">
+                    <span class="central-ux1-usuario-avatar" aria-hidden="true">${escapeHtmlCentralEntradas(iniciais)}</span>
+                    <span>${escapeHtmlCentralEntradas(usuario?.nome || 'Usuário')}</span>
+                </div>
+            </div>
+        </div>`;
+}
+
+function renderCardsUx1Central(contadores = {}, indicadores = {}, operacional = {}) {
+    const UX = centralUx();
+    const snapshot = UX.obterSnapshotKpisCentral?.();
+    const prev = snapshot?.contadores || {};
+    const prevOp = snapshot?.operacional || {};
+    const porStatus = contadores.porStatus || {};
+
+    const cards = [
+        { titulo: 'Recebidas Hoje', valor: indicadores.documentosHoje ?? 0, icone: 'fa-inbox', cor: '#0d6efd', trendKey: 'documentosHoje', trendPrev: prevOp.documentosHoje, statusFiltro: null, filtroRapido: 'hoje' },
+        { titulo: 'Importadas', valor: contadores.gravadas ?? 0, icone: 'fa-check-double', cor: '#198754', trendKey: 'gravadas', statusFiltro: 'GRAVADA' },
+        { titulo: 'Pendentes', valor: (contadores.novas ?? 0) + (contadores.emProcessamento ?? 0) + (contadores.aguardandoRevisao ?? 0), icone: 'fa-hourglass-half', cor: '#fd7e14', trendKey: 'pendentes', trendPrev: (prev.novas || 0) + (prev.emProcessamento || 0) + (prev.aguardandoRevisao || 0), invertTrend: true, filtroRapido: 'pendentes' },
+        { titulo: 'Em Processamento', valor: contadores.emProcessamento ?? 0, icone: 'fa-cog', cor: '#0dcaf0', trendKey: 'emProcessamento', statusFiltro: 'EM_PROCESSAMENTO' },
+        { titulo: 'Canceladas', valor: porStatus.DESCARTADA ?? 0, icone: 'fa-ban', cor: '#6c757d', trendKey: 'canceladas', trendPrev: prev.porStatus?.DESCARTADA, statusFiltro: 'DESCARTADA' },
+        { titulo: 'Precisão MIIP', valor: operacional.taxaIdentificacaoAutomatica != null ? `${operacional.taxaIdentificacaoAutomatica}%` : '—', icone: 'fa-brain', cor: '#6610f2', trendVal: operacional.taxaIdentificacaoAutomatica, trendPrev: prevOp.taxaIdentificacaoAutomatica, raw: true },
+        { titulo: 'Tempo Médio', valor: operacional.tempoMedioProcessamentoMinutos != null ? `${operacional.tempoMedioProcessamentoMinutos} min` : '—', icone: 'fa-stopwatch', cor: '#20c997', trendVal: operacional.tempoMedioProcessamentoMinutos, trendPrev: prevOp.tempoMedioProcessamentoMinutos, invertTrend: true, raw: true },
+        { titulo: 'Valor Total', valor: formatarMoedaCentral(indicadores.valorTotalDia), icone: 'fa-coins', cor: '#198754', trendVal: indicadores.valorTotalDia, trendPrev: prevOp.valorTotalDia, raw: true }
+    ];
+
+    return cards.map((card) => {
+        const trend = card.raw
+            ? (UX.renderTendenciaKpiCentral?.(card.trendVal, card.trendPrev, card.invertTrend) || '')
+            : (UX.renderTendenciaKpiCentral?.(card.valor, card.trendPrev ?? prev[card.trendKey], card.invertTrend) || '');
+        const clickAttrs = card.statusFiltro
+            ? `data-status-filtro="${card.statusFiltro}"`
+            : (card.filtroRapido ? `data-filtro-kpi="${card.filtroRapido}"` : '');
+        const clickClass = clickAttrs ? 'central-ux1-kpi--click central-entradas-card-click' : '';
+
+        return `
+            <div class="central-ux1-kpi central-entradas-anim-in ${clickClass}" ${clickAttrs}
+                 style="--kpi-cor:${card.cor}; --kpi-bg:${card.cor}18"
+                 title="${escapeHtmlCentralEntradas(card.titulo)}"
+                 tabindex="${clickAttrs ? '0' : '-1'}"
+                 role="${clickAttrs ? 'button' : 'group'}">
+                <div class="central-ux1-kpi-icone"><i class="fas ${card.icone}"></i></div>
+                <div>
+                    <div class="central-ux1-kpi-valor">${escapeHtmlCentralEntradas(card.valor)}</div>
+                    <div class="central-ux1-kpi-titulo">${escapeHtmlCentralEntradas(card.titulo)}</div>
+                    ${trend}
+                </div>
+            </div>`;
+    }).join('');
+}
+
+function renderAtencaoBannerUx1() {
+    const container = document.getElementById('centralEntradasAtencao');
+    if (!container) return;
+
+    const itens = centralEntradasState.atencao?.itens || [];
+    if (!itens.length) {
+        container.innerHTML = '';
+        return;
+    }
+
+    const principal = itens[0];
+    container.innerHTML = `
+        <div class="central-ux1-atencao-banner central-entradas-anim-in" role="alert">
+            <i class="fas fa-exclamation-circle text-warning"></i>
+            <span class="flex-grow-1">${escapeHtmlCentralEntradas(principal.mensagem)}</span>
+            ${principal.acao
+                ? `<button type="button" class="btn btn-sm btn-warning central-atencao-acao" data-atencao-idx="0">${escapeHtmlCentralEntradas(principal.acao.label || 'Ver')}</button>`
+                : ''}
+        </div>`;
+}
+
+function renderRodapeUx1Central() {
+    const container = document.getElementById('centralUx1Rodape');
+    if (!container) return;
+
+    const op = centralEntradasState.operacional || {};
+    const ind = centralEntradasState.indicadores || {};
+    const tempoEconomizado = op.tempoMedioProcessamentoMinutos != null
+        ? `${Math.round((op.comprasConcluidasHoje || 0) * op.tempoMedioProcessamentoMinutos)} min`
+        : '—';
+    const ranking = montarRankingFornecedoresUx1();
+
+    container.innerHTML = `
+        <div class="central-ux1-rodape central-entradas-anim-in">
+            <div class="central-ux1-rodape-card">
+                <div class="central-ux1-rodape-titulo"><i class="fas fa-piggy-bank"></i> Economia Gerada Hoje</div>
+                <div class="central-ux1-economia-item"><span>Tempo economizado</span><strong>${escapeHtmlCentralEntradas(tempoEconomizado)}</strong></div>
+                <div class="central-ux1-economia-item"><span>Produtos reconhecidos</span><strong>${escapeHtmlCentralEntradas(op.taxaIdentificacaoAutomatica != null ? `${op.taxaIdentificacaoAutomatica}%` : '—')}</strong></div>
+                <div class="central-ux1-economia-item"><span>Importações automáticas</span><strong>${escapeHtmlCentralEntradas(op.comprasConcluidasHoje ?? 0)}</strong></div>
+            </div>
+            <div class="central-ux1-rodape-card">
+                <div class="central-ux1-rodape-titulo"><i class="fas fa-chart-line"></i> Precisão por Fornecedor</div>
+                ${ranking || '<p class="text-muted small mb-0">Carregue documentos para ver o ranking.</p>'}
+            </div>
+            <div class="central-ux1-rodape-card">
+                <div class="central-ux1-rodape-titulo"><i class="fas fa-bolt"></i> Atividade em Tempo Real</div>
+                <div id="centralUx1Atividade">${renderAtividadeRodapeUx1()}</div>
+            </div>
+            <div class="central-ux1-rodape-card">
+                <div class="central-ux1-rodape-titulo"><i class="fas fa-server"></i> Status dos Serviços</div>
+                <div id="centralUx1Servicos">${renderStatusServicosRodapeUx1()}</div>
+            </div>
+        </div>`;
+}
+
+function montarRankingFornecedoresUx1() {
+    const mapa = {};
+    (centralEntradasState.documentos || []).forEach((doc) => {
+        const nome = doc.fornecedor || 'Sem nome';
+        if (!mapa[nome]) mapa[nome] = { nome, scores: [], total: 0 };
+        if (doc.scoreGeral != null) mapa[nome].scores.push(doc.scoreGeral);
+        mapa[nome].total += 1;
+    });
+
+    const lista = Object.values(mapa)
+        .map((f) => ({
+            nome: f.nome,
+            precisao: f.scores.length
+                ? Math.round(f.scores.reduce((a, b) => a + b, 0) / f.scores.length)
+                : null
+        }))
+        .filter((f) => f.precisao != null)
+        .sort((a, b) => b.precisao - a.precisao)
+        .slice(0, 5);
+
+    if (!lista.length) return '';
+
+    return lista.map((f) => `
+        <div class="central-ux1-fornecedor-rank">
+            <span class="central-ux1-fornecedor-rank-nome" title="${escapeHtmlCentralEntradas(f.nome)}">${escapeHtmlCentralEntradas(f.nome)}</span>
+            <div class="central-ux1-fornecedor-rank-bar" title="Precisão ${f.precisao}%"><span style="width:${f.precisao}%"></span></div>
+            <strong class="small">${f.precisao}%</strong>
+        </div>
+    `).join('');
+}
+
+function renderAtividadeRodapeUx1() {
+    const eventos = centralEntradasState.eventosRodape || [];
+    if (!eventos.length) {
+        return '<p class="text-muted small mb-0">Aguardando atividades...</p>';
+    }
+
+    const iconePorTipo = {
+        DOCUMENTO_RECEBIDO: 'fa-inbox',
+        DOCUMENTO_PROCESSADO: 'fa-brain',
+        COMPRA_GRAVADA: 'fa-shopping-cart',
+        SYNC_CONCLUIDA: 'fa-sync-alt',
+        SYNC_INICIADA: 'fa-cloud-download-alt',
+        ERRO: 'fa-exclamation-triangle',
+        SYNC_ERRO: 'fa-exclamation-triangle'
+    };
+
+    return eventos.slice(0, 6).map((ev) => {
+        const dt = centralUx().formatarDataHoraSeparadoCentral?.(ev.createdAt) || { hora: '—' };
+        const icone = iconePorTipo[ev.tipo] || 'fa-circle';
+        return `
+            <div class="central-ux1-atividade-item">
+                <span class="central-ux1-atividade-icone"><i class="fas ${icone}"></i></span>
+                <div>
+                    <div>${escapeHtmlCentralEntradas(ev.descricao || ev.tipo || 'Evento')}</div>
+                    <small class="text-muted">${escapeHtmlCentralEntradas(dt.hora)}</small>
+                </div>
+            </div>`;
+    }).join('');
+}
+
+function renderStatusServicosRodapeUx1() {
+    const UX = centralUx();
+    const estado = UX.resolverEstadoServicoCentral?.(centralEntradasState) || {};
+    const s = centralEntradasState.servicoStatus || {};
+    const sefazOnline = navigator.onLine && estado.codigo !== 'offline' && estado.codigo !== 'erro';
+    const bgOnline = Boolean(s.servicoAtivo || s.syncAutomaticaHabilitada || s.executando);
+
+    const servicos = [
+        { nome: 'SEFAZ', online: sefazOnline },
+        { nome: 'MIIP', online: navigator.onLine },
+        { nome: 'Parser', online: navigator.onLine },
+        { nome: 'Background', online: bgOnline }
+    ];
+
+    return `
+        <div class="central-ux1-servico-grid">
+            ${servicos.map((srv) => `
+                <div class="central-ux1-servico-item" title="${srv.nome}: ${srv.online ? 'Online' : 'Offline'}">
+                    <span class="central-ux1-servico-dot ${srv.online ? '' : 'central-ux1-servico-dot--off'}"></span>
+                    <span>${escapeHtmlCentralEntradas(srv.nome)}</span>
+                    <small class="ms-auto text-muted">${srv.online ? 'Online' : 'Offline'}</small>
+                </div>
+            `).join('')}
+        </div>`;
+}
+
+async function carregarEventosRodapeCentral() {
+    try {
+        const resultado = await centralEntradasFetch('/eventos?limite=8');
+        centralEntradasState.eventosRodape = resultado.eventos || [];
+        const ativ = document.getElementById('centralUx1Atividade');
+        if (ativ) ativ.innerHTML = renderAtividadeRodapeUx1();
+    } catch { /* ignore */ }
+}
+
+async function carregarContagemNotificacoesCentral() {
+    try {
+        const { notificacoes, total } = await centralEntradasFetch('/notificacoes?apenas_nao_lidas=true&limite=1');
+        centralEntradasState.notificacoesNaoLidas = total ?? (notificacoes || []).length;
+        renderCabecalhoUx1Central();
+    } catch { /* ignore */ }
+}
 
 function renderCardsDashboardCentral(contadores = {}) {
     const UX = centralUx();
@@ -688,20 +967,17 @@ function renderFiltrosRapidosCentral() {
     const container = document.getElementById('centralEntradasFiltrosRapidos');
     if (!container) return;
 
-    const presets = centralEntradasState.metadados?.filtrosRapidos || [
-        { codigo: 'hoje', label: 'Hoje' },
-        { codigo: 'ontem', label: 'Ontem' },
-        { codigo: 'ultimos_7_dias', label: 'Últimos 7 dias' },
-        { codigo: 'ultimos_30_dias', label: 'Últimos 30 dias' },
-        { codigo: 'este_mes', label: 'Este mês' },
-        { codigo: 'pendentes', label: 'Pendentes' },
-        { codigo: 'prontas', label: 'Prontas' }
-    ];
+    const ativo = centralEntradasState.filtroRapidoAtivo;
+    const statusAtivo = document.getElementById('centralFiltroStatus')?.value || '';
 
-    container.innerHTML = presets.map((preset) => {
-        const ativo = centralEntradasState.filtroRapidoAtivo === preset.codigo ? 'ativa' : '';
-        return `<button type="button" class="central-entradas-filtro-rapido ${ativo}"
+    container.innerHTML = CENTRAL_UX1_FILTROS.map((preset) => {
+        const isStatus = preset.codigo.startsWith('_status_');
+        const ativa = isStatus
+            ? (statusAtivo === preset.status && !ativo)
+            : (ativo === preset.codigo || (!ativo && !statusAtivo && preset.codigo === ''));
+        return `<button type="button" class="central-ux1-filtro ${ativa ? 'ativa' : ''}"
             data-filtro-rapido="${escapeHtmlCentralEntradas(preset.codigo)}"
+            data-filtro-status="${escapeHtmlCentralEntradas(preset.status || '')}"
             title="${escapeHtmlCentralEntradas(preset.label)}">${escapeHtmlCentralEntradas(preset.label)}</button>`;
     }).join('');
 }
@@ -719,34 +995,26 @@ function renderScoreBadgeCentral(score, cor) {
 
 async function carregarInteligenciaCentral() {
     centralEntradasState.carregandoInteligencia = true;
-    renderCardsOperacionaisCentral();
-    renderPainelAlertasCentral();
-    renderPainelPendenciasCentral();
 
     try {
-        const [operacional, alertas, pendencias, atencao] = await Promise.all([
-            centralEntradasFetch('/operacional'),
-            centralEntradasFetch('/alertas'),
-            centralEntradasFetch('/pendencias?limite=20'),
-            centralEntradasFetch('/atencao')
-        ]);
+        // RC3: um único endpoint — alertas calculados uma vez
+        const inteligencia = await centralEntradasFetch('/inteligencia?limite=20');
 
-        centralEntradasState.operacional = operacional;
-        centralEntradasState.alertas = alertas;
-        centralEntradasState.pendencias = pendencias;
-        centralEntradasState.atencao = atencao;
+        centralEntradasState.operacional = inteligencia.operacional;
+        centralEntradasState.alertas = inteligencia.alertas;
+        centralEntradasState.pendencias = inteligencia.pendencias;
+        centralEntradasState.atencao = inteligencia.atencao;
 
-        renderPainelAtencaoCentral();
-        renderCardsOperacionaisCentral();
-        renderPainelAlertasCentral();
-        renderPainelPendenciasCentral();
+        renderAtencaoBannerUx1();
 
         centralUx().salvarSnapshotKpisCentral?.(
             { contadores: centralEntradasState.ultimoDashboardContadores || {} },
-            operacional
+            inteligencia.operacional
         );
+
+        await carregarEventosRodapeCentral();
     } catch (error) {
-        console.warn('Inteligência operacional:', error.message);
+        console.warn('[Central Entradas][UX] Inteligência operacional:', error.message);
     } finally {
         centralEntradasState.carregandoInteligencia = false;
     }
@@ -882,91 +1150,686 @@ function mostrarViewCentral(view) {
     if (view === 'log') carregarLogCentral();
 }
 
+function badgeCfgCentral(texto, tipo = 'neutral') {
+    return `<span class="central-cfg-badge central-cfg-badge--${tipo}">${escapeHtmlCentralEntradas(texto)}</span>`;
+}
+
+function badgeCertStatusCfg(status) {
+    const mapa = {
+        OK: 'ok',
+        A_VENCER: 'warn',
+        VENCIDO: 'error',
+        AUSENTE: 'error',
+        ARQUIVO_AUSENTE: 'error',
+        ERRO: 'error'
+    };
+    const labels = {
+        OK: 'Válido',
+        A_VENCER: 'A vencer',
+        VENCIDO: 'Vencido',
+        AUSENTE: 'Ausente',
+        ARQUIVO_AUSENTE: 'Arquivo ausente',
+        ERRO: 'Erro'
+    };
+    const codigo = String(status || 'AUSENTE');
+    return badgeCfgCentral(labels[codigo] || codigo, mapa[codigo] || 'neutral');
+}
+
+function formatarMsCfgCentral(ms) {
+    if (ms == null || Number.isNaN(Number(ms))) return '—';
+    const valor = Number(ms);
+    if (valor < 1000) return `${Math.round(valor)} ms`;
+    if (valor < 60000) return `${(valor / 1000).toFixed(1)} s`;
+    return `${(valor / 60000).toFixed(1)} min`;
+}
+
+function renderAbaAmbienteCfg(painel) {
+    const amb = painel.ambiente || {};
+    const codigo = Number(amb.codigo) === 1 ? 1 : 2;
+    return `
+        <div class="row g-3">
+            <div class="col-lg-7">
+                <div class="central-cfg-card">
+                    <div class="central-cfg-card__title"><i class="fas fa-globe me-1"></i> Ambiente SEFAZ</div>
+                    <div class="central-cfg-radio-group mb-3" role="radiogroup" aria-label="Ambiente">
+                        <label class="central-cfg-radio">
+                            <input type="radio" name="cfgAmbiente" id="cfgAmbienteProd" value="1" ${codigo === 1 ? 'checked' : ''}>
+                            <span><strong>Produção</strong><div class="central-cfg-hint mb-0">Ambiente real</div></span>
+                        </label>
+                        <label class="central-cfg-radio">
+                            <input type="radio" name="cfgAmbiente" id="cfgAmbienteHom" value="2" ${codigo === 2 ? 'checked' : ''}>
+                            <span><strong>Homologação</strong><div class="central-cfg-hint mb-0">Testes SEFAZ</div></span>
+                        </label>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="central-cfg-label" for="cfgUf">UF / Autoridade</label>
+                            <input type="text" class="form-control" id="cfgUf" maxlength="10"
+                                value="${escapeHtmlCentralEntradas(amb.uf || 'SVRS')}" placeholder="SVRS">
+                            <div class="central-cfg-hint">Ex.: SVRS, AN, SP</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="central-cfg-label" for="cfgCodigoUf">Código UF</label>
+                            <input type="text" class="form-control" id="cfgCodigoUf" maxlength="2"
+                                value="${escapeHtmlCentralEntradas(amb.codigoUf || '23')}" placeholder="23">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-5">
+                <div class="central-cfg-card">
+                    <div class="central-cfg-card__title"><i class="fas fa-info-circle me-1"></i> Metadados</div>
+                    <div class="central-cfg-meta mb-3">
+                        ${badgeCfgCentral(amb.label || (codigo === 1 ? 'Produção' : 'Homologação'), codigo === 1 ? 'ok' : 'info')}
+                        ${badgeCfgCentral(painel.versaoConfiguracao || 'RC4', 'prep')}
+                    </div>
+                    <div class="central-cfg-stat mb-2">
+                        <div class="central-cfg-stat__label">Atualizado em</div>
+                        <div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(formatarDataHoraCentral(amb.atualizadoEm) || '—')}</div>
+                    </div>
+                    <div class="central-cfg-stat">
+                        <div class="central-cfg-stat__label">Última alteração</div>
+                        <div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(formatarDataHoraCentral(amb.ultimaAlteracao) || '—')}</div>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+}
+
+function renderAbaSefazCfg(painel) {
+    const s = painel.sefaz || {};
+    return `
+        <div class="row g-3">
+            <div class="col-12">
+                <div class="central-cfg-card">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                        <div class="central-cfg-card__title mb-0"><i class="fas fa-network-wired me-1"></i> Endpoints SEFAZ</div>
+                        <div class="central-cfg-meta">
+                            ${s.manifestacaoPreparada ? badgeCfgCentral('Manifestação preparada', 'prep') : ''}
+                            ${!s.manifestacaoAtiva ? badgeCfgCentral('Manifestação desativada', 'neutral') : badgeCfgCentral('Manifestação ativa', 'ok')}
+                        </div>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="central-cfg-label" for="cfgUrlDfeProd">Distribuição DF-e — Produção</label>
+                            <input type="url" class="form-control form-control-sm" id="cfgUrlDfeProd"
+                                value="${escapeHtmlCentralEntradas(s.urlDistribuicaoDfeProducao || '')}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="central-cfg-label" for="cfgUrlDfeHom">Distribuição DF-e — Homologação</label>
+                            <input type="url" class="form-control form-control-sm" id="cfgUrlDfeHom"
+                                value="${escapeHtmlCentralEntradas(s.urlDistribuicaoDfeHomologacao || '')}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="central-cfg-label" for="cfgUrlConsultaProd">Consulta chave — Produção</label>
+                            <input type="url" class="form-control form-control-sm" id="cfgUrlConsultaProd"
+                                value="${escapeHtmlCentralEntradas(s.urlConsultaChaveProducao || '')}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="central-cfg-label" for="cfgUrlConsultaHom">Consulta chave — Homologação</label>
+                            <input type="url" class="form-control form-control-sm" id="cfgUrlConsultaHom"
+                                value="${escapeHtmlCentralEntradas(s.urlConsultaChaveHomologacao || '')}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="central-cfg-label" for="cfgUrlManifProd">
+                                Manifestação — Produção ${badgeCfgCentral('prep', 'prep')}
+                            </label>
+                            <input type="url" class="form-control form-control-sm" id="cfgUrlManifProd" disabled
+                                value="${escapeHtmlCentralEntradas(s.urlManifestacaoProducao || '')}">
+                            <div class="central-cfg-disabled-note">Estrutura pronta — ativação futura</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="central-cfg-label" for="cfgUrlManifHom">
+                                Manifestação — Homologação ${badgeCfgCentral('prep', 'prep')}
+                            </label>
+                            <input type="url" class="form-control form-control-sm" id="cfgUrlManifHom" disabled
+                                value="${escapeHtmlCentralEntradas(s.urlManifestacaoHomologacao || '')}">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-8">
+                <div class="central-cfg-card">
+                    <div class="central-cfg-card__title"><i class="fas fa-sliders-h me-1"></i> Comunicação</div>
+                    <div class="row g-3">
+                        <div class="col-md-3">
+                            <label class="central-cfg-label" for="cfgVersaoServico">Versão</label>
+                            <input type="text" class="form-control" id="cfgVersaoServico"
+                                value="${escapeHtmlCentralEntradas(s.versaoServico || '1.01')}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="central-cfg-label" for="cfgTimeoutMs">Timeout (ms)</label>
+                            <input type="number" class="form-control" id="cfgTimeoutMs" min="1000" max="300000"
+                                value="${Number(s.timeoutMs) || 90000}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="central-cfg-label" for="cfgMaxTentativas">Máx. tentativas</label>
+                            <input type="number" class="form-control" id="cfgMaxTentativas" min="1" max="10"
+                                value="${Number(s.maxTentativas) || 2}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="central-cfg-label" for="cfgIntervaloTentativas">Intervalo (ms)</label>
+                            <input type="number" class="form-control" id="cfgIntervaloTentativas" min="0" max="60000"
+                                value="${Number(s.intervaloTentativasMs) || 3000}">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="central-cfg-card">
+                    <div class="central-cfg-card__title"><i class="fas fa-plug me-1"></i> Teste</div>
+                    <p class="small text-muted mb-3">Valida comunicação com o endpoint DF-e do ambiente atual.</p>
+                    <button type="button" class="btn btn-outline-primary w-100" id="centralCfgTestarSefaz">
+                        <i class="fas fa-satellite-dish me-1"></i> Testar comunicação
+                    </button>
+                    <div id="centralCfgResultSefaz" class="central-cfg-result"></div>
+                </div>
+            </div>
+        </div>`;
+}
+
+function renderAbaCertificadoCfg(painel) {
+    const c = painel.certificado || {};
+    const filiais = Array.isArray(painel.certificadosFiliais) ? painel.certificadosFiliais : [];
+    return `
+        <div class="row g-3">
+            <div class="col-lg-7">
+                <div class="central-cfg-card">
+                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+                        <div class="central-cfg-card__title mb-0"><i class="fas fa-certificate me-1"></i> Certificado digital</div>
+                        ${badgeCertStatusCfg(c.status)}
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="central-cfg-stat">
+                                <div class="central-cfg-stat__label">Nome / CN</div>
+                                <div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(c.nome || '—')}</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="central-cfg-stat">
+                                <div class="central-cfg-stat__label">CNPJ</div>
+                                <div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(c.cnpj || '—')}</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="central-cfg-stat">
+                                <div class="central-cfg-stat__label">Validade</div>
+                                <div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(c.validade ? formatarDataHoraCentral(c.validade) : '—')}</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="central-cfg-stat">
+                                <div class="central-cfg-stat__label">Dias restantes</div>
+                                <div class="central-cfg-stat__value">${c.diasRestantes != null ? escapeHtmlCentralEntradas(String(c.diasRestantes)) : '—'}</div>
+                            </div>
+                        </div>
+                    </div>
+                    ${c.mensagem ? `<p class="small text-muted mt-3 mb-0">${escapeHtmlCentralEntradas(c.mensagem)}</p>` : ''}
+                    <div class="d-flex flex-wrap gap-2 mt-3">
+                        <button type="button" class="btn btn-outline-primary" id="centralCfgTestarCert">
+                            <i class="fas fa-shield-alt me-1"></i> Testar Certificado
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" id="centralCfgAtualizarCert">
+                            <i class="fas fa-sync me-1"></i> Atualizar Certificado
+                        </button>
+                    </div>
+                    <div id="centralCfgResultCert" class="central-cfg-result"></div>
+                    <div class="alert alert-light border mt-3 mb-0 small" id="centralCfgCertInfo" hidden>
+                        O certificado é gerenciado nas <strong>configurações fiscais</strong> da empresa.
+                        Esta tela exibe o status operacional para a Central.
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-5">
+                <div class="central-cfg-card">
+                    <div class="central-cfg-card__title">
+                        <i class="fas fa-building me-1"></i> Filiais
+                        ${badgeCfgCentral('estrutura', 'prep')}
+                    </div>
+                    ${filiais.length
+                        ? filiais.map((f) => `
+                            <div class="central-cfg-filial">
+                                <div>
+                                    <strong>${escapeHtmlCentralEntradas(f.nome || 'Filial')}</strong>
+                                    <div class="central-cfg-hint mb-0">${escapeHtmlCentralEntradas(f.cnpj || '—')}</div>
+                                </div>
+                                ${badgeCertStatusCfg(f.status)}
+                            </div>`).join('')
+                        : `<p class="small text-muted mb-0">Nenhum certificado de filial listado. Estrutura pronta para múltiplos CNPJs.</p>`}
+                </div>
+            </div>
+        </div>`;
+}
+
+function renderAbaSincronizacaoCfg(painel) {
+    const sync = painel.sincronizacao || {};
+    return `
+        <div class="row g-3">
+            <div class="col-12">
+                <div class="central-cfg-card">
+                    <div class="central-cfg-card__title"><i class="fas fa-sync-alt me-1"></i> Sincronização DF-e</div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="cfgSyncAutomatica" ${sync.syncAutomaticaHabilitada ? 'checked' : ''}>
+                                <label class="form-check-label" for="cfgSyncAutomatica">Sincronização automática</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="cfgSyncAoAbrir" ${sync.syncAoAbrir !== false ? 'checked' : ''}>
+                                <label class="form-check-label" for="cfgSyncAoAbrir">Buscar ao abrir a Central</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="cfgNotificar" ${sync.notificarNovasNotas !== false ? 'checked' : ''}>
+                                <label class="form-check-label" for="cfgNotificar">Notificar novas notas</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="cfgReprocessamento" ${sync.reprocessamentoAutomatico !== false ? 'checked' : ''}>
+                                <label class="form-check-label" for="cfgReprocessamento">Reprocessamento automático</label>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="central-cfg-label" for="cfgIntervalo">Intervalo (minutos)</label>
+                            <input type="number" class="form-control" id="cfgIntervalo" min="1" max="1440"
+                                value="${Number(sync.syncIntervaloMinutos) || 15}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="central-cfg-label" for="cfgMaxDocs">Máx. iterações por sync</label>
+                            <input type="number" class="form-control" id="cfgMaxDocs" min="1" max="200"
+                                value="${Number(sync.syncMaxDocumentos) || 50}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="central-cfg-label" for="cfgPermInicio">Horário permitido — início</label>
+                            <input type="time" class="form-control" id="cfgPermInicio"
+                                value="${escapeHtmlCentralEntradas(sync.horarioPermitidoInicio || '06:00')}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="central-cfg-label" for="cfgPermFim">Horário permitido — fim</label>
+                            <input type="time" class="form-control" id="cfgPermFim"
+                                value="${escapeHtmlCentralEntradas(sync.horarioPermitidoFim || '23:59')}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="central-cfg-label" for="cfgBloqInicio">Horário bloqueado — início</label>
+                            <input type="time" class="form-control" id="cfgBloqInicio"
+                                value="${escapeHtmlCentralEntradas(sync.horarioBloqueadoInicio || '')}">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="central-cfg-label" for="cfgBloqFim">Horário bloqueado — fim</label>
+                            <input type="time" class="form-control" id="cfgBloqFim"
+                                value="${escapeHtmlCentralEntradas(sync.horarioBloqueadoFim || '')}">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+}
+
+function renderAbaDiagnosticoCfg(painel) {
+    const d = painel.diagnostico || {};
+    return `
+        <div class="row g-3">
+            <div class="col-lg-5">
+                <div class="central-cfg-card">
+                    <div class="central-cfg-card__title"><i class="fas fa-stethoscope me-1"></i> Ações rápidas</div>
+                    <div class="d-flex flex-wrap gap-2 central-cfg-diag-actions">
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="centralCfgHealth">
+                            <i class="fas fa-heartbeat me-1"></i> Health
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="centralCfgTestarCertDiag">
+                            <i class="fas fa-shield-alt me-1"></i> Testar Cert
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="centralCfgTestarSefazDiag">
+                            <i class="fas fa-satellite-dish me-1"></i> Testar SEFAZ
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="centralCfgLimparCache">
+                            <i class="fas fa-broom me-1"></i> Limpar Cache
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="centralCfgVerEventos">
+                            <i class="fas fa-list-alt me-1"></i> Ver Eventos
+                        </button>
+                    </div>
+                    <div id="centralCfgResultDiag" class="central-cfg-result"></div>
+                </div>
+            </div>
+            <div class="col-lg-7">
+                <div class="central-cfg-card">
+                    <div class="central-cfg-card__title"><i class="fas fa-code-branch me-1"></i> Versões e tempos</div>
+                    <div class="row g-2">
+                        <div class="col-md-6"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Central</div><div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(d.versaoCentral || '—')}</div></div></div>
+                        <div class="col-md-6"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Pipeline</div><div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(d.versaoPipeline || '—')}</div></div></div>
+                        <div class="col-md-6"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Parser</div><div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(d.versaoParser || '—')}</div></div></div>
+                        <div class="col-md-6"><div class="central-cfg-stat"><div class="central-cfg-stat__label">MIIP</div><div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(d.versaoMiip || '—')}</div></div></div>
+                        <div class="col-md-6"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Tempo médio sync</div><div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(formatarMsCfgCentral(d.tempoMedioSyncMs))}</div></div></div>
+                        <div class="col-md-6"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Última sincronização</div><div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(formatarDataHoraCentral(d.ultimaSincronizacao) || '—')}</div></div></div>
+                        <div class="col-12"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Último erro</div><div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(d.ultimoErro || 'Nenhum')}</div></div></div>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+}
+
+function renderAbaAvancadoCfg(painel) {
+    const a = painel.avancado || {};
+    return `
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <div class="central-cfg-card">
+                    <div class="central-cfg-card__title"><i class="fas fa-server me-1"></i> HTTP</div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="central-cfg-label" for="cfgHttpTimeout">Timeout HTTP (ms)</label>
+                            <input type="number" class="form-control" id="cfgHttpTimeout" min="1000" max="300000"
+                                value="${Number(a.httpTimeoutMs) || 90000}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="central-cfg-label" for="cfgHttpRetry">Retry HTTP</label>
+                            <input type="number" class="form-control" id="cfgHttpRetry" min="0" max="10"
+                                value="${Number(a.httpRetry) || 2}">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="central-cfg-card">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="central-cfg-card__title mb-0"><i class="fas fa-shield-alt me-1"></i> Proxy</div>
+                        ${badgeCfgCentral('estrutura', 'prep')}
+                    </div>
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="cfgProxyHab" disabled ${a.proxyHabilitado ? 'checked' : ''}>
+                        <label class="form-check-label" for="cfgProxyHab">Proxy habilitado</label>
+                    </div>
+                    <label class="central-cfg-label" for="cfgProxyUrl">URL do proxy</label>
+                    <input type="url" class="form-control" id="cfgProxyUrl" disabled
+                        value="${escapeHtmlCentralEntradas(a.proxyUrl || '')}" placeholder="http://proxy:8080">
+                    <div class="central-cfg-disabled-note mt-2">Proxy preparado — ainda não funcional nesta versão.</div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="central-cfg-card">
+                    <div class="central-cfg-card__title"><i class="fas fa-bug me-1"></i> Logs e debug</div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="cfgLogDetalhado" ${a.logDetalhado ? 'checked' : ''}>
+                                <label class="form-check-label" for="cfgLogDetalhado">Log detalhado</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="cfgModoDebug" ${a.modoDebug ? 'checked' : ''}>
+                                <label class="form-check-label" for="cfgModoDebug">Modo debug</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+}
+
+function renderPainelConfigCentral(painel) {
+    const aba = centralEntradasState.configAbaAtiva || 'ambiente';
+    const tabs = [
+        { id: 'ambiente', icon: 'fa-globe', label: 'Ambiente' },
+        { id: 'sefaz', icon: 'fa-network-wired', label: 'SEFAZ' },
+        { id: 'certificado', icon: 'fa-certificate', label: 'Certificado' },
+        { id: 'sincronizacao', icon: 'fa-sync-alt', label: 'Sincronização' },
+        { id: 'diagnostico', icon: 'fa-stethoscope', label: 'Diagnóstico' },
+        { id: 'avancado', icon: 'fa-cogs', label: 'Avançado' }
+    ];
+
+    const conteudos = {
+        ambiente: renderAbaAmbienteCfg(painel),
+        sefaz: renderAbaSefazCfg(painel),
+        certificado: renderAbaCertificadoCfg(painel),
+        sincronizacao: renderAbaSincronizacaoCfg(painel),
+        diagnostico: renderAbaDiagnosticoCfg(painel),
+        avancado: renderAbaAvancadoCfg(painel)
+    };
+
+    return `
+        <ul class="nav nav-tabs central-cfg-tabs" role="tablist">
+            ${tabs.map((t) => `
+                <li class="nav-item" role="presentation">
+                    <button type="button" class="nav-link ${aba === t.id ? 'active' : ''}"
+                        data-cfg-tab="${t.id}" role="tab" aria-selected="${aba === t.id}">
+                        <i class="fas ${t.icon} me-1"></i> ${t.label}
+                    </button>
+                </li>`).join('')}
+        </ul>
+        <div class="central-cfg-body">
+            ${tabs.map((t) => `
+                <div class="central-cfg-tab-pane ${aba === t.id ? '' : 'd-none'}" data-cfg-pane="${t.id}">
+                    ${conteudos[t.id]}
+                </div>`).join('')}
+        </div>
+        <div class="central-cfg-actions">
+            <div class="central-cfg-actions__left">
+                <button type="button" class="btn btn-outline-warning" id="centralBtnRestaurarConfig">
+                    <i class="fas fa-undo me-1"></i> Restaurar padrão
+                </button>
+            </div>
+            <div class="central-cfg-actions__right">
+                <button type="button" class="btn btn-outline-secondary" id="centralBtnCancelarConfig">
+                    <i class="fas fa-times me-1"></i> Cancelar
+                </button>
+                <button type="button" class="btn btn-primary" id="centralBtnSalvarConfig">
+                    <i class="fas fa-save me-1"></i> Salvar
+                </button>
+            </div>
+        </div>`;
+}
+
+function ativarAbaConfigCentral(tabId) {
+    centralEntradasState.configAbaAtiva = tabId;
+    document.querySelectorAll('[data-cfg-tab]').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.cfgTab === tabId);
+        btn.setAttribute('aria-selected', btn.dataset.cfgTab === tabId ? 'true' : 'false');
+    });
+    document.querySelectorAll('[data-cfg-pane]').forEach((pane) => {
+        pane.classList.toggle('d-none', pane.dataset.cfgPane !== tabId);
+    });
+}
+
+function coletarPayloadConfigCentral() {
+    const ambienteRadio = document.querySelector('input[name="cfgAmbiente"]:checked');
+    return {
+        ambiente: {
+            codigo: Number(ambienteRadio?.value) === 1 ? 1 : 2,
+            uf: document.getElementById('cfgUf')?.value?.trim() || 'SVRS',
+            codigoUf: document.getElementById('cfgCodigoUf')?.value?.trim() || '23'
+        },
+        sefaz: {
+            urlDistribuicaoDfeProducao: document.getElementById('cfgUrlDfeProd')?.value?.trim() || '',
+            urlDistribuicaoDfeHomologacao: document.getElementById('cfgUrlDfeHom')?.value?.trim() || '',
+            urlConsultaChaveProducao: document.getElementById('cfgUrlConsultaProd')?.value?.trim() || '',
+            urlConsultaChaveHomologacao: document.getElementById('cfgUrlConsultaHom')?.value?.trim() || '',
+            versaoServico: document.getElementById('cfgVersaoServico')?.value?.trim() || '1.01',
+            timeoutMs: Number(document.getElementById('cfgTimeoutMs')?.value) || 90000,
+            maxTentativas: Number(document.getElementById('cfgMaxTentativas')?.value) || 2,
+            intervaloTentativasMs: Number(document.getElementById('cfgIntervaloTentativas')?.value) || 3000
+        },
+        sincronizacao: {
+            syncAutomaticaHabilitada: document.getElementById('cfgSyncAutomatica')?.checked ?? false,
+            syncAoAbrir: document.getElementById('cfgSyncAoAbrir')?.checked ?? true,
+            syncIntervaloMinutos: Number(document.getElementById('cfgIntervalo')?.value) || 15,
+            syncMaxDocumentos: Number(document.getElementById('cfgMaxDocs')?.value) || 50,
+            notificarNovasNotas: document.getElementById('cfgNotificar')?.checked ?? true,
+            reprocessamentoAutomatico: document.getElementById('cfgReprocessamento')?.checked ?? true,
+            horarioPermitidoInicio: document.getElementById('cfgPermInicio')?.value || '06:00',
+            horarioPermitidoFim: document.getElementById('cfgPermFim')?.value || '23:59',
+            horarioBloqueadoInicio: document.getElementById('cfgBloqInicio')?.value || '',
+            horarioBloqueadoFim: document.getElementById('cfgBloqFim')?.value || ''
+        },
+        avancado: {
+            httpTimeoutMs: Number(document.getElementById('cfgHttpTimeout')?.value) || 90000,
+            httpRetry: Number(document.getElementById('cfgHttpRetry')?.value) || 2,
+            logDetalhado: document.getElementById('cfgLogDetalhado')?.checked ?? false,
+            modoDebug: document.getElementById('cfgModoDebug')?.checked ?? false
+        }
+    };
+}
+
+function exibirResultadoCfg(elId, resultado, okFallback = 'OK') {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    const ok = resultado?.sucesso !== false && !resultado?.error;
+    const msg = resultado?.mensagemAmigavel || resultado?.mensagem || resultado?.error || okFallback;
+    el.innerHTML = `<div class="alert alert-${ok ? 'success' : 'warning'} py-2 mb-0">${escapeHtmlCentralEntradas(msg)}</div>`;
+}
+
+async function postConfigAcaoCentral(path) {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API_URL}/central-entradas${path}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+        }
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok && data.sucesso !== false) {
+        data.sucesso = false;
+        data.mensagemAmigavel = data.mensagemAmigavel || data.error || `Erro HTTP ${response.status}`;
+    }
+    return data;
+}
+
 async function carregarConfigCentral() {
     const container = document.getElementById('centralConfigForm');
     if (!container) return;
 
+    container.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
+
     try {
-        const cfg = await centralEntradasFetch('/config');
-        centralEntradasState.configuracoes = cfg;
-        container.innerHTML = `
-            <div class="row g-3">
-                <div class="col-md-6">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="cfgSyncAutomatica" ${cfg.syncAutomaticaHabilitada ? 'checked' : ''}>
-                        <label class="form-check-label" for="cfgSyncAutomatica">Sincronização automática</label>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="cfgSyncAoAbrir" ${cfg.syncAoAbrir ? 'checked' : ''}>
-                        <label class="form-check-label" for="cfgSyncAoAbrir">Buscar ao abrir a Central</label>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label" for="cfgIntervalo">Intervalo (minutos)</label>
-                    <input type="number" class="form-control" id="cfgIntervalo" min="1" max="1440" value="${cfg.syncIntervaloMinutos || 15}">
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label" for="cfgMaxDocs">Máx. iterações por sync</label>
-                    <input type="number" class="form-control" id="cfgMaxDocs" min="1" max="200" value="${cfg.syncMaxDocumentos || 50}">
-                </div>
-                <div class="col-md-4">
-                    <div class="form-check form-switch mt-4">
-                        <input class="form-check-input" type="checkbox" id="cfgNotificar" ${cfg.notificarNovasNotas !== false ? 'checked' : ''}>
-                        <label class="form-check-label" for="cfgNotificar">Notificar novas notas</label>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Horário permitido — início</label>
-                    <input type="time" class="form-control" id="cfgPermInicio" value="${escapeHtmlCentralEntradas(cfg.horarioPermitidoInicio || '06:00')}">
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Horário permitido — fim</label>
-                    <input type="time" class="form-control" id="cfgPermFim" value="${escapeHtmlCentralEntradas(cfg.horarioPermitidoFim || '23:59')}">
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Horário bloqueado — início</label>
-                    <input type="time" class="form-control" id="cfgBloqInicio" value="${escapeHtmlCentralEntradas(cfg.horarioBloqueadoInicio || '')}">
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Horário bloqueado — fim</label>
-                    <input type="time" class="form-control" id="cfgBloqFim" value="${escapeHtmlCentralEntradas(cfg.horarioBloqueadoFim || '')}">
-                </div>
-                <div class="col-12">
-                    <button type="button" class="btn btn-primary" id="centralBtnSalvarConfig">
-                        <i class="fas fa-save me-1"></i> Salvar configurações
-                    </button>
-                </div>
-            </div>`;
+        const painel = await centralEntradasFetch('/configuracao');
+        centralEntradasState.configuracoes = painel;
+        container.innerHTML = renderPainelConfigCentral(painel);
     } catch (error) {
-        container.innerHTML = `<div class="alert alert-danger">${escapeHtmlCentralEntradas(error.message)}</div>`;
+        container.innerHTML = `<div class="alert alert-danger m-3">${escapeHtmlCentralEntradas(error.message)}</div>`;
     }
 }
 
 async function salvarConfigCentral() {
-    const payload = {
-        syncAutomaticaHabilitada: document.getElementById('cfgSyncAutomatica')?.checked ?? false,
-        syncAoAbrir: document.getElementById('cfgSyncAoAbrir')?.checked ?? true,
-        syncIntervaloMinutos: Number(document.getElementById('cfgIntervalo')?.value) || 15,
-        syncMaxDocumentos: Number(document.getElementById('cfgMaxDocs')?.value) || 50,
-        notificarNovasNotas: document.getElementById('cfgNotificar')?.checked ?? true,
-        horarioPermitidoInicio: document.getElementById('cfgPermInicio')?.value || '06:00',
-        horarioPermitidoFim: document.getElementById('cfgPermFim')?.value || '23:59',
-        horarioBloqueadoInicio: document.getElementById('cfgBloqInicio')?.value || '',
-        horarioBloqueadoFim: document.getElementById('cfgBloqFim')?.value || ''
-    };
-
+    const payload = coletarPayloadConfigCentral();
     try {
-        centralEntradasState.configuracoes = await centralEntradasFetch('/config', {
-            method: 'PATCH',
+        const painel = await centralEntradasFetch('/configuracao', {
+            method: 'PUT',
             body: JSON.stringify(payload)
         });
+        centralEntradasState.configuracoes = painel;
+        const container = document.getElementById('centralConfigForm');
+        if (container) container.innerHTML = renderPainelConfigCentral(painel);
         showNotification('Configurações salvas. Serviço de sync reiniciado.', 'success');
         await carregarStatusServicoCentral();
     } catch (error) {
         showNotification('Erro ao salvar: ' + error.message, 'danger');
     }
+}
+
+async function restaurarConfigCentral() {
+    if (!confirm('Restaurar valores padrão da Configuração Enterprise? As preferências de sync operacional serão preservadas.')) {
+        return;
+    }
+    try {
+        const painel = await centralEntradasFetch('/configuracao/restaurar', {
+            method: 'POST',
+            body: JSON.stringify({})
+        });
+        centralEntradasState.configuracoes = painel;
+        const container = document.getElementById('centralConfigForm');
+        if (container) container.innerHTML = renderPainelConfigCentral(painel);
+        showNotification('Configuração padrão restaurada.', 'success');
+    } catch (error) {
+        showNotification('Erro ao restaurar: ' + error.message, 'danger');
+    }
+}
+
+async function testarSefazConfigCentral(resultElId = 'centralCfgResultSefaz') {
+    const el = document.getElementById(resultElId);
+    if (el) el.innerHTML = '<span class="text-muted small"><i class="fas fa-spinner fa-spin me-1"></i> Testando SEFAZ...</span>';
+    try {
+        const resultado = await postConfigAcaoCentral('/configuracao/testar-sefaz');
+        exibirResultadoCfg(resultElId, resultado, 'Comunicação SEFAZ OK');
+        if (resultado.sucesso === false && resultado.mensagemAmigavel) {
+            showNotification(resultado.mensagemAmigavel, 'warning');
+        } else if (resultado.sucesso !== false) {
+            showNotification(resultado.mensagemAmigavel || 'Comunicação SEFAZ OK', 'success');
+        }
+    } catch (error) {
+        exibirResultadoCfg(resultElId, { sucesso: false, mensagemAmigavel: error.message });
+        showNotification(error.message, 'danger');
+    }
+}
+
+async function testarCertificadoConfigCentral(resultElId = 'centralCfgResultCert') {
+    const el = document.getElementById(resultElId);
+    if (el) el.innerHTML = '<span class="text-muted small"><i class="fas fa-spinner fa-spin me-1"></i> Testando certificado...</span>';
+    try {
+        const resultado = await postConfigAcaoCentral('/configuracao/testar-certificado');
+        exibirResultadoCfg(resultElId, resultado, 'Certificado OK');
+        if (resultado.sucesso === false && resultado.mensagemAmigavel) {
+            showNotification(resultado.mensagemAmigavel, 'warning');
+        } else if (resultado.sucesso !== false) {
+            showNotification(resultado.mensagemAmigavel || 'Certificado OK', 'success');
+        }
+    } catch (error) {
+        exibirResultadoCfg(resultElId, { sucesso: false, mensagemAmigavel: error.message });
+        showNotification(error.message, 'danger');
+    }
+}
+
+async function healthConfigCentral() {
+    const el = document.getElementById('centralCfgResultDiag');
+    if (el) el.innerHTML = '<span class="text-muted small"><i class="fas fa-spinner fa-spin me-1"></i> Executando health check...</span>';
+    try {
+        const resultado = await postConfigAcaoCentral('/configuracao/health');
+        const status = resultado.status || (resultado.sucesso !== false ? 'OK' : 'ERRO');
+        exibirResultadoCfg('centralCfgResultDiag', {
+            sucesso: resultado.sucesso !== false,
+            mensagemAmigavel: resultado.mensagemAmigavel || `Health: ${status}`
+        });
+    } catch (error) {
+        exibirResultadoCfg('centralCfgResultDiag', { sucesso: false, mensagemAmigavel: error.message });
+    }
+}
+
+async function limparCacheConfigCentral() {
+    try {
+        const resultado = await postConfigAcaoCentral('/configuracao/limpar-cache');
+        exibirResultadoCfg('centralCfgResultDiag', resultado, 'Cache limpo');
+        showNotification(resultado.mensagemAmigavel || 'Cache limpo.', 'success');
+    } catch (error) {
+        showNotification(error.message, 'danger');
+    }
+}
+
+/**
+ * Sync ao abrir: não bloqueia a UI; avisa suavemente se houver mensagemAmigavel.
+ */
+function sincronizarAoAbrirCentralSuave() {
+    const token = localStorage.getItem('token');
+    return fetch(`${API_URL}/central-entradas/sincronizar-ao-abrir`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+        }
+    })
+        .then(async (response) => {
+            const data = await response.json().catch(() => ({}));
+            if (data && data.sucesso === false && data.mensagemAmigavel) {
+                showNotification(data.mensagemAmigavel, 'warning');
+            }
+            return data;
+        })
+        .catch(() => null);
 }
 
 async function carregarLogCentral() {
@@ -1002,10 +1865,13 @@ async function carregarLogCentral() {
 }
 
 async function pollNotificacoesCentral() {
-    if (!document.getElementById('centralEntradasServico')) return;
+    if (!document.getElementById('centralUx1Header')) return;
 
     try {
-        const { notificacoes } = await centralEntradasFetch('/notificacoes?apenas_nao_lidas=true&limite=10');
+        const { notificacoes, total } = await centralEntradasFetch('/notificacoes?apenas_nao_lidas=true&limite=10');
+        centralEntradasState.notificacoesNaoLidas = total ?? (notificacoes || []).length;
+        renderCabecalhoUx1Central();
+
         (notificacoes || []).forEach((n) => {
             if (centralEntradasState.notificacoesVistas.has(n.id)) return;
             centralEntradasState.notificacoesVistas.add(n.id);
@@ -1023,10 +1889,13 @@ function iniciarAutomacaoCentral() {
 
     carregarStatusServicoCentral();
     pollNotificacoesCentral();
+    carregarContagemNotificacoesCentral();
 
     centralEntradasState.tickerServico = setInterval(() => {
-        if (document.getElementById('centralEntradasServico')) {
+        if (document.getElementById('centralUx1Header')) {
             carregarStatusServicoCentral();
+            const srv = document.getElementById('centralUx1Servicos');
+            if (srv) srv.innerHTML = renderStatusServicosRodapeUx1();
         } else {
             clearInterval(centralEntradasState.tickerServico);
             centralEntradasState.tickerServico = null;
@@ -1034,8 +1903,9 @@ function iniciarAutomacaoCentral() {
     }, 30000);
 
     centralEntradasState.tickerNotificacoes = setInterval(() => {
-        if (document.getElementById('centralEntradasServico')) {
+        if (document.getElementById('centralUx1Header')) {
             pollNotificacoesCentral();
+            carregarEventosRodapeCentral();
         } else {
             clearInterval(centralEntradasState.tickerNotificacoes);
             centralEntradasState.tickerNotificacoes = null;
@@ -1046,8 +1916,8 @@ function iniciarAutomacaoCentral() {
 function iniciarTickerSincronizacao() {
     if (centralEntradasState.tickerSync) clearInterval(centralEntradasState.tickerSync);
     centralEntradasState.tickerSync = setInterval(() => {
-        if (document.getElementById('centralEntradasIndicadores')) {
-            renderIndicadoresCentral();
+        if (document.getElementById('centralUx1Header')) {
+            renderCabecalhoUx1Central();
         } else {
             clearInterval(centralEntradasState.tickerSync);
             centralEntradasState.tickerSync = null;
@@ -1081,12 +1951,18 @@ function obterFiltrosCentralDaTela() {
 }
 
 function renderGridCentralEntradas() {
+    const lista = document.getElementById('centralEntradasListaDocs');
     const tbody = document.getElementById('centralEntradasGridBody');
+    const container = lista || tbody;
     const contador = document.getElementById('centralEntradasContador');
-    if (!tbody) return;
+    if (!container) return;
 
     if (centralEntradasState.carregando) {
-        tbody.innerHTML = centralUx().renderSkeletonGridCentral?.(8) || '';
+        if (lista) {
+            container.innerHTML = centralUx().renderSkeletonListaDocumentosCentral?.(6) || '';
+        } else {
+            container.innerHTML = centralUx().renderSkeletonGridCentral?.(8) || '';
+        }
         if (contador) contador.textContent = 'Carregando...';
         return;
     }
@@ -1097,15 +1973,46 @@ function renderGridCentralEntradas() {
 
     if (!centralEntradasState.documentos.length) {
         const emptyTipo = temFiltro ? 'pesquisa' : 'documentos';
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="7" class="p-0 border-0">
-                    ${centralUx().renderEmptyStateCentral?.(emptyTipo) || ''}
-                </td>
-            </tr>
-        `;
+        container.innerHTML = centralUx().renderEmptyStateCentral?.(emptyTipo) || '';
+    } else if (lista) {
+        const UX = centralUx();
+        container.innerHTML = centralEntradasState.documentos.map((doc) => {
+            const selecionado = centralEntradasState.documentoSelecionadoId === doc.id ? 'central-ux1-doc-card--selected' : '';
+            const numero = doc.numero ? `${doc.numero}${doc.serie ? '/' + doc.serie : ''}` : '—';
+            const avatar = UX.avatarFornecedorCentral?.(doc.fornecedor) || { iniciais: '?', cor: '#94a3b8' };
+            const badge = UX.badgeStatusUx1?.(doc.status, doc.statusLabel) || renderBadgeStatusCentral(doc.status, doc.statusLabel);
+            const miipBadge = doc.miipDisponivel
+                ? '<span class="central-ux1-badge-miip" title="Processado pelo MIIP"><i class="fas fa-brain"></i> MIIP</span>'
+                : '';
+            const dt = UX.formatarDataHoraSeparadoCentral?.(doc.createdAt || doc.dataEmissao) || { data: formatarDataCentral(doc.dataEmissao), hora: '' };
+
+            return `
+                <div class="central-ux1-doc-card ${selecionado} central-entradas-row"
+                     data-documento-id="${doc.id}"
+                     tabindex="0"
+                     role="button"
+                     aria-label="Documento ${escapeHtmlCentralEntradas(doc.fornecedor || 'sem fornecedor')}, NF ${escapeHtmlCentralEntradas(numero)}">
+                    <span class="central-ux1-doc-avatar" style="background:${escapeHtmlCentralEntradas(avatar.cor)}" aria-hidden="true">${escapeHtmlCentralEntradas(avatar.iniciais)}</span>
+                    <div class="central-ux1-doc-info">
+                        <div class="central-ux1-doc-fornecedor">${escapeHtmlCentralEntradas(doc.fornecedor || '—')}</div>
+                        <div class="central-ux1-doc-meta">
+                            <span title="Número da NF"><i class="fas fa-file-invoice me-1"></i>${escapeHtmlCentralEntradas(numero)}</span>
+                            <span title="Data"><i class="far fa-calendar me-1"></i>${escapeHtmlCentralEntradas(dt.data)} ${escapeHtmlCentralEntradas(dt.hora)}</span>
+                            <span title="Origem"><i class="fas ${iconeOrigemCentral(doc.origem)} me-1"></i>${escapeHtmlCentralEntradas(labelOrigemCentral(doc.origem))}</span>
+                        </div>
+                    </div>
+                    <div class="central-ux1-doc-acoes">
+                        <div class="central-ux1-doc-valor">${escapeHtmlCentralEntradas(formatarMoedaCentral(doc.valorTotal))}</div>
+                        ${badge}
+                        ${miipBadge}
+                        <button type="button" class="btn btn-sm btn-outline-primary central-doc-detalhe-btn" data-doc-id="${doc.id}" title="Ver detalhes">
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>`;
+        }).join('');
     } else {
-        tbody.innerHTML = centralEntradasState.documentos.map((doc) => {
+        container.innerHTML = centralEntradasState.documentos.map((doc) => {
             const meta = metaStatusCentral(doc.status);
             const selecionado = centralEntradasState.documentoSelecionadoId === doc.id ? 'central-entradas-row-selected' : '';
             const numero = doc.numero ? `${doc.numero}${doc.serie ? '/' + doc.serie : ''}` : '—';
@@ -1150,6 +2057,7 @@ function renderGridCentralEntradas() {
     }
 
     renderPaginacaoCentral();
+    renderRodapeUx1Central();
 }
 
 function renderPaginacaoCentral() {
@@ -1190,12 +2098,11 @@ function renderPainelLateralPlaceholder() {
     if (!painel) return;
 
     painel.innerHTML = `
-        <div class="card h-100 central-entradas-painel-card">
-            <div class="card-header">
-                <i class="fas fa-file-invoice me-2"></i> Detalhe do documento
-            </div>
-            <div class="card-body d-flex flex-column justify-content-center">
-                ${centralUx().renderEmptyStateCentral?.('selecao') || ''}
+        <div class="central-ux1-painel h-100">
+            <div class="card-body d-flex flex-column justify-content-center flex-grow-1">
+                ${centralUx().renderEmptyStateCentral?.('selecao', {
+                    descricao: 'Selecione um documento na lista para ver detalhes, produtos, timeline e MIIP.'
+                }) || ''}
             </div>
         </div>
     `;
@@ -1293,23 +2200,17 @@ function renderAcoesPipelineCentral(doc) {
         : '';
 
     const podeProcessar = doc.status === 'SINCRONIZADA' && !processando;
-    const podeAbrirCompra = ['PRONTA_PARA_COMPRA', 'EM_COMPRA', 'REVISADA'].includes(doc.status) && doc.parseDisponivel;
     const aguardandoRevisao = doc.status === 'AGUARDANDO_REVISAO';
 
     let acoesHtml = '';
     if (podeProcessar) {
-        acoesHtml += `<button type="button" class="btn btn-primary btn-sm w-100 mb-2" id="centralBtnProcessar" data-doc-id="${doc.id}">
+        acoesHtml += `<button type="button" class="btn btn-primary btn-sm w-100 mb-2" id="centralBtnProcessar" data-doc-id="${doc.id}" title="Executar pipeline Parser → MIIP">
             <i class="fas fa-cogs me-1"></i> Processar documento
         </button>`;
     }
     if (aguardandoRevisao && typeof MiipCentralRevisao !== 'undefined') {
-        acoesHtml += `<button type="button" class="btn btn-warning btn-sm w-100 mb-2" id="centralBtnRevisarMiip" data-doc-id="${doc.id}">
+        acoesHtml += `<button type="button" class="btn btn-warning btn-sm w-100 mb-2" id="centralBtnRevisarMiip" data-doc-id="${doc.id}" title="Abrir Central de Revisão MIIP">
             <i class="fas fa-search me-1"></i> Abrir Central de Revisão
-        </button>`;
-    }
-    if (podeAbrirCompra) {
-        acoesHtml += `<button type="button" class="btn btn-success btn-sm w-100 mb-2" id="centralBtnAbrirCompra" data-doc-id="${doc.id}">
-            <i class="fas fa-shopping-cart me-1"></i> Abrir em Compras
         </button>`;
     }
 
@@ -1495,8 +2396,21 @@ function renderAbaItensCentral() {
     `;
 }
 
+function renderAbaTimelineCentral(detalhe) {
+    const UX = centralUx();
+    const doc = detalhe.documento;
+    return UX.renderPipelineTimelineUx1?.(doc, detalhe.historico)
+        || renderTimelineCentral(detalhe.historico);
+}
+
 function renderAbaMiipCentral(doc) {
     const miip = centralEntradasState.parseAtual?.miipResumo;
+    const exec = centralUx().extrairDadosExecutivoCentral?.(
+        doc,
+        centralEntradasState.parseAtual,
+        centralEntradasState.parseAtual,
+        centralEntradasState.detalheAtual?.historico
+    ) || {};
 
     if (!doc.parseDisponivel) {
         return '<div class="text-muted small py-3 text-center"><i class="fas fa-brain me-1"></i> O MIIP é executado durante o processamento do documento.</div>';
@@ -1508,10 +2422,10 @@ function renderAbaMiipCentral(doc) {
 
     const r = miip.resumo;
     const kpis = [
-        { label: 'Itens na nota', valor: r.totalItens ?? 0, icone: 'fa-list', cor: '#0d6efd' },
-        { label: 'Identificados automaticamente', valor: r.identificadosAutomaticamente ?? 0, icone: 'fa-magic', cor: '#198754' },
-        { label: 'Precisam de confirmação', valor: r.precisamConfirmacao ?? 0, icone: 'fa-user-check', cor: '#fd7e14' },
-        { label: 'Precisam de cadastro', valor: r.precisamCadastro ?? 0, icone: 'fa-plus-circle', cor: '#dc3545' }
+        { label: 'Produtos reconhecidos', valor: r.identificadosAutomaticamente ?? 0, icone: 'fa-magic', cor: '#198754' },
+        { label: 'Para confirmar', valor: r.precisamConfirmacao ?? 0, icone: 'fa-user-check', cor: '#fd7e14' },
+        { label: 'Produtos novos', valor: r.precisamCadastro ?? 0, icone: 'fa-plus-circle', cor: '#dc3545' },
+        { label: 'Itens na nota', valor: r.totalItens ?? 0, icone: 'fa-list', cor: '#0d6efd' }
     ];
 
     const precisao = r.totalItens > 0
@@ -1521,7 +2435,7 @@ function renderAbaMiipCentral(doc) {
     return `
         <div class="central-entradas-miip-precisao mb-3 central-entradas-anim-in">
             <div class="d-flex justify-content-between small mb-1">
-                <span><i class="fas fa-brain me-1 text-primary"></i> Identificação automática</span>
+                <span><i class="fas fa-brain me-1 text-primary"></i> Precisão MIIP</span>
                 <strong>${precisao}%</strong>
             </div>
             <div class="progress" style="height:8px">
@@ -1536,6 +2450,16 @@ function renderAbaMiipCentral(doc) {
                     <div class="central-entradas-miip-kpi-label">${escapeHtmlCentralEntradas(k.label)}</div>
                 </div>
             `).join('')}
+        </div>
+        <div class="mt-3 small">
+            <div class="d-flex justify-content-between py-1 border-bottom">
+                <span class="text-muted">Tempo processamento</span>
+                <strong>${escapeHtmlCentralEntradas(exec.tempoProcessamento || '—')}</strong>
+            </div>
+            <div class="d-flex justify-content-between py-1">
+                <span class="text-muted">Motores utilizados</span>
+                <strong>Parser · MIIP</strong>
+            </div>
         </div>
         ${miip.operacaoId ? `<div class="small text-muted mt-2"><i class="fas fa-fingerprint me-1"></i>Sessão: ${escapeHtmlCentralEntradas(miip.operacaoId)}</div>` : ''}
     `;
@@ -1598,13 +2522,27 @@ function renderAbaCompraCentral(doc) {
 function renderConteudoAbaCentral(detalhe) {
     const doc = detalhe.documento;
     switch (centralEntradasState.abaAtiva) {
-        case 'itens': return renderAbaItensCentral();
+        case 'itens':
+        case 'produtos': return renderAbaItensCentral();
         case 'miip': return renderAbaMiipCentral(doc);
         case 'xml': return renderAbaXmlCentral(doc);
+        case 'timeline': return renderAbaTimelineCentral(detalhe);
         case 'historico': return renderTimelineCentral(detalhe.historico);
         case 'compra': return renderAbaCompraCentral(doc);
         default: return renderAbaResumoCentral(doc);
     }
+}
+
+function renderCtaImportarCompraCentral(doc) {
+    const podeAbrir = ['PRONTA_PARA_COMPRA', 'EM_COMPRA', 'REVISADA'].includes(doc.status) && doc.parseDisponivel;
+    if (!podeAbrir) {
+        return `<button type="button" class="btn btn-secondary central-ux1-btn-importar" disabled title="Disponível quando a máquina de estados permitir importação">
+            <i class="fas fa-lock me-1"></i> IMPORTAR COMPRA
+        </button>`;
+    }
+    return `<button type="button" class="btn btn-success central-ux1-btn-importar" id="centralBtnAbrirCompra" data-doc-id="${doc.id}" title="Importar compra a partir desta NF-e">
+        <i class="fas fa-shopping-cart me-1"></i> IMPORTAR COMPRA
+    </button>`;
 }
 
 function renderPainelLateralCentral(detalhe) {
@@ -1612,36 +2550,63 @@ function renderPainelLateralCentral(detalhe) {
     if (!painel || !detalhe?.documento) return;
 
     const doc = detalhe.documento;
+    const UX = centralUx();
+    const exec = UX.extrairDadosExecutivoCentral?.(
+        doc,
+        centralEntradasState.parseAtual,
+        centralEntradasState.parseAtual,
+        detalhe.historico
+    ) || {};
+    const badge = UX.badgeStatusUx1?.(doc.status, doc.statusLabel) || renderBadgeStatusCentral(doc.status, doc.statusLabel);
+    const numero = doc.numero ? `${doc.numero}${doc.serie ? '/' + doc.serie : ''}` : '—';
+
     const abas = [
         { id: 'resumo', label: 'Resumo', icone: 'fa-file-invoice' },
-        { id: 'itens', label: 'Itens', icone: 'fa-list' },
+        { id: 'produtos', label: 'Produtos', icone: 'fa-boxes' },
+        { id: 'timeline', label: 'Timeline', icone: 'fa-project-diagram' },
         { id: 'miip', label: 'MIIP', icone: 'fa-brain' },
         { id: 'xml', label: 'XML', icone: 'fa-code' },
-        { id: 'historico', label: 'Histórico', icone: 'fa-history' },
-        { id: 'compra', label: 'Compra', icone: 'fa-shopping-cart' }
+        { id: 'historico', label: 'Histórico', icone: 'fa-history' }
     ];
 
+    const abaAtiva = centralEntradasState.abaAtiva === 'itens' ? 'produtos' : centralEntradasState.abaAtiva;
+
     painel.innerHTML = `
-        <div class="card h-100 central-entradas-painel-card central-entradas-anim-in">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span class="text-truncate"><i class="fas fa-file-invoice me-2"></i> NF ${escapeHtmlCentralEntradas(doc.numero || '—')}</span>
-                ${renderBadgeStatusCentral(doc.status, doc.statusLabel)}
+        <div class="central-ux1-painel central-entradas-painel-card central-entradas-anim-in">
+            <div class="central-ux1-painel-header">
+                <div class="d-flex justify-content-between align-items-start gap-2">
+                    <div class="text-truncate">
+                        <strong>${escapeHtmlCentralEntradas(doc.fornecedor || '—')}</strong>
+                        <div class="small text-muted">NF ${escapeHtmlCentralEntradas(numero)}</div>
+                    </div>
+                    ${badge}
+                </div>
+                <div class="central-ux1-painel-resumo-chips">
+                    <span class="central-ux1-chip" title="Valor total"><i class="fas fa-coins me-1"></i>${escapeHtmlCentralEntradas(formatarMoedaCentral(doc.valorTotal))}</span>
+                    <span class="central-ux1-chip" title="Data emissão"><i class="far fa-calendar me-1"></i>${escapeHtmlCentralEntradas(formatarDataCentral(doc.dataEmissao))}</span>
+                    <span class="central-ux1-chip" title="Itens"><i class="fas fa-list me-1"></i>${escapeHtmlCentralEntradas(exec.qtdItens || '—')} itens</span>
+                    <span class="central-ux1-chip" title="Peso"><i class="fas fa-weight-hanging me-1"></i>${escapeHtmlCentralEntradas(exec.peso || '—')}</span>
+                    <span class="central-ux1-chip" title="Volumes"><i class="fas fa-cubes me-1"></i>${escapeHtmlCentralEntradas(exec.volumes || '—')}</span>
+                </div>
             </div>
             <div class="central-entradas-abas" role="tablist" aria-label="Detalhes do documento">
                 ${abas.map((aba) => `
                     <button type="button"
-                        class="central-entradas-aba ${centralEntradasState.abaAtiva === aba.id ? 'ativa' : ''}"
+                        class="central-entradas-aba ${abaAtiva === aba.id ? 'ativa' : ''}"
                         data-aba="${aba.id}"
                         role="tab"
-                        aria-selected="${centralEntradasState.abaAtiva === aba.id ? 'true' : 'false'}"
+                        aria-selected="${abaAtiva === aba.id ? 'true' : 'false'}"
                         title="${escapeHtmlCentralEntradas(aba.label)}">
                         <i class="fas ${aba.icone}" aria-hidden="true"></i>
                         <span>${escapeHtmlCentralEntradas(aba.label)}</span>
                     </button>
                 `).join('')}
             </div>
-            <div class="card-body central-entradas-painel-body" role="tabpanel">
+            <div class="card-body central-entradas-painel-body flex-grow-1 overflow-auto" role="tabpanel">
                 ${renderConteudoAbaCentral(detalhe)}
+            </div>
+            <div class="central-ux1-painel-cta">
+                ${renderCtaImportarCompraCentral(doc)}
             </div>
         </div>
     `;
@@ -1653,29 +2618,53 @@ function renderPainelLateralCentral(detalhe) {
 
 async function carregarDashboardCentral() {
     const cardsContainer = document.getElementById('centralEntradasCards');
-    const indicadoresContainer = document.getElementById('centralEntradasIndicadores');
 
     centralEntradasState.carregandoDashboard = true;
     if (cardsContainer) {
-        cardsContainer.innerHTML = centralUx().renderSkeletonKpisCentral?.(6) || '';
-    }
-    if (indicadoresContainer) {
-        indicadoresContainer.innerHTML = centralUx().renderSkeletonIndicadoresCentral?.() || '';
+        cardsContainer.className = 'central-ux1-kpis';
+        cardsContainer.innerHTML = Array.from({ length: 8 }, () => `
+            <div class="central-ux1-kpi central-ux-skeleton-kpi" aria-hidden="true">
+                <div class="central-ux-skeleton central-ux-skeleton-circle"></div>
+                <div class="flex-grow-1">
+                    <div class="central-ux-skeleton central-ux-skeleton-line central-ux-skeleton-line--lg"></div>
+                    <div class="central-ux-skeleton central-ux-skeleton-line central-ux-skeleton-line--sm mt-1"></div>
+                </div>
+            </div>
+        `).join('');
     }
 
     try {
         const dashboard = await centralEntradasFetch('/dashboard');
         centralEntradasState.ultimoDashboardContadores = dashboard.contadores || {};
 
-        if (cardsContainer) {
-            cardsContainer.innerHTML = renderCardsDashboardCentral(dashboard.contadores || {});
-        }
-
         centralEntradasState.indicadores = dashboard.indicadores || null;
         centralEntradasState.ultimaSincronizacao = dashboard.ultimaSincronizacao || dashboard.sincronizacao?.dataSincronizacao || null;
         centralEntradasState.sincronizacaoNsu = dashboard.sincronizacao || null;
-        renderIndicadoresCentral();
+
+        renderCabecalhoUx1Central();
+
+        if (cardsContainer) {
+            cardsContainer.className = 'central-ux1-kpis';
+            cardsContainer.innerHTML = renderCardsUx1Central(
+                dashboard.contadores || {},
+                dashboard.indicadores || {},
+                centralEntradasState.operacional || {}
+            );
+        }
+
         await carregarInteligenciaCentral();
+
+        if (cardsContainer && centralEntradasState.operacional) {
+            cardsContainer.className = 'central-ux1-kpis';
+            cardsContainer.innerHTML = renderCardsUx1Central(
+                dashboard.contadores || {},
+                dashboard.indicadores || {},
+                centralEntradasState.operacional
+            );
+        }
+
+        renderRodapeUx1Central();
+        renderAtencaoBannerUx1();
     } catch (error) {
         if (cardsContainer) {
             cardsContainer.innerHTML = '<div class="col-12 text-danger small">Erro ao carregar dashboard.</div>';
@@ -1695,7 +2684,7 @@ function atualizarIndicadorSyncBotao() {
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Sincronizando...';
     } else {
         btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-sync-alt"></i> Sincronizar SEFAZ';
+        btn.innerHTML = '<i class="fas fa-sync-alt me-1"></i> Sincronizar Agora';
     }
 }
 
@@ -1704,7 +2693,7 @@ async function sincronizarCentralEntradas() {
 
     centralEntradasState.sincronizando = true;
     atualizarIndicadorSyncBotao();
-    renderIndicadoresCentral();
+    renderCabecalhoUx1Central();
 
     try {
         const resultado = await centralEntradasFetch('/sincronizar', { method: 'POST' });
@@ -1731,7 +2720,7 @@ async function sincronizarCentralEntradas() {
     } finally {
         centralEntradasState.sincronizando = false;
         atualizarIndicadorSyncBotao();
-        renderIndicadoresCentral();
+        renderCabecalhoUx1Central();
         carregarStatusServicoCentral();
     }
 }
@@ -2025,7 +3014,7 @@ async function selecionarDocumentoCentral(id) {
                 .then((parseDoc) => {
                     centralEntradasState.parseAtual = parseDoc;
                     if (centralEntradasState.documentoSelecionadoId === id
-                        && ['itens', 'miip', 'resumo'].includes(centralEntradasState.abaAtiva)) {
+                        && ['itens', 'produtos', 'miip', 'resumo', 'timeline'].includes(centralEntradasState.abaAtiva)) {
                         renderPainelLateralCentral(centralEntradasState.detalheAtual);
                     }
                 })
@@ -2084,12 +3073,43 @@ function bindEventosCentralEntradas() {
         limparFiltrosCentralEntradas();
     });
 
-    $(document).on('keydown.centralEntradas', '.central-entradas-row', function (event) {
+    $(document).on('keydown.centralEntradas', '.central-entradas-row, .central-ux1-doc-card', function (event) {
         if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
             const id = Number($(this).data('documento-id'));
             if (id) selecionarDocumentoCentral(id);
         }
+    });
+
+    $(document).on('click.centralEntradas', '.central-doc-detalhe-btn', function (event) {
+        event.stopPropagation();
+        const id = Number($(this).data('doc-id'));
+        if (id) selecionarDocumentoCentral(id);
+    });
+
+    $(document).on('click.centralEntradas', '#centralBtnDiagnostico', function () {
+        if (typeof loadPage === 'function') {
+            loadPage('central-diagnostico');
+        }
+    });
+
+    $(document).on('click.centralEntradas', '#centralBtnNotificacoes', function () {
+        centralEntradasFetch('/notificacoes/marcar-todas-lidas', { method: 'PATCH' })
+            .then(() => {
+                centralEntradasState.notificacoesNaoLidas = 0;
+                renderCabecalhoUx1Central();
+                showNotification('Notificações marcadas como lidas.', 'info');
+            })
+            .catch(() => showNotification('Não foi possível atualizar notificações.', 'warning'));
+    });
+
+    $(document).on('click.centralEntradas', '[data-filtro-kpi]', function () {
+        centralEntradasState.filtroRapidoAtivo = $(this).data('filtro-kpi');
+        const select = document.getElementById('centralFiltroStatus');
+        if (select) select.value = '';
+        centralEntradasState.pagina = 1;
+        renderFiltrosRapidosCentral();
+        carregarDocumentosCentral();
     });
 
     $(document).on('keydown.centralEntradas', '.central-entradas-card-click', function (event) {
@@ -2254,22 +3274,43 @@ function bindEventosCentralEntradas() {
         alternarOrdenacaoCentral($(this).data('sort'));
     });
 
+    $(document).on('input.centralEntradas', '#centralFiltroBusca', function () {
+        if (centralEntradasState.buscaDebounceTimer) {
+            clearTimeout(centralEntradasState.buscaDebounceTimer);
+        }
+        centralEntradasState.buscaDebounceTimer = setTimeout(() => {
+            centralEntradasState.pagina = 1;
+            carregarDocumentosCentral();
+        }, 400);
+    });
+
     $(document).on('keypress.centralEntradas', '#centralFiltroBusca', function (event) {
         if (event.which === 13) {
+            event.preventDefault();
             centralEntradasState.pagina = 1;
             carregarDocumentosCentral();
         }
     });
 
-    $(document).on('click.centralEntradas', '.central-entradas-filtro-rapido', function () {
-        const codigo = $(this).data('filtro-rapido');
-        if (centralEntradasState.filtroRapidoAtivo === codigo) {
+    $(document).on('click.centralEntradas', '.central-ux1-filtro', function () {
+        const codigo = String($(this).data('filtro-rapido') ?? '');
+        const status = $(this).data('filtro-status') || '';
+        const select = document.getElementById('centralFiltroStatus');
+
+        if (codigo === '') {
             centralEntradasState.filtroRapidoAtivo = '';
+            if (select) select.value = '';
+        } else if (codigo.startsWith('_status_')) {
+            centralEntradasState.filtroRapidoAtivo = '';
+            if (select) select.value = status;
+        } else if (centralEntradasState.filtroRapidoAtivo === codigo) {
+            centralEntradasState.filtroRapidoAtivo = '';
+            if (select) select.value = '';
         } else {
             centralEntradasState.filtroRapidoAtivo = codigo;
-            const select = document.getElementById('centralFiltroStatus');
             if (select) select.value = '';
         }
+
         centralEntradasState.pagina = 1;
         renderFiltrosRapidosCentral();
         carregarDocumentosCentral();
@@ -2292,6 +3333,46 @@ function bindEventosCentralEntradas() {
 
     $(document).on('click.centralEntradas', '#centralBtnSalvarConfig', function () {
         salvarConfigCentral();
+    });
+
+    $(document).on('click.centralEntradas', '#centralBtnCancelarConfig', function () {
+        carregarConfigCentral();
+    });
+
+    $(document).on('click.centralEntradas', '#centralBtnRestaurarConfig', function () {
+        restaurarConfigCentral();
+    });
+
+    $(document).on('click.centralEntradas', '[data-cfg-tab]', function () {
+        ativarAbaConfigCentral($(this).data('cfg-tab'));
+    });
+
+    $(document).on('click.centralEntradas', '#centralCfgTestarSefaz, #centralCfgTestarSefazDiag', function () {
+        const resultId = this.id === 'centralCfgTestarSefazDiag' ? 'centralCfgResultDiag' : 'centralCfgResultSefaz';
+        testarSefazConfigCentral(resultId);
+    });
+
+    $(document).on('click.centralEntradas', '#centralCfgTestarCert, #centralCfgTestarCertDiag', function () {
+        const resultId = this.id === 'centralCfgTestarCertDiag' ? 'centralCfgResultDiag' : 'centralCfgResultCert';
+        testarCertificadoConfigCentral(resultId);
+    });
+
+    $(document).on('click.centralEntradas', '#centralCfgHealth', function () {
+        healthConfigCentral();
+    });
+
+    $(document).on('click.centralEntradas', '#centralCfgLimparCache', function () {
+        limparCacheConfigCentral();
+    });
+
+    $(document).on('click.centralEntradas', '#centralCfgVerEventos', function () {
+        mostrarViewCentral('log');
+    });
+
+    $(document).on('click.centralEntradas', '#centralCfgAtualizarCert', function () {
+        const info = document.getElementById('centralCfgCertInfo');
+        if (info) info.hidden = false;
+        showNotification('O certificado é gerenciado nas configurações fiscais da empresa.', 'info');
     });
 
     $(document).on('click.centralEntradas', '#centralBtnFiltrarLog', function () {
@@ -2318,50 +3399,24 @@ function loadCentralEntradas() {
     centralEntradasState.abaAtiva = 'resumo';
 
     const html = `
-        <div class="central-entradas-page">
-            <div class="central-entradas-hero mb-4 central-entradas-anim-in">
-                <div>
-                    <h2 class="mb-1">
-                        <span class="central-entradas-hero-icone"><i class="fas fa-inbox"></i></span>
-                        Central Inteligente de Entradas
-                    </h2>
-                    <p class="text-muted mb-0">Monitoramento SEFAZ · Identificação MIIP · Workflow até Compras</p>
-                </div>
-                <div class="central-entradas-toolbar">
-                    <button type="button" class="btn btn-success" id="centralBtnAdicionarDocumento" title="Adicionar documento fiscal via XML">
-                        <i class="fas fa-plus"></i> Adicionar Documento
-                    </button>
-                    <button type="button" class="btn btn-primary" id="centralBtnSincronizar" title="Sincronizar Distribuição DF-e">
-                        <i class="fas fa-sync-alt"></i> Sincronizar SEFAZ
-                    </button>
-                    <button type="button" class="btn btn-outline-primary" id="centralBtnAtualizar" title="Atualizar lista e dashboard">
-                        <i class="fas fa-redo-alt"></i>
-                    </button>
-                    <button type="button" class="btn btn-outline-secondary" id="centralBtnExportarXml" title="Exportar XML do documento selecionado">
-                        <i class="fas fa-file-export"></i>
-                    </button>
-                    <button type="button" class="btn btn-outline-secondary" id="centralBtnAtualizarDashboard" title="Atualizar somente o dashboard">
-                        <i class="fas fa-chart-bar"></i>
-                    </button>
-                    <button type="button" class="btn btn-outline-secondary central-nav-view" data-view="config" title="Configurações">
-                        <i class="fas fa-cog"></i>
-                    </button>
-                    <button type="button" class="btn btn-outline-secondary central-nav-view" data-view="log" title="Log operacional">
-                        <i class="fas fa-list-alt"></i>
-                    </button>
-                    <button type="button" class="btn btn-outline-primary central-nav-view active" data-view="inbox" title="Inbox">
-                        <i class="fas fa-inbox"></i>
-                    </button>
-                </div>
-            </div>
-
-            <div id="centralEntradasServico" class="mb-3"></div>
+        <div class="central-ux1-page">
+            <div id="centralUx1Header"></div>
 
             <div id="centralEntradasViewConfig" class="d-none mb-4">
-                <div class="card">
-                    <div class="card-header"><i class="fas fa-cog me-2"></i> Configurações da Central</div>
-                    <div class="card-body" id="centralConfigForm">
-                        <div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div></div>
+                <div class="card central-cfg-panel">
+                    <div class="card-header d-flex justify-content-between align-items-start flex-wrap gap-2">
+                        <div>
+                            <div class="central-cfg-header-title">
+                                <i class="fas fa-sliders-h me-2"></i> Configuração Enterprise
+                            </div>
+                            <div class="central-cfg-header-sub">Ambiente, SEFAZ, certificado, sync e diagnóstico da Central</div>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-light central-nav-view" data-view="inbox" title="Voltar à Central">
+                            <i class="fas fa-arrow-left me-1"></i> Voltar
+                        </button>
+                    </div>
+                    <div id="centralConfigForm">
+                        <div class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></div>
                     </div>
                 </div>
             </div>
@@ -2371,8 +3426,11 @@ function loadCentralEntradas() {
                     <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                         <span><i class="fas fa-list-alt me-2"></i> Log Operacional</span>
                         <div class="d-flex gap-2">
-                            <input type="text" class="form-control form-control-sm" id="centralLogBusca" placeholder="Pesquisar...">
-                            <select class="form-select form-select-sm" id="centralLogTipo">
+                            <button type="button" class="btn btn-sm btn-outline-secondary central-nav-view" data-view="inbox" title="Voltar à Central">
+                                <i class="fas fa-arrow-left"></i>
+                            </button>
+                            <input type="text" class="form-control form-control-sm" id="centralLogBusca" placeholder="Pesquisar..." title="Pesquisar no log">
+                            <select class="form-select form-select-sm" id="centralLogTipo" title="Filtrar por tipo de evento">
                                 <option value="">Todos os tipos</option>
                                 <option value="SYNC_INICIADA">Sync iniciada</option>
                                 <option value="SYNC_CONCLUIDA">Sync concluída</option>
@@ -2382,7 +3440,7 @@ function loadCentralEntradas() {
                                 <option value="COMPRA_GRAVADA">Compra gravada</option>
                                 <option value="ERRO">Erro</option>
                             </select>
-                            <button type="button" class="btn btn-sm btn-primary" id="centralBtnFiltrarLog"><i class="fas fa-search"></i></button>
+                            <button type="button" class="btn btn-sm btn-primary" id="centralBtnFiltrarLog" title="Filtrar log"><i class="fas fa-search"></i></button>
                         </div>
                     </div>
                     <div class="table-responsive">
@@ -2402,135 +3460,62 @@ function loadCentralEntradas() {
 
             <div id="centralEntradasViewInbox">
 
-            <div id="centralEntradasAtencao" class="mb-3"></div>
+            <div id="centralEntradasAtencao"></div>
 
-            <div id="centralEntradasIndicadores" class="mb-3"></div>
-
-            <div class="row g-3 mb-3" id="centralEntradasOperacional">
-                ${centralUx().renderSkeletonKpisCentral?.(6) || ''}
-            </div>
-
-            <div class="row g-3 mb-4" id="centralEntradasCards">
-                ${centralUx().renderSkeletonKpisCentral?.(6) || ''}
-            </div>
-
-            <div class="row g-3 mb-3">
-                <div class="col-lg-7">
-                    <div class="card central-entradas-pendencias-card h-100">
-                        <div class="card-header py-2">
-                            <i class="fas fa-tasks me-2"></i> Central de Pendências
-                        </div>
-                        <div class="card-body py-3" id="centralEntradasPendenciasBody">
-                            ${centralUx().renderSkeletonPainelBlocoCentral?.() || ''}
+            <div id="centralEntradasCards" class="central-ux1-kpis" aria-busy="true">
+                ${Array.from({ length: 8 }, () => `
+                    <div class="central-ux1-kpi central-ux-skeleton-kpi" aria-hidden="true">
+                        <div class="central-ux-skeleton central-ux-skeleton-circle"></div>
+                        <div class="flex-grow-1">
+                            <div class="central-ux-skeleton central-ux-skeleton-line central-ux-skeleton-line--lg"></div>
+                            <div class="central-ux-skeleton central-ux-skeleton-line central-ux-skeleton-line--sm mt-1"></div>
                         </div>
                     </div>
-                </div>
-                <div class="col-lg-5">
-                    <div class="card central-entradas-alertas-card h-100">
-                        <div class="card-header py-2">
-                            <i class="fas fa-bell me-2"></i> Alertas Inteligentes
-                        </div>
-                        <div class="card-body py-3" id="centralEntradasAlertas">
-                            ${centralUx().renderSkeletonPainelBlocoCentral?.() || ''}
-                        </div>
-                    </div>
-                </div>
+                `).join('')}
             </div>
 
-            <div class="card mb-3 central-entradas-filtros-card">
-                <div class="card-body py-3">
-                    <div class="central-entradas-filtros-rapidos mb-3" id="centralEntradasFiltrosRapidos"></div>
-                    <div class="row g-3 align-items-end">
-                        <div class="col-md-3">
-                            <label class="form-label" for="centralFiltroChave">Buscar na SEFAZ por chave</label>
-                            <div class="input-group">
-                                <input type="text" class="form-control" id="centralFiltroChave"
-                                    placeholder="44 dígitos da chave de acesso" maxlength="44">
-                                <button type="button" class="btn btn-outline-primary" id="centralBtnBuscarChave" title="Consultar chave na SEFAZ">
-                                    <i class="fas fa-key"></i>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label" for="centralFiltroBusca">Pesquisar</label>
-                            <input type="text" class="form-control" id="centralFiltroBusca"
-                                placeholder="Chave, número NF ou fornecedor">
-                        </div>
-                        <div class="col-md-2">
-                            <label class="form-label" for="centralFiltroStatus">Status</label>
-                            <select class="form-select" id="centralFiltroStatus">
-                                <option value="">Todos</option>
-                            </select>
-                        </div>
-                        <div class="col-md-1">
-                            <label class="form-label" for="centralFiltroOrigem">Origem</label>
-                            <select class="form-select" id="centralFiltroOrigem">
-                                <option value="">Todas</option>
-                                <option value="dfe">DF-e</option>
-                                <option value="upload_manual">Upload</option>
-                                <option value="consulta_chave">Chave</option>
-                            </select>
-                        </div>
-                        <div class="col-md-1">
-                            <label class="form-label" for="centralFiltroDataInicio">De</label>
-                            <input type="date" class="form-control" id="centralFiltroDataInicio">
-                        </div>
-                        <div class="col-md-1">
-                            <label class="form-label" for="centralFiltroDataFim">Até</label>
-                            <input type="date" class="form-control" id="centralFiltroDataFim">
-                        </div>
-                        <div class="col-md-1">
-                            <button type="button" class="btn btn-primary w-100" id="centralBtnFiltrar" title="Aplicar filtros">
-                                <i class="fas fa-search"></i>
-                            </button>
-                        </div>
-                    </div>
+            <div class="central-ux1-toolbar">
+                <div class="central-ux1-busca">
+                    <i class="fas fa-search" aria-hidden="true"></i>
+                    <input type="search" class="form-control" id="centralFiltroBusca"
+                        placeholder="Pesquisar: fornecedor, número, chave, CNPJ, valor..."
+                        title="Pesquisa instantânea por fornecedor, número, chave, produto, valor ou CNPJ"
+                        autocomplete="off">
                 </div>
+                <div class="central-ux1-filtros" id="centralEntradasFiltrosRapidos"></div>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="centralBtnAtualizar" title="Atualizar lista e indicadores">
+                    <i class="fas fa-redo-alt"></i>
+                </button>
             </div>
 
-            <div class="central-entradas-layout">
-                <div class="central-entradas-grid-area">
-                    <div class="card h-100 central-entradas-grid-card">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <span><i class="fas fa-list me-2"></i> Documentos</span>
-                            <span class="badge bg-secondary" id="centralEntradasContador">0 documentos</span>
-                        </div>
-                        <div class="card-body p-0 d-flex flex-column">
-                            <div class="table-responsive flex-grow-1">
-                                <table class="table table-hover mb-0 central-entradas-tabela">
-                                    <thead class="table-light">
-                                        <tr>
-                                            <th style="width:44px"></th>
-                                            <th class="central-entradas-sort" data-sort="fornecedor" style="cursor:pointer">
-                                                Fornecedor <i class="fas fa-sort text-muted small"></i>
-                                            </th>
-                                            <th class="central-entradas-sort" data-sort="numero" style="cursor:pointer">
-                                                NF / Origem <i class="fas fa-sort text-muted small"></i>
-                                            </th>
-                                            <th class="central-entradas-sort" data-sort="data_emissao" style="cursor:pointer">
-                                                Emissão <i class="fas fa-sort text-muted small"></i>
-                                            </th>
-                                            <th class="central-entradas-sort" data-sort="valor_total" style="cursor:pointer">
-                                                Valor <i class="fas fa-sort text-muted small"></i>
-                                            </th>
-                                            <th style="width:64px" title="Score geral">Score</th>
-                                            <th class="central-entradas-sort" data-sort="status" style="cursor:pointer">
-                                                Status <i class="fas fa-sort text-muted small"></i>
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="centralEntradasGridBody">
-                                        ${centralUx().renderSkeletonGridCentral?.(8) || ''}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div id="centralEntradasPaginacao"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="central-entradas-painel-lateral" id="centralEntradasPainelLateral"></div>
+            <div class="d-none" aria-hidden="true">
+                <input type="text" id="centralFiltroChave" maxlength="44">
+                <select id="centralFiltroStatus"><option value="">Todos</option></select>
+                <select id="centralFiltroOrigem"><option value="">Todas</option></select>
+                <input type="date" id="centralFiltroDataInicio">
+                <input type="date" id="centralFiltroDataFim">
+                <button type="button" id="centralBtnFiltrar"></button>
+                <button type="button" id="centralBtnBuscarChave"></button>
+                <button type="button" id="centralBtnExportarXml"></button>
+                <button type="button" id="centralBtnAtualizarDashboard"></button>
             </div>
+
+            <div class="central-ux1-corpo">
+                <div class="central-ux1-lista-card">
+                    <div class="central-ux1-lista-header">
+                        <span><i class="fas fa-file-invoice me-2"></i> Documentos Fiscais</span>
+                        <span class="badge bg-secondary" id="centralEntradasContador">0 documentos</span>
+                    </div>
+                    <div class="central-ux1-lista-body" id="centralEntradasListaDocs">
+                        ${centralUx().renderSkeletonListaDocumentosCentral?.(6) || ''}
+                    </div>
+                    <div id="centralEntradasPaginacao"></div>
+                </div>
+                <div id="centralEntradasPainelLateral"></div>
+            </div>
+
+            <div id="centralUx1Rodape"></div>
+
             </div>
         </div>
 
@@ -2587,6 +3572,8 @@ function loadCentralEntradas() {
     `;
 
     $('#page-content').html(html);
+    renderCabecalhoUx1Central();
+    renderRodapeUx1Central();
     renderPainelLateralPlaceholder();
     bindEventosCentralEntradas();
     iniciarTickerSincronizacao();
@@ -2601,7 +3588,7 @@ function loadCentralEntradas() {
             if (select) select.innerHTML = montarOptionsStatusCentral('');
             renderFiltrosRapidosCentral();
             return Promise.all([
-                centralEntradasFetch('/sincronizar-ao-abrir', { method: 'POST' }).catch(() => null),
+                sincronizarAoAbrirCentralSuave(),
                 carregarDashboardCentral(),
                 carregarDocumentosCentral()
             ]);

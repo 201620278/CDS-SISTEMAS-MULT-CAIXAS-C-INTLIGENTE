@@ -3,19 +3,8 @@ const { getFiscalConfig } = require('./configService');
 const { assinarEvento } = require('./signer');
 const { carregarCertificadoPfx } = require('./certificateService');
 const { compactarXml, extrairChaveEProtocoloAutorizados } = require('./utils');
-const axios = require('axios');
-const https = require('https');
 const { validarMotivoTexto } = require('../validacao/validarMotivoTexto');
-
-function getUrlRecepcaoEvento(config) {
-  const ambiente = Number(config.ambiente);
-
-  if (ambiente === 1) {
-    return 'https://nfce.svrs.rs.gov.br/ws/recepcaoevento/recepcaoevento4.asmx';
-  }
-
-  return 'https://nfce-homologacao.svrs.rs.gov.br/ws/recepcaoevento/recepcaoevento4.asmx';
-}
+const { enviarCancelamento } = require('./cancelamentoRuntime');
 
 async function cancelarNfce(vendaId, justificativa) {
   const config = await getFiscalConfig();
@@ -154,34 +143,29 @@ async function cancelarNfce(vendaId, justificativa) {
       </soap12:Body>
     </soap12:Envelope>`;
 
-  const url = getUrlRecepcaoEvento(config);
-
-  const agent = new https.Agent({
-    key: certificado.privateKeyPem,
-    cert: certificado.certBundlePem || certificado.certPem,
-    rejectUnauthorized: false,
-    minVersion: 'TLSv1.2',
-    keepAlive: false,
-    servername: new URL(url).hostname
+  // Sprint F9 — transporte via Plataforma Fiscal (fallback automático para legado)
+  const envio = await enviarCancelamento({
+    envelope: soap,
+    ambiente: config.ambiente,
+    cUF: config.codigoUf,
+    chave: chaveAcesso,
+    protocolo,
+    xJust: justificativa.trim(),
+    certificadoPath: config.certificadoPath,
+    certificadoSenha: config.certificadoSenha
   });
 
-  const response = await axios.post(url, soap, {
-    httpsAgent: agent,
-    proxy: false,
-    timeout: 30000,
-    responseType: 'text',
-    headers: {
-      'Content-Type': 'application/soap+xml; charset=utf-8; action="http://www.portalfiscal.inf.br/nfe/wsdl/NFeRecepcaoEvento4/nfeRecepcaoEvento"',
-      'Accept': 'application/soap+xml, text/xml, */*',
-      'User-Agent': 'CDGESTAO-NFCE/1.0'
-    }
-  });
+  if (!envio.success) {
+    throw new Error(envio.error || 'Falha no cancelamento SEFAZ.');
+  }
 
   return {
-    sefaz: response.data,
+    sefaz: envio.body,
     notaId: notaAutorizada.id,
     chaveAcesso,
-    protocolo
+    protocolo,
+    source: envio.source,
+    fallbackUtilizado: envio.fallbackUtilizado
   };
 }
 

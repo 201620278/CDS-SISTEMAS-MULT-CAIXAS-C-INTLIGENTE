@@ -41,7 +41,9 @@ class CentralPendenciasService {
       this._documentosRepository.listarComprasAbertas(limite),
       this._documentosRepository.listarPorStatus(DocumentoFiscalStatus.ERRO, limite),
       this._documentosRepository.listarXmlInvalido(limite),
-      this._alertasService.listarAlertas()
+      opcoes.alertasResultado
+        ? Promise.resolve(opcoes.alertasResultado)
+        : this._alertasService.listarAlertas()
     ]);
 
     const falhasSincronizacao = (alertasResultado.alertas || [])

@@ -27,24 +27,26 @@ class CentralOperacionalDashboardService {
   }
 
   /**
+   * @param {Object} [opcoes]
    * @returns {Promise<Object>}
    */
-  async obterIndicadores() {
+  async obterIndicadores(opcoes = {}) {
+    const alertasResultado = opcoes.alertasResultado
+      ?? await this._alertasService.listarAlertas();
+
     const [
       metricas,
-      contadoresPorStatus,
-      alertas,
-      ultimoNsu
+      contadoresPorStatus
     ] = await Promise.all([
       this._documentosRepository.obterMetricasOperacionais(),
-      this._documentosRepository.contarPorStatus({}),
-      this._alertasService.listarAlertas(),
-      this._nsuRepository.obterUltimaSincronizacao()
+      this._documentosRepository.contarPorStatus({})
     ]);
 
-    const pendenciasCriticas = (alertas.alertas || []).filter(
+    const pendenciasCriticas = (alertasResultado.alertas || []).filter(
       (a) => a.gravidade === 'critica' || a.gravidade === 'alta'
     ).reduce((acc, a) => acc + (a.quantidade || 0), 0);
+
+    const ultimoNsu = await this._nsuRepository.obterUltimaSincronizacao();
 
     return {
       valorTotalMes: metricas.valorTotalMes,
@@ -64,8 +66,8 @@ class CentralOperacionalDashboardService {
       },
       ultimaSincronizacao: ultimoNsu?.dataSincronizacao || ultimoNsu?.updatedAt || null,
       alertasResumo: {
-        total: alertas.total,
-        tipos: (alertas.alertas || []).length
+        total: alertasResultado.total,
+        tipos: (alertasResultado.alertas || []).length
       }
     };
   }

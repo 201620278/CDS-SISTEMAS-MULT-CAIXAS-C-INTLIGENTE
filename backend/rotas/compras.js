@@ -24,7 +24,8 @@ const {
 } = require('../lib/motorConversaoUnidades');
 const { emitirNFeDevolucaoCompra } = require('../services/fiscal/nfeDevolucaoCompra');
 const MiipService = require('../motores/miip/MiipService');
-const CentralComprasBridgeService = require('../motores/central-entradas/services/CentralComprasBridgeService');
+const centralOrchestrator = require('../motores/central-entradas/CentralEntradasOrchestrator');
+const { logCentralErro } = require('../motores/central-entradas/utils/centralLog');
 
 const itemCompraEhFracionado = itemCompraUsaConversaoUnidades;
 const obterTotalConvertidoItemCompraBackend = obterTotalConvertidoItemCompra;
@@ -32,6 +33,7 @@ const validarDistribuicaoFracionadoItem = validarDistribuicaoConversaoUnidadesIt
 
 
 /**
+ * Vínculo oficial via Orchestrator (RC3) — mesmo pipeline da Central.
  * @param {number|string|null} centralDocumentoId
  * @param {number} compraId
  * @param {number|null} usuarioId
@@ -41,10 +43,9 @@ async function vincularDocumentoCentralAposCompra(centralDocumentoId, compraId, 
   if (!centralDocumentoId) return;
 
   try {
-    const bridge = new CentralComprasBridgeService();
-    await bridge.vincularCompra(centralDocumentoId, compraId, { usuarioId });
+    await centralOrchestrator.vincularCompra(centralDocumentoId, compraId, { usuarioId });
   } catch (err) {
-    console.error('[Central] Erro ao vincular documento à compra:', err?.message);
+    logCentralErro('COMPRAS', err, { documentoId: centralDocumentoId, compraId });
   }
 }
 

@@ -146,6 +146,33 @@ function verificarPermissaoEspecifica(nomeDaPermissao) {
   };
 }
 
+function exigirDiagnosticoCentral(req, res, next) {
+  verificarToken(req, res, () => {
+    db.get(
+      'SELECT id, username, role, COALESCE(perfil, \'USUARIO\') as perfil FROM usuarios WHERE id = ?',
+      [req.user?.id],
+      (err, usuario) => {
+        if (err || !usuario) {
+          return res.status(403).json({ error: 'Erro ao verificar permissões.' });
+        }
+
+        req.user.perfil = usuario.perfil;
+        const perfil = String(usuario.perfil || '').toUpperCase();
+        const permitido = req.user?.role === 'admin'
+          || ['SUPER_ADMIN', 'ADMIN', 'SUPORTE'].includes(perfil);
+
+        if (!permitido) {
+          return res.status(403).json({
+            error: 'Acesso restrito: apenas ADMIN, SUPER_ADMIN ou SUPORTE.'
+          });
+        }
+
+        next();
+      }
+    );
+  });
+}
+
 function exigirPerfilAjusteEstoque() {
   return (req, res, next) => {
     verificarToken(req, res, () => {
@@ -169,5 +196,6 @@ module.exports = {
   exigirSuperAdmin,
   verificarPermissaoEspecifica,
   exigirPerfilAjusteEstoque,
+  exigirDiagnosticoCentral,
   buscarPermissoesUsuario
 };

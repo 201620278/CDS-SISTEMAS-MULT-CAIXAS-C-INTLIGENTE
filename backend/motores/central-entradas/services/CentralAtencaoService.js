@@ -27,13 +27,19 @@ class CentralAtencaoService {
   }
 
   /**
+   * @param {Object} [opcoes]
+   * @param {Object} [opcoes.alertasResultado]
+   * @param {Object} [opcoes.pendenciasResultado]
    * @returns {Promise<{ total: number, itens: Object[] }>}
    */
-  async obterItensAtencao() {
-    const [alertas, pendencias] = await Promise.all([
-      this._alertasService.listarAlertas(),
-      this._pendenciasService.obterPendencias({ limite: 5 })
-    ]);
+  async obterItensAtencao(opcoes = {}) {
+    const alertas = opcoes.alertasResultado
+      ?? await this._alertasService.listarAlertas();
+    const pendencias = opcoes.pendenciasResultado
+      ?? await this._pendenciasService.obterPendencias({
+        limite: opcoes.limitePendencias ?? 5,
+        alertasResultado: alertas
+      });
 
     const itens = [];
 

@@ -243,10 +243,96 @@ class CentralDocumentosRepository extends IRepository {
   }
 
   /**
+   * @param {number} [limite]
+   * @returns {Promise<Object[]>}
+   */
+  async listarPendentesProcessamento(limite = 100) {
+    const sql = this._obterSql();
+    await sql.whenReady();
+
+    const rows = await sql.all(
+      `SELECT * FROM ${CentralDocumentosRepository.TABELA}
+       WHERE status = ?
+         AND (parse_json IS NULL OR parse_json = '')
+       ORDER BY created_at ASC
+       LIMIT ?`,
+      [DocumentoFiscalStatus.SINCRONIZADA, limite]
+    );
+
+    return rows.map((row) => this._mapearRow(row));
+  }
+
+  /**
+   * Colunas para listagem (sem XML/parse pesado).
+   * @private
+   */
+  static get COLUNAS_LISTAGEM() {
+    return `id, chave, numero, serie, modelo, fornecedor, cnpj_fornecedor,
+      data_emissao, data_entrada, valor_total, nsu, origem, status, status_detalhe,
+      miip_sessao_id, miip_resumo_json, compra_id, usuario_id, processado_em, created_at, updated_at`;
+  }
+
+  /**
    * @param {Object} [filtros]
    * @returns {Promise<Object[]>}
    */
   async listar(filtros = {}) {
+    const sql = this._obterSql();
+    await sql.whenReady();
+
+    const { clausulaWhere, params } = this._montarClausulaWhere(filtros);
+    const orderBy = this._montarOrderBy(filtros);
+    const pag = paginacao(filtros);
+
+    const rows = await sql.all(
+      `SELECT ${CentralDocumentosRepository.COLUNAS_LISTAGEM}
+       FROM ${CentralDocumentosRepository.TABELA} ${clausulaWhere} ${orderBy}${pag.sql}`,
+      [...params, ...pag.params]
+    );
+
+    return rows.map((row) => this._mapearRowListagem(row));
+  }
+
+  /**
+   * @private
+   * @param {Object|null} row
+   * @returns {Object|null}
+   */
+  _mapearRowListagem(row) {
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      chave: row.chave,
+      numero: row.numero,
+      serie: row.serie,
+      modelo: row.modelo,
+      fornecedor: row.fornecedor,
+      cnpjFornecedor: row.cnpj_fornecedor,
+      dataEmissao: row.data_emissao,
+      dataEntrada: row.data_entrada,
+      valorTotal: row.valor_total,
+      nsu: row.nsu,
+      origem: row.origem,
+      status: row.status,
+      statusDetalhe: row.status_detalhe,
+      miipSessaoId: row.miip_sessao_id,
+      miipResumoJson: deserializarJson(row.miip_resumo_json),
+      compraId: row.compra_id,
+      usuarioId: row.usuario_id,
+      processadoEm: row.processado_em,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      parseJson: null,
+      xml: null
+    };
+  }
+
+  /**
+   * @param {Object} [filtros]
+   * @returns {Promise<Object[]>}
+   */
+  async listarComXml(filtros = {}) {
     const sql = this._obterSql();
     await sql.whenReady();
 

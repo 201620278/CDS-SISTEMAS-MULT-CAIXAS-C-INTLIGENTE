@@ -20,6 +20,8 @@ class SincronizacaoResultadoDTO {
     this.mensagem = dados.mensagem ?? null;
     this.ultimaSincronizacao = dados.ultimaSincronizacao ?? dados.ultima_sincronizacao ?? null;
     this.erros = dados.erros ?? [];
+    this.codigoErro = dados.codigoErro ?? dados.codigo_erro ?? null;
+    this.mensagemAmigavel = dados.mensagemAmigavel ?? dados.mensagem_amigavel ?? null;
   }
 
   /**
@@ -45,7 +47,9 @@ class SincronizacaoResultadoDTO {
       cStat: this.cStat,
       mensagem: this.mensagem,
       ultimaSincronizacao: this.ultimaSincronizacao,
-      erros: this.erros
+      erros: this.erros,
+      codigoErro: this.codigoErro,
+      mensagemAmigavel: this.mensagemAmigavel || this.mensagem || (this.erros[0] || null)
     };
   }
 }

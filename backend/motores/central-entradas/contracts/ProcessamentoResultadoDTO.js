@@ -17,6 +17,7 @@ class ProcessamentoResultadoDTO {
     this.etapaAtual = dados.etapaAtual ?? dados.etapa_atual ?? null;
     this.etapas = dados.etapas ?? [];
     this.possuiPendencias = dados.possuiPendencias ?? dados.possui_pendencias ?? false;
+    this.reutilizado = dados.reutilizado ?? false;
     this.mensagem = dados.mensagem ?? null;
     this.erros = dados.erros ?? [];
   }
@@ -42,6 +43,7 @@ class ProcessamentoResultadoDTO {
       etapaAtual: this.etapaAtual,
       etapas: this.etapas,
       possuiPendencias: this.possuiPendencias,
+      reutilizado: this.reutilizado,
       mensagem: this.mensagem,
       erros: this.erros
     };

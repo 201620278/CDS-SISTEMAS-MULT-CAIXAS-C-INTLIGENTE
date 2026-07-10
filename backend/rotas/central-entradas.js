@@ -8,6 +8,7 @@
 
 const express = require('express');
 const multer = require('multer');
+const { exigirDiagnosticoCentral } = require('../middleware/auth');
 const CentralEntradasService = require('../motores/central-entradas/CentralEntradasService');
 
 const router = express.Router();
@@ -47,6 +48,82 @@ router.get('/health', async (req, res) => {
   try {
     const health = await centralEntradasService.obterHealth();
     return res.json(health);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/diagnostico', exigirDiagnosticoCentral, async (req, res) => {
+  try {
+    const forcar = req.query.forcar === 'true' || req.query.forcar === '1';
+    const painel = await centralEntradasService.obterDiagnostico({ forcarAtualizacao: forcar });
+    return res.json(painel);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/diagnostico/health-check', exigirDiagnosticoCentral, async (req, res) => {
+  try {
+    const resultado = await centralEntradasService.executarHealthCheckDiagnostico();
+    return res.json(resultado);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/diagnostico/acoes/sincronizar', exigirDiagnosticoCentral, async (req, res) => {
+  try {
+    const resultado = await centralEntradasService.sincronizar({ origem: 'diagnostico' });
+    centralEntradasService.limparCacheDiagnostico();
+    return res.status(statusHttpSync(resultado)).json({
+      ...resultado,
+      mensagemAmigavel: resultado.mensagemAmigavel
+        || resultado.mensagem
+        || (resultado.erros && resultado.erros[0])
+        || null
+    });
+  } catch (error) {
+    return res.status(422).json({
+      sucesso: false,
+      mensagemAmigavel: error.message || 'Falha ao sincronizar pelo diagnóstico.',
+      error: error.message
+    });
+  }
+});
+
+router.post('/diagnostico/acoes/reprocessar-pendencias', exigirDiagnosticoCentral, async (req, res) => {
+  try {
+    const resultado = await centralEntradasService.processarDocumentosPendentes({ origem: 'diagnostico' });
+    centralEntradasService.limparCacheDiagnostico();
+    return res.json(resultado);
+  } catch (error) {
+    return res.status(500).json({ error: error.message, sucesso: false });
+  }
+});
+
+router.post('/diagnostico/acoes/testar-certificado', exigirDiagnosticoCentral, async (req, res) => {
+  try {
+    const resultado = await centralEntradasService.testarCertificadoDiagnostico();
+    return res.json(resultado);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/diagnostico/acoes/testar-sefaz', exigirDiagnosticoCentral, async (req, res) => {
+  try {
+    const resultado = await centralEntradasService.testarSefazDiagnostico();
+    return res.json(resultado);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/diagnostico/acoes/limpar-cache', exigirDiagnosticoCentral, async (req, res) => {
+  try {
+    const resultado = centralEntradasService.limparCacheDiagnostico();
+    return res.json(resultado);
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
@@ -98,6 +175,17 @@ router.get('/operacional', async (req, res) => {
   }
 });
 
+router.get('/inteligencia', async (req, res) => {
+  try {
+    const inteligencia = await centralEntradasService.obterInteligenciaOperacional({
+      limitePendencias: req.query.limite != null ? Number(req.query.limite) : 20
+    });
+    return res.json(inteligencia);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/atencao', async (req, res) => {
   try {
     const atencao = await centralEntradasService.obterItensAtencao();
@@ -124,6 +212,19 @@ router.patch('/config', async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 });
+
+const CentralConfiguracaoController = require('../motores/central-entradas/controllers/CentralConfiguracaoController');
+const configuracaoController = new CentralConfiguracaoController({
+  orchestrator: require('../motores/central-entradas/CentralEntradasOrchestrator')
+});
+
+router.get('/configuracao', (req, res) => configuracaoController.obter(req, res));
+router.put('/configuracao', (req, res) => configuracaoController.atualizar(req, res));
+router.post('/configuracao/restaurar', (req, res) => configuracaoController.restaurarPadrao(req, res));
+router.post('/configuracao/testar-sefaz', (req, res) => configuracaoController.testarSefaz(req, res));
+router.post('/configuracao/testar-certificado', (req, res) => configuracaoController.testarCertificado(req, res));
+router.post('/configuracao/health', (req, res) => configuracaoController.health(req, res));
+router.post('/configuracao/limpar-cache', (req, res) => configuracaoController.limparCache(req, res));
 
 router.get('/servico/status', async (req, res) => {
   try {
@@ -183,16 +284,47 @@ router.patch('/notificacoes/:id/lida', async (req, res) => {
   }
 });
 
+/**
+ * Mapeia resultado de sync para HTTP — RC4: nunca 502 genérico.
+ * @param {Object|null} resultado
+ * @returns {number}
+ */
+function statusHttpSync(resultado) {
+  if (!resultado) return 200;
+  if (resultado.sucesso || resultado.ignorado) return 200;
+  if (resultado.codigoErro === 'CERTIFICADO' || resultado.codigoErro === 'CNPJ'
+    || resultado.codigoErro === 'CONFIG_FISCAL' || resultado.codigoErro === 'URL_SEFAZ') {
+    return 422;
+  }
+  if (resultado.codigoErro === 'SEFAZ') return 503;
+  return 200;
+}
+
 router.post('/sincronizar-ao-abrir', async (req, res) => {
   try {
     const resultado = await centralEntradasService.sincronizarAoAbrir();
     if (!resultado) {
-      return res.json({ ignorado: true, motivo: 'sync_ao_abrir desabilitado' });
+      return res.json({
+        ignorado: true,
+        sucesso: true,
+        motivo: 'sync_ao_abrir desabilitado',
+        mensagemAmigavel: 'Sincronização ao abrir está desabilitada nas configurações.'
+      });
     }
-    const statusCode = resultado.sucesso ? 200 : (resultado.ignorado ? 200 : 502);
-    return res.status(statusCode).json(resultado);
+    return res.status(statusHttpSync(resultado)).json({
+      ...resultado,
+      mensagemAmigavel: resultado.mensagemAmigavel
+        || resultado.mensagem
+        || (resultado.erros && resultado.erros[0])
+        || null
+    });
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return res.status(422).json({
+      sucesso: false,
+      codigoErro: 'ERRO',
+      mensagemAmigavel: error.message || 'Falha ao sincronizar ao abrir a Central.',
+      error: error.message
+    });
   }
 });
 
@@ -225,10 +357,19 @@ router.get('/', async (req, res) => {
 router.post('/sincronizar', async (req, res) => {
   try {
     const resultado = await centralEntradasService.sincronizar();
-    const statusCode = resultado.sucesso ? 200 : 502;
-    return res.status(statusCode).json(resultado);
+    return res.status(statusHttpSync(resultado)).json({
+      ...resultado,
+      mensagemAmigavel: resultado.mensagemAmigavel
+        || resultado.mensagem
+        || (resultado.erros && resultado.erros[0])
+        || null
+    });
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    return res.status(422).json({
+      sucesso: false,
+      mensagemAmigavel: error.message || 'Falha na sincronização.',
+      error: error.message
+    });
   }
 });
 
@@ -393,7 +534,11 @@ router.patch('/:id/status', async (req, res) => {
 
     const documento = await centralEntradasService.alterarStatus(req.params.id, status, {
       detalhe,
-      usuarioId
+      usuarioId: usuarioId ?? req.user?.id,
+      usuarioNome: req.user?.username || req.user?.nome,
+      perfilUsuario: req.user?.perfil,
+      roleUsuario: req.user?.role,
+      ipRequisicao: req.ip
     });
 
     return res.json({ documento });

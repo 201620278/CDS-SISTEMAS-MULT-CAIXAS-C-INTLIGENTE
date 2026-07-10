@@ -1,7 +1,7 @@
 /**
  * CentralProcessamentoService — Pipeline oficial: Parser + MIIP + status.
  *
- * Sprint 5: único pipeline de processamento da Central.
+ * RC1: transições via DocumentoTransitionService.
  *
  * @class CentralProcessamentoService
  */
@@ -11,10 +11,10 @@ const NFeParserError = require('../../../shared/nfe/errors/NFeParserError');
 const { enriquecerParseComMiip } = require('../../../shared/nfe/enriquecerParseComMiip');
 const ProcessamentoResultadoDTO = require('../contracts/ProcessamentoResultadoDTO');
 const { DocumentoFiscalStatus } = require('../core/DocumentoFiscalStatus');
-const { validarTransicao } = require('../core/MaquinaEstadosDocumento');
 const { paraDocumentoDetalheDTO } = require('../utils/centralEntradasMapper');
 const CentralDocumentosRepository = require('../repositories/CentralDocumentosRepository');
 const CentralHistoricoService = require('./CentralHistoricoService');
+const DocumentoTransitionService = require('./DocumentoTransitionService');
 
 const ETAPAS_PIPELINE = Object.freeze([
   { codigo: 'localizar', label: 'Localizando documento' },
@@ -27,8 +27,6 @@ const ETAPAS_PIPELINE = Object.freeze([
 class CentralProcessamentoService {
   /**
    * @param {Object} [deps]
-   * @param {import('../repositories/CentralDocumentosRepository')} [deps.documentosRepository]
-   * @param {import('./CentralHistoricoService')} [deps.historicoService]
    */
   constructor(deps = {}) {
     /** @private */
@@ -37,38 +35,12 @@ class CentralProcessamentoService {
     /** @private */
     this._historicoService = deps.historicoService
       ?? new CentralHistoricoService();
-  }
-
-  /**
-   * @private
-   * @param {number|string} id
-   * @param {string} statusAtual
-   * @param {string} statusNovo
-   * @param {Object} [opcoes]
-   */
-  async _transicionar(id, statusAtual, statusNovo, opcoes = {}) {
-    const validacao = validarTransicao(statusAtual, statusNovo);
-    if (!validacao.valido) {
-      const erro = new Error(validacao.erro);
-      erro.statusCode = 400;
-      throw erro;
-    }
-
-    await this._documentosRepository.atualizar(id, {
-      status: statusNovo,
-      statusDetalhe: opcoes.detalhe ?? null,
-      usuarioId: opcoes.usuarioId ?? null
-    });
-
-    if (statusAtual !== statusNovo) {
-      await this._historicoService.registrar({
-        documentoId: id,
-        statusAnterior: statusAtual,
-        statusNovo,
-        usuarioId: opcoes.usuarioId ?? null,
-        detalhe: opcoes.detalhe ?? `Transição: ${statusAtual} → ${statusNovo}`
+    /** @private */
+    this._transitionService = deps.transitionService
+      ?? new DocumentoTransitionService({
+        documentosRepository: this._documentosRepository,
+        historicoRepository: deps.historicoRepository
       });
-    }
   }
 
   /**
@@ -90,15 +62,27 @@ class CentralProcessamentoService {
         throw erro;
       }
 
+      if (documento.parseJson && !opcoes.forcarReprocessamento) {
+        const atualizado = await this._documentosRepository.buscarPorId(documentoId);
+        return ProcessamentoResultadoDTO.create({
+          sucesso: true,
+          reutilizado: true,
+          documento: paraDocumentoDetalheDTO(atualizado),
+          parse: documento.parseJson,
+          miipImportacao: documento.miipResumoJson,
+          possuiPendencias: documento.status === DocumentoFiscalStatus.AGUARDANDO_REVISAO,
+          proximaAcao: documento.status === DocumentoFiscalStatus.AGUARDANDO_REVISAO
+            ? 'revisar_produtos'
+            : 'abrir_compra',
+          etapaAtual: 'concluido',
+          etapas: ETAPAS_PIPELINE.map((e) => ({ ...e, concluida: true })),
+          mensagem: 'Processamento já existente — resultado reutilizado'
+        }).toJSON();
+      }
+
       if (!documento.xml) {
         const erro = new Error('XML não disponível para processamento');
         erro.statusCode = 400;
-        throw erro;
-      }
-
-      if (documento.parseJson && !opcoes.forcarReprocessamento) {
-        const erro = new Error('Documento já processado. Use forcarReprocessamento para reprocessar.');
-        erro.statusCode = 409;
         throw erro;
       }
 
@@ -111,10 +95,15 @@ class CentralProcessamentoService {
 
       etapasConcluidas.push('localizar');
 
-      await this._transicionar(documentoId, statusInicial, DocumentoFiscalStatus.EM_PROCESSAMENTO, {
-        detalhe: 'Início do pipeline oficial de processamento',
-        usuarioId: opcoes.usuarioId
-      });
+      await this._transitionService.transicionar(
+        documentoId,
+        statusInicial,
+        DocumentoFiscalStatus.EM_PROCESSAMENTO,
+        {
+          detalhe: 'Início do pipeline oficial de processamento',
+          usuarioId: opcoes.usuarioId
+        }
+      );
 
       etapaAtual = 'parse';
       const parsed = await NFeParserService.parse(documento.xml);
@@ -161,7 +150,7 @@ class CentralProcessamentoService {
         });
       }
 
-      await this._transicionar(
+      await this._transitionService.transicionar(
         documentoId,
         DocumentoFiscalStatus.EM_PROCESSAMENTO,
         statusNovo,
@@ -205,7 +194,7 @@ class CentralProcessamentoService {
         try {
           const doc = await this._documentosRepository.buscarPorId(documentoId);
           if (doc?.status === DocumentoFiscalStatus.EM_PROCESSAMENTO) {
-            await this._transicionar(
+            await this._transitionService.transicionar(
               documentoId,
               DocumentoFiscalStatus.EM_PROCESSAMENTO,
               DocumentoFiscalStatus.ERRO,

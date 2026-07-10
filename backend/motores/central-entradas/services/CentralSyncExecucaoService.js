@@ -1,29 +1,31 @@
 /**
  * CentralSyncExecucaoService — Execução de sincronização com mutex e telemetria.
  *
- * Sprint 8: reutiliza CentralSincronizacaoService sem alterar o pipeline DF-e.
+ * RC3: eventos via centralEventosEmitter (contrato único).
  *
  * @class CentralSyncExecucaoService
  */
 
 const CentralSincronizacaoService = require('./CentralSincronizacaoService');
-const CentralConfigService = require('./CentralConfigService');
-const CentralEventosService = require('./CentralEventosService');
+const CentralConfiguracaoService = require('./CentralConfiguracaoService');
 const CentralNotificacoesService = require('./CentralNotificacoesService');
 const { TIPOS_EVENTO, ORIGENS } = require('../config/centralEventosTipos');
-const { sincronizarDistribuicaoDFe } = require('../../../services/fiscal/distribuicaoDFe');
+const { emitirEvento } = require('../utils/centralEventosEmitter');
+const { logCentral, logCentralErro } = require('../utils/centralLog');
 const SincronizacaoResultadoDTO = require('../contracts/SincronizacaoResultadoDTO');
 
 class CentralSyncExecucaoService {
   constructor(deps = {}) {
     /** @private */
     this._sincronizacao = deps.sincronizacaoService ?? new CentralSincronizacaoService();
-    /** @private */
-    this._config = deps.configService ?? new CentralConfigService();
-    /** @private */
-    this._eventos = deps.eventosService ?? new CentralEventosService();
+    /** @private — provider oficial RC5 */
+    this._config = deps.configuracaoService
+      ?? deps.configService
+      ?? new CentralConfiguracaoService();
     /** @private */
     this._notificacoes = deps.notificacoesService ?? new CentralNotificacoesService();
+    /** @private */
+    this._emitirEvento = deps.emitirEvento || emitirEvento;
     /** @private */
     this._executando = false;
     /** @private */
@@ -34,23 +36,14 @@ class CentralSyncExecucaoService {
     this._ultimoResultado = null;
   }
 
-  /**
-   * @returns {boolean}
-   */
   estaExecutando() {
     return this._executando;
   }
 
-  /**
-   * @param {Date|null} data
-   */
   definirProximaExecucao(data) {
     this._proximaExecucao = data;
   }
 
-  /**
-   * @returns {Object}
-   */
   obterEstado() {
     return {
       executando: this._executando,
@@ -68,6 +61,7 @@ class CentralSyncExecucaoService {
     const origem = opcoes.origem || ORIGENS.MANUAL;
     const ignorarHorario = Boolean(opcoes.ignorarHorario);
     const forcar = Boolean(opcoes.forcar);
+    const usuarioId = opcoes.usuarioId ?? null;
 
     if (this._executando && !forcar) {
       return {
@@ -94,42 +88,27 @@ class CentralSyncExecucaoService {
     const inicio = Date.now();
     this._ultimaExecucao = new Date().toISOString();
 
-    await this._eventos.registrar({
+    logCentral('SYNC', { fase: 'inicio', origem, usuarioId });
+
+    await this._emitirEvento({
       tipo: TIPOS_EVENTO.SYNC_INICIADA,
       origem,
       descricao: 'Sincronização SEFAZ iniciada',
       resultado: 'em_andamento',
-      sucesso: null
+      sucesso: null,
+      usuarioId
     });
 
     try {
       const cfg = await this._config.obterResumo();
-      const maxIteracoes = Math.max(1, Math.min(200, cfg.syncMaxDocumentos || 50));
+      const maxIteracoes = Math.max(1, Math.min(200, opcoes.maxIteracoes ?? cfg.syncMaxDocumentos ?? 50));
 
-      let resultado;
-      if (maxIteracoes < 50) {
-        const bruto = await sincronizarDistribuicaoDFe({ maxIteracoes });
-        resultado = SincronizacaoResultadoDTO.create({
-          sucesso: true,
-          notasNovas: bruto.notasNovas,
-          notasDuplicadas: bruto.notasDuplicadas,
-          ignorados: bruto.ignorados,
-          ultNsu: bruto.ultNsu,
-          maxNsu: bruto.maxNsu,
-          iteracoes: bruto.iteracoes,
-          cStat: bruto.cStat,
-          mensagem: bruto.mensagem,
-          ultimaSincronizacao: bruto.ultimaSincronizacao,
-          erros: []
-        }).toJSON();
-      } else {
-        resultado = await this._sincronizacao.sincronizar();
-      }
+      const resultado = await this._sincronizacao.sincronizar({ maxIteracoes });
 
       const duracaoMs = Date.now() - inicio;
       this._ultimoResultado = resultado;
 
-      await this._eventos.registrar({
+      await this._emitirEvento({
         tipo: resultado.sucesso ? TIPOS_EVENTO.SYNC_CONCLUIDA : TIPOS_EVENTO.SYNC_ERRO,
         origem,
         descricao: resultado.mensagem || (resultado.sucesso ? 'Sincronização concluída' : 'Falha na sincronização'),
@@ -138,7 +117,11 @@ class CentralSyncExecucaoService {
         notasNovas: resultado.notasNovas || 0,
         notasDuplicadas: resultado.notasDuplicadas || 0,
         duracaoMs,
-        detalhe: resultado
+        usuarioId,
+        detalhe: {
+          notasNovas: resultado.notasNovas || 0,
+          notasDuplicadas: resultado.notasDuplicadas || 0
+        }
       });
 
       const cfgNotif = await this._config.obterResumo();
@@ -150,6 +133,14 @@ class CentralSyncExecucaoService {
         notificarNovas: cfgNotif.notificarNovasNotas
       });
 
+      logCentral('SYNC', {
+        fase: 'fim',
+        origem,
+        sucesso: resultado.sucesso,
+        notasNovas: resultado.notasNovas || 0,
+        duracaoMs
+      });
+
       return { ...resultado, duracaoMs, origem };
     } catch (error) {
       const duracaoMs = Date.now() - inicio;
@@ -159,21 +150,24 @@ class CentralSyncExecucaoService {
       }).toJSON();
 
       this._ultimoResultado = falha;
+      logCentralErro('SYNC', error, { origem, duracaoMs });
 
-      await this._eventos.registrar({
+      await this._emitirEvento({
         tipo: TIPOS_EVENTO.SYNC_ERRO,
         origem,
         descricao: error.message,
         resultado: 'erro',
         sucesso: false,
         duracaoMs,
+        usuarioId,
         detalhe: { erro: error.message }
       });
 
       await this._notificacoes.notificarSyncConcluida({
         sucesso: false,
         mensagem: error.message,
-        origem
+        origem,
+        notasNovas: 0
       });
 
       return { ...falha, duracaoMs, origem };
@@ -184,3 +178,4 @@ class CentralSyncExecucaoService {
 }
 
 module.exports = new CentralSyncExecucaoService();
+module.exports.CentralSyncExecucaoService = CentralSyncExecucaoService;

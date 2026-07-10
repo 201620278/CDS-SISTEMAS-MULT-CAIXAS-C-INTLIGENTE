@@ -1,7 +1,12 @@
 /**
  * MaquinaEstadosDocumento — Validação de transições de estado do documento fiscal.
  *
- * Sprint 1: regras básicas de transição (sem orquestração de processamento).
+ * RC3: transições alinhadas aos fluxos reais (persistência → processamento → compras).
+ *
+ * Notas de consolidação:
+ * - RECEBIDA: reservado (default de inserir); fluxo normal persiste como SINCRONIZADA/DUPLICADA.
+ * - EM_PROCESSAMENTO → REVISADA: removido (nunca usado pelo pipeline; usa AGUARDANDO_REVISAO).
+ * - REVISADA → EM_COMPRA: permitido para alinhar com registrarAberturaCompra.
  *
  * @module motores/central-entradas/core/MaquinaEstadosDocumento
  */
@@ -22,7 +27,6 @@ const TRANSICOES_PERMITIDAS = Object.freeze({
   ],
   [DocumentoFiscalStatus.EM_PROCESSAMENTO]: [
     DocumentoFiscalStatus.AGUARDANDO_REVISAO,
-    DocumentoFiscalStatus.REVISADA,
     DocumentoFiscalStatus.PRONTA_PARA_COMPRA,
     DocumentoFiscalStatus.ERRO
   ],
@@ -33,6 +37,7 @@ const TRANSICOES_PERMITIDAS = Object.freeze({
   ],
   [DocumentoFiscalStatus.REVISADA]: [
     DocumentoFiscalStatus.PRONTA_PARA_COMPRA,
+    DocumentoFiscalStatus.EM_COMPRA,
     DocumentoFiscalStatus.DESCARTADA
   ],
   [DocumentoFiscalStatus.PRONTA_PARA_COMPRA]: [

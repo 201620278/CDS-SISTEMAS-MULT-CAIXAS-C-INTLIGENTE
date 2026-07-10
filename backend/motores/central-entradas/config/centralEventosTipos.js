@@ -20,7 +20,10 @@ const ORIGENS = Object.freeze({
   MANUAL: 'manual',
   API: 'api',
   SISTEMA: 'sistema',
-  ABRIR_CENTRAL: 'abrir_central'
+  ABRIR_CENTRAL: 'abrir_central',
+  DIAGNOSTICO: 'diagnostico',
+  UPLOAD: 'upload',
+  COMPRAS: 'compras'
 });
 
 module.exports = {

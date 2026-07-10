@@ -13,6 +13,7 @@ const PERMISSOES_PAGINAS = {
     clientes: 'clientes',
     compras: 'compras',
     'central-entradas': 'compras',
+    'central-diagnostico': 'compras',
     fornecedores: 'fornecedores',
     vendas: 'vendas',
     consulta: 'pdv',
@@ -199,8 +200,19 @@ function obterDestinoPosLogin(user) {
     return '/login';
 }
 
+/** Painel de diagnóstico da Central — ADMIN, SUPER_ADMIN ou SUPORTE. */
+function usuarioPodeAcessarDiagnosticoCentral(user) {
+    const u = user || obterUsuarioLogado();
+    const perfil = String(u.perfil || '').toUpperCase();
+    return u.role === 'admin' || ['SUPER_ADMIN', 'ADMIN', 'SUPORTE'].includes(perfil);
+}
+
 function usuarioTemPermissao(page) {
     const { role, permissoes } = obterPermissoesUsuario();
+
+    if (page === 'central-diagnostico') {
+        return usuarioPodeAcessarDiagnosticoCentral();
+    }
 
     if (page === 'usuarios') {
         return podeGerenciarUsuariosSistema();
@@ -255,4 +267,5 @@ window.podeAdministrarFinanceiro = podeAdministrarFinanceiro;
 window.usuarioEhSupervisor = usuarioEhSupervisor;
 window.obterDestinoPosLogin = obterDestinoPosLogin;
 window.usuarioTemPermissao = usuarioTemPermissao;
+window.usuarioPodeAcessarDiagnosticoCentral = usuarioPodeAcessarDiagnosticoCentral;
 window.redirecionarSeModuloNegado = redirecionarSeModuloNegado;

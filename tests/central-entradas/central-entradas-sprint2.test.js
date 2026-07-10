@@ -12,6 +12,12 @@ const { DocumentoFiscalStatus } = require('../../backend/motores/central-entrada
 let passou = 0;
 let falhou = 0;
 const CHAVE_TESTE = '23250699999999000199550010000009991000000099';
+const OPCOES_ADMIN = {
+  perfilUsuario: 'ADMIN',
+  roleUsuario: 'admin',
+  usuarioId: 1,
+  usuarioNome: 'admin-teste'
+};
 
 const service = new CentralEntradasService();
 const documentosRepository = new CentralDocumentosRepository();
@@ -73,9 +79,9 @@ async function main() {
 
   await documentosRepository._obterSql().whenReady();
 
-  await test('health retorna sprint 8', async () => {
+  await test('health retorna sprint RC2', async () => {
     const health = await service.obterHealth();
-    assert.strictEqual(health.sprint, 8);
+    assert.ok(/^RC[2-9]$/.test(health.sprint), `health.sprint: ${health.sprint}`);
     assert.strictEqual(health.status, 'ok');
   });
 
@@ -121,7 +127,7 @@ async function main() {
     const atualizado = await service.alterarStatus(
       documentoTeste.id,
       DocumentoFiscalStatus.EM_PROCESSAMENTO,
-      { detalhe: 'Teste de transição' }
+      { detalhe: 'Teste de transição', ...OPCOES_ADMIN }
     );
 
     assert.strictEqual(atualizado.status, DocumentoFiscalStatus.EM_PROCESSAMENTO);
@@ -135,7 +141,7 @@ async function main() {
   await test('PATCH status inválido é rejeitado', async () => {
     let erroCapturado = null;
     try {
-      await service.alterarStatus(documentoTeste.id, DocumentoFiscalStatus.GRAVADA);
+      await service.alterarStatus(documentoTeste.id, DocumentoFiscalStatus.GRAVADA, OPCOES_ADMIN);
     } catch (error) {
       erroCapturado = error;
     }

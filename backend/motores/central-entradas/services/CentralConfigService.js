@@ -1,6 +1,16 @@
 /**
- * CentralConfigService — Configurações operacionais da Central.
+ * CentralConfigService — Adapter interno de sincronização (RC5).
  *
+ * NÃO é o provider oficial de configuração da Central.
+ * Provider oficial: CentralConfiguracaoService.
+ *
+ * Este módulo existe apenas como implementação interna de chaves de sync
+ * (intervalo, janelas, sync ao abrir), consumida exclusivamente via
+ * CentralConfiguracaoService (obterResumoSync / atualizarSync / …).
+ *
+ * @deprecated RC5 — Não instanciar fora de CentralConfiguracaoService.
+ *   Use CentralConfiguracaoService.obterResumoSync(), hidratarFlags(),
+ *   verificarHorarioPermitido(), obterIntervaloMs(), atualizarSync().
  * @class CentralConfigService
  */
 

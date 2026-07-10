@@ -1,0 +1,681 @@
+/**
+ * Central Inteligente de Entradas — Sprint UX1
+ * Layout definitivo: cabeçalho, KPIs, lista em cards, painel lateral, rodapé inteligente.
+ */
+
+.central-ux1-page {
+    --ux1-radius: 12px;
+    --ux1-shadow: 0 4px 24px rgba(15, 23, 42, 0.06);
+    --ux1-border: rgba(15, 23, 42, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-height: calc(100vh - 120px);
+}
+
+/* —— Cabeçalho —— */
+.central-ux1-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.25rem 1.5rem;
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 55%, #0d6efd 120%);
+    border-radius: var(--ux1-radius);
+    color: #fff;
+    box-shadow: var(--ux1-shadow);
+}
+
+.central-ux1-header-titulo {
+    font-size: 1.35rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin: 0;
+    line-height: 1.2;
+}
+
+.central-ux1-header-sub {
+    opacity: 0.85;
+    font-size: 0.9rem;
+    margin: 0.35rem 0 0;
+}
+
+.central-ux1-header-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1.25rem;
+    margin-top: 0.75rem;
+}
+
+.central-ux1-online {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.2rem 0.65rem;
+    border-radius: 999px;
+    background: rgba(25, 135, 84, 0.25);
+    border: 1px solid rgba(25, 135, 84, 0.5);
+}
+
+.central-ux1-online--off {
+    background: rgba(220, 53, 69, 0.2);
+    border-color: rgba(220, 53, 69, 0.45);
+}
+
+.central-ux1-online-pulse {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #20c997;
+    animation: centralUx1Pulse 2s ease-in-out infinite;
+}
+
+.central-ux1-online--off .central-ux1-online-pulse {
+    background: #dc3545;
+    animation: none;
+}
+
+@keyframes centralUx1Pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+.central-ux1-sync-info {
+    font-size: 0.8rem;
+    opacity: 0.9;
+}
+
+.central-ux1-header-acoes {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.central-ux1-header-acoes .btn {
+    border-radius: 8px;
+}
+
+.central-ux1-usuario {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    padding: 0.35rem 0.75rem;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+}
+
+.central-ux1-usuario-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.75rem;
+}
+
+.central-ux1-notif-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 18px;
+    height: 18px;
+    font-size: 0.65rem;
+    border-radius: 999px;
+    background: #dc3545;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+}
+
+/* —— KPI Cards UX1 —— */
+.central-ux1-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.75rem;
+}
+
+@media (max-width: 1400px) {
+    .central-ux1-kpis { grid-template-columns: repeat(4, 1fr); }
+}
+
+@media (max-width: 992px) {
+    .central-ux1-kpis { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 576px) {
+    .central-ux1-kpis { grid-template-columns: 1fr; }
+}
+
+.central-ux1-kpi {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.85rem;
+    padding: 1rem 1.1rem;
+    background: #fff;
+    border: 1px solid var(--ux1-border);
+    border-radius: var(--ux1-radius);
+    box-shadow: var(--ux1-shadow);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    cursor: default;
+}
+
+.central-ux1-kpi--click {
+    cursor: pointer;
+}
+
+.central-ux1-kpi--click:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.1);
+}
+
+.central-ux1-kpi-icone {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+    background: var(--kpi-bg, rgba(13, 110, 253, 0.1));
+    color: var(--kpi-cor, #0d6efd);
+}
+
+.central-ux1-kpi-valor {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.1;
+    color: #0f172a;
+}
+
+.central-ux1-kpi-titulo {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #475569;
+    margin-top: 0.15rem;
+}
+
+/* —— Pesquisa e filtros —— */
+.central-ux1-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.85rem 1rem;
+    background: #fff;
+    border: 1px solid var(--ux1-border);
+    border-radius: var(--ux1-radius);
+}
+
+.central-ux1-busca {
+    flex: 1;
+    min-width: 220px;
+    position: relative;
+}
+
+.central-ux1-busca i {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #94a3b8;
+}
+
+.central-ux1-busca input {
+    padding-left: 2.25rem;
+    border-radius: 8px;
+}
+
+.central-ux1-filtros {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+.central-ux1-filtro {
+    border: 1px solid var(--ux1-border);
+    background: #f8fafc;
+    color: #334155;
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 0.35rem 0.75rem;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.central-ux1-filtro:hover {
+    border-color: #0d6efd;
+    color: #0d6efd;
+}
+
+.central-ux1-filtro.ativa {
+    background: #0d6efd;
+    border-color: #0d6efd;
+    color: #fff;
+}
+
+/* —— Layout principal —— */
+.central-ux1-corpo {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 1rem;
+    flex: 1;
+    min-height: 420px;
+}
+
+@media (max-width: 1200px) {
+    .central-ux1-corpo {
+        grid-template-columns: 1fr;
+    }
+}
+
+.central-ux1-lista-card {
+    background: #fff;
+    border: 1px solid var(--ux1-border);
+    border-radius: var(--ux1-radius);
+    box-shadow: var(--ux1-shadow);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.central-ux1-lista-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--ux1-border);
+    background: #f8fafc;
+}
+
+.central-ux1-lista-body {
+    flex: 1;
+    overflow-y: auto;
+    max-height: min(58vh, 560px);
+    padding: 0.5rem;
+}
+
+.central-ux1-doc-card {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0.75rem 0.85rem;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    margin-bottom: 0.35rem;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.central-ux1-doc-card:hover {
+    background: #f1f5f9;
+    border-color: var(--ux1-border);
+}
+
+.central-ux1-doc-card--selected {
+    background: rgba(13, 110, 253, 0.08);
+    border-color: rgba(13, 110, 253, 0.35);
+}
+
+.central-ux1-doc-card--skeleton {
+    pointer-events: none;
+}
+
+.central-ux1-doc-avatar {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.8rem;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.central-ux1-doc-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.central-ux1-doc-fornecedor {
+    font-weight: 600;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.central-ux1-doc-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    font-size: 0.78rem;
+    color: #64748b;
+    margin-top: 0.15rem;
+}
+
+.central-ux1-doc-acoes {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.35rem;
+    flex-shrink: 0;
+}
+
+.central-ux1-doc-valor {
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: #0f172a;
+}
+
+.central-ux1-badge-miip {
+    font-size: 0.65rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    background: rgba(102, 16, 242, 0.12);
+    color: #6610f2;
+    font-weight: 600;
+}
+
+/* —— Badges de status UX1 —— */
+.central-ux1-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.central-ux1-badge--verde { background: rgba(25, 135, 84, 0.15); color: #198754; }
+.central-ux1-badge--amarelo { background: rgba(253, 126, 20, 0.15); color: #c45d00; }
+.central-ux1-badge--azul { background: rgba(13, 110, 253, 0.15); color: #0d6efd; }
+.central-ux1-badge--cinza { background: rgba(108, 117, 125, 0.15); color: #6c757d; }
+.central-ux1-badge--vermelho { background: rgba(220, 53, 69, 0.15); color: #dc3545; }
+
+/* —— Painel lateral UX1 —— */
+.central-ux1-painel {
+    background: #fff;
+    border: 1px solid var(--ux1-border);
+    border-radius: var(--ux1-radius);
+    box-shadow: var(--ux1-shadow);
+    display: flex;
+    flex-direction: column;
+    max-height: min(72vh, 680px);
+    overflow: hidden;
+}
+
+.central-ux1-painel-header {
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid var(--ux1-border);
+    background: #f8fafc;
+}
+
+.central-ux1-painel-resumo-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.central-ux1-chip {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    background: #fff;
+    border: 1px solid var(--ux1-border);
+    border-radius: 6px;
+}
+
+.central-ux1-painel-cta {
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--ux1-border);
+    background: #f8fafc;
+}
+
+.central-ux1-btn-importar {
+    width: 100%;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    padding: 0.65rem;
+    border-radius: 8px;
+}
+
+/* —— Pipeline timeline —— */
+.central-ux1-pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 0.5rem 0;
+}
+
+.central-ux1-pipeline-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.central-ux1-pipeline-seta {
+    color: #94a3b8;
+    font-size: 0.85rem;
+    line-height: 1;
+    padding: 0.15rem 0;
+}
+
+.central-ux1-pipeline-card {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--ux1-border);
+    background: #f8fafc;
+    transition: border-color 0.2s ease;
+}
+
+.central-ux1-pipeline-item--ok .central-ux1-pipeline-card {
+    border-color: rgba(25, 135, 84, 0.35);
+    background: rgba(25, 135, 84, 0.06);
+}
+
+.central-ux1-pipeline-item--ativo .central-ux1-pipeline-card {
+    border-color: rgba(13, 110, 253, 0.45);
+    background: rgba(13, 110, 253, 0.08);
+    box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.12);
+}
+
+.central-ux1-pipeline-item--erro .central-ux1-pipeline-card {
+    border-color: rgba(220, 53, 69, 0.45);
+    background: rgba(220, 53, 69, 0.06);
+}
+
+.central-ux1-pipeline-icone {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fff;
+    color: #475569;
+}
+
+.central-ux1-pipeline-item--ok .central-ux1-pipeline-icone { color: #198754; }
+.central-ux1-pipeline-item--ativo .central-ux1-pipeline-icone { color: #0d6efd; }
+.central-ux1-pipeline-item--erro .central-ux1-pipeline-icone { color: #dc3545; }
+
+.central-ux1-pipeline-info strong {
+    display: block;
+    font-size: 0.85rem;
+}
+
+.central-ux1-pipeline-info small {
+    color: #64748b;
+    font-size: 0.75rem;
+}
+
+/* —— Rodapé inteligente —— */
+.central-ux1-rodape {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.75rem;
+    margin-top: auto;
+}
+
+@media (max-width: 1200px) {
+    .central-ux1-rodape { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 576px) {
+    .central-ux1-rodape { grid-template-columns: 1fr; }
+}
+
+.central-ux1-rodape-card {
+    background: #fff;
+    border: 1px solid var(--ux1-border);
+    border-radius: var(--ux1-radius);
+    padding: 0.85rem 1rem;
+    box-shadow: var(--ux1-shadow);
+}
+
+.central-ux1-rodape-titulo {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #64748b;
+    margin-bottom: 0.65rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.central-ux1-economia-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+    padding: 0.25rem 0;
+}
+
+.central-ux1-economia-item strong {
+    color: #198754;
+}
+
+.central-ux1-fornecedor-rank {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.8rem;
+}
+
+.central-ux1-fornecedor-rank-nome {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.central-ux1-fornecedor-rank-bar {
+    flex: 1;
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+    min-width: 60px;
+}
+
+.central-ux1-fornecedor-rank-bar > span {
+    display: block;
+    height: 100%;
+    background: linear-gradient(90deg, #0d6efd, #6610f2);
+    border-radius: 999px;
+    transition: width 0.4s ease;
+}
+
+.central-ux1-atividade-item {
+    display: flex;
+    gap: 0.5rem;
+    font-size: 0.78rem;
+    padding: 0.35rem 0;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.05);
+}
+
+.central-ux1-atividade-item:last-child {
+    border-bottom: none;
+}
+
+.central-ux1-atividade-icone {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f1f5f9;
+    color: #0d6efd;
+    flex-shrink: 0;
+    font-size: 0.7rem;
+}
+
+.central-ux1-servico-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+}
+
+.central-ux1-servico-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.78rem;
+    padding: 0.35rem 0.5rem;
+    background: #f8fafc;
+    border-radius: 6px;
+}
+
+.central-ux1-servico-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #198754;
+}
+
+.central-ux1-servico-dot--off {
+    background: #dc3545;
+}
+
+.central-ux1-atencao-banner {
+    padding: 0.6rem 1rem;
+    background: rgba(253, 126, 20, 0.1);
+    border: 1px solid rgba(253, 126, 20, 0.25);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.central-ux-skeleton-circle {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+}

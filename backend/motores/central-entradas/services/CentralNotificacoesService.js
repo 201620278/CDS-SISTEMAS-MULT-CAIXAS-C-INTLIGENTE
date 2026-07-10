@@ -1,6 +1,8 @@
 /**
  * CentralNotificacoesService — Notificações internas do ERP.
  *
+ * RC1: uma notificação consolidada por sincronização.
+ *
  * @class CentralNotificacoesService
  */
 
@@ -24,65 +26,74 @@ class CentralNotificacoesService {
     this._repository = deps.notificacoesRepository ?? new CentralNotificacoesRepository();
   }
 
-  /**
-   * @param {Object} dados
-   * @returns {Promise<Object>}
-   */
   async criar(dados) {
-    return this._repository.inserir(dados);
+    return this.criarPadrao(dados);
   }
 
   /**
-   * @param {Object} [filtros]
-   * @returns {Promise<Object[]>}
+   * Padrão visual único de notificação (RC3).
+   * @param {Object} dados
+   * @returns {Promise<Object>}
    */
+  async criarPadrao(dados = {}) {
+    return this._repository.inserir({
+      tipo: dados.tipo || TIPOS_NOTIFICACAO.ERRO,
+      titulo: dados.titulo || 'Central de Entradas',
+      mensagem: dados.mensagem || '',
+      documentoId: dados.documentoId ?? dados.documento_id ?? null,
+      lida: Boolean(dados.lida)
+    });
+  }
+
   async listar(filtros = {}) {
     return this._repository.listar(filtros);
   }
 
-  /**
-   * @returns {Promise<number>}
-   */
   async contarNaoLidas() {
     return this._repository.contarNaoLidas();
   }
 
-  /**
-   * @param {number|string} id
-   * @returns {Promise<boolean>}
-   */
   async marcarLida(id) {
     return this._repository.marcarLida(id);
   }
 
-  /**
-   * @returns {Promise<number>}
-   */
   async marcarTodasLidas() {
     return this._repository.marcarTodasLidas();
   }
 
   /**
+   * Notificação única consolidada por sincronização.
+   *
    * @param {Object} opcoes
    * @returns {Promise<Object|null>}
    */
   async notificarSyncConcluida(opcoes = {}) {
     const { notasNovas = 0, sucesso = true, mensagem, origem } = opcoes;
 
-    if (sucesso && notasNovas > 0 && opcoes.notificarNovas !== false) {
-      await this.criar({
+    if (!sucesso) {
+      return this.criar({
+        tipo: TIPOS_NOTIFICACAO.SYNC_ERRO,
+        titulo: 'Erro na sincronização',
+        mensagem: mensagem || 'Falha na sincronização SEFAZ.'
+      });
+    }
+
+    if (notasNovas > 0 && opcoes.notificarNovas !== false) {
+      const texto = notasNovas === 1
+        ? '1 nova nota fiscal foi recebida.'
+        : `${notasNovas} novas notas fiscais foram recebidas.`;
+
+      return this.criar({
         tipo: TIPOS_NOTIFICACAO.NOVAS_NOTAS,
-        titulo: `${notasNovas} nova(s) nota(s) na Central`,
-        mensagem: mensagem || 'Novas notas encontradas na sincronização SEFAZ.'
+        titulo: 'Novas notas na Central',
+        mensagem: texto
       });
     }
 
     return this.criar({
-      tipo: sucesso ? TIPOS_NOTIFICACAO.SYNC_CONCLUIDA : TIPOS_NOTIFICACAO.SYNC_ERRO,
-      titulo: sucesso ? 'Sincronização concluída' : 'Erro na sincronização',
-      mensagem: mensagem || (sucesso
-        ? `Sincronização ${origem || ''} finalizada.`.trim()
-        : 'Falha na sincronização SEFAZ.')
+      tipo: TIPOS_NOTIFICACAO.SYNC_CONCLUIDA,
+      titulo: 'Sincronização concluída',
+      mensagem: mensagem || `Sincronização ${origem || ''} finalizada — nenhuma nota nova.`.trim()
     });
   }
 }

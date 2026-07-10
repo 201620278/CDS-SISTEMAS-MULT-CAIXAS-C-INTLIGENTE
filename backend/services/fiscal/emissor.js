@@ -8,7 +8,8 @@ const {
 } = require('./xmlBuilder');
 const { gerarQRCodeNFCe } = require('./qrcode');
 const { assinarNFe } = require('./signer');
-const { montarLote, enviarLote } = require('./soapClient');
+const { montarLote } = require('./soapClient');
+const { enviarAutorizacao } = require('./autorizacaoRuntime');
 const { compactarXml, extrairChaveEProtocoloAutorizados } = require('./utils');
 const { validarItensFiscal } = require('./validadorFiscal');
 const { gerarDanfeHtml } = require('./danfe');
@@ -206,6 +207,7 @@ async function emitirPorVendaId(vendaId) {
   }
 
   const itensFiscal = itens.filter(itemEntraNaNfce);
+  const itensDanfe = itens;
 
   if (itensFiscal.length === 0) {
     return {
@@ -415,7 +417,8 @@ async function emitirPorVendaId(vendaId) {
       ...venda,
       tpAmb: config.ambiente
     },
-    itens: itensFiscal,
+    itens: itensDanfe,
+    itensFiscal,
     empresa: {
       nome: config.nomeEmpresa,
       cnpj: config.cnpj,
@@ -439,14 +442,29 @@ async function emitirPorVendaId(vendaId) {
   if (!assinaturaErro) {
     const loteXml = montarLote(xmlAssinadoFinal, String(numero));
 
-    soapResponse = await enviarLote({
+    // Sprint F10 — transporte via Plataforma Fiscal (fallback automático para legado)
+    const envio = await enviarAutorizacao({
       url: config.urls.autorizacao,
       loteXml,
-      certificadoPath: config.certificadoPath,
-      certificadoSenha: config.certificadoSenha,
+      ambiente: config.ambiente,
       cUF: config.codigoUf || '23',
-      versaoDados: '4.00'
+      versaoDados: '4.00',
+      certificadoPath: config.certificadoPath,
+      certificadoSenha: config.certificadoSenha
     });
+
+    soapResponse = {
+      success: envio.success,
+      status: envio.status || (envio.success ? 'soap_enviado' : 'erro_transmissao'),
+      raw: envio.raw || envio.body || null,
+      message: envio.message || envio.error || null,
+      code: envio.code || null,
+      source: envio.source,
+      fallbackUtilizado: envio.fallbackUtilizado,
+      endpoint: envio.endpoint,
+      cStat: envio.cStat,
+      resultado: envio.resultado
+    };
 
     salvarDebug('05-soap-resposta.json', JSON.stringify(soapResponse, null, 2));
     salvarDebug('06-soap-retorno.xml', String(soapResponse.raw || soapResponse.message || ''));

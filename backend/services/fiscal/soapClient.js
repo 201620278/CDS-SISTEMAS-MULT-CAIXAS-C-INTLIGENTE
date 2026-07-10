@@ -1,3 +1,17 @@
+/**
+ * Cliente SOAP legado / utilitário da camada fiscal.
+ *
+ * Classificação RC1.1 (NÃO remover — ainda necessário):
+ * - FALLBACK: autorizacaoLegado.enviarLote, distribuicaoDfeLegado.enviarSoapDFe
+ * - UTILITÁRIO: montarLote (emissor), montarSoapEnvelop, montarSoapDFe (envelope)
+ * - LEGADO: nfeDevolucaoCompra.enviarLote (NF-e Compras, fora RC1 NFC-e)
+ * - EXCEÇÃO TEMPORÁRIA: CentralDiagnosticoService (bypass documentado)
+ *
+ * Runtime oficial de transporte: SoapTransport via *Runtime.js
+ *
+ * @module services/fiscal/soapClient
+ */
+
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
@@ -200,7 +214,10 @@ module.exports = {
   montarSoapEnvelop,
   enviarLote,
   montarSoapDFe,
-  enviarSoapDFe
+  enviarSoapDFe,
+  // Sprint F5 — Status Serviço legado (fallback da plataforma)
+  montarEnvelopeStatusServico: require('./statusServicoLegado').montarEnvelopeStatusServico,
+  enviarStatusServicoLegado: require('./statusServicoLegado').enviarStatusServicoLegado
 };
 
 function montarSoapDFe(xmlConsulta, cUF = '23', versao = '1.01') {

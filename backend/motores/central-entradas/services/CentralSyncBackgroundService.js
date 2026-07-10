@@ -1,28 +1,39 @@
 /**
  * CentralSyncBackgroundService — Sincronização automática em background.
  *
- * Sprint 8: intervalo configurável, mutex via CentralSyncExecucaoService.
+ * RC1: delega ao CentralEntradasOrchestrator.
  *
  * @class CentralSyncBackgroundService
  */
 
 const centralEntradasFlags = require('../config/centralEntradasFlags');
-const CentralConfigService = require('./CentralConfigService');
-const centralSyncExecucao = require('./CentralSyncExecucaoService');
+const CentralConfiguracaoService = require('./CentralConfiguracaoService');
 const { ORIGENS } = require('../config/centralEventosTipos');
+const { logCentral } = require('../utils/centralLog');
+
+function obterOrchestrator() {
+  return require('../CentralEntradasOrchestrator');
+}
 
 class CentralSyncBackgroundService {
   constructor(deps = {}) {
+    /** @private — provider oficial RC5 */
+    this._config = deps.configuracaoService
+      ?? deps.configService
+      ?? new CentralConfiguracaoService();
     /** @private */
-    this._config = deps.configService ?? new CentralConfigService();
-    /** @private */
-    this._execucao = deps.syncExecucao ?? centralSyncExecucao;
+    this._orchestrator = deps.orchestrator ?? null;
     /** @private */
     this._flags = deps.flags ?? centralEntradasFlags;
     /** @private */
     this._timeoutId = null;
     /** @private */
     this._ativo = false;
+  }
+
+  /** @private */
+  _orch() {
+    return this._orchestrator ?? obterOrchestrator();
   }
 
   estaAtivo() {
@@ -40,7 +51,7 @@ class CentralSyncBackgroundService {
 
     this._ativo = true;
     this._agendarCiclo(3000);
-    console.log('[Central Entradas] Sync automática iniciada.');
+    logCentral('SYNC', { fase: 'background_iniciada' });
   }
 
   parar() {
@@ -49,7 +60,7 @@ class CentralSyncBackgroundService {
       this._timeoutId = null;
     }
     this._ativo = false;
-    this._execucao.definirProximaExecucao(null);
+    this._orch().definirProximaExecucaoSync(null);
   }
 
   async reiniciar() {
@@ -70,9 +81,12 @@ class CentralSyncBackgroundService {
       }
 
       const intervalo = await this._config.obterIntervaloMs();
-      this._execucao.definirProximaExecucao(new Date(Date.now() + intervalo).toISOString());
+      this._orch().definirProximaExecucaoSync(new Date(Date.now() + intervalo).toISOString());
 
-      await this._execucao.executar({ origem: ORIGENS.BACKGROUND });
+      await this._orch().executarSincronizacao({
+        origem: ORIGENS.BACKGROUND,
+        ignorarHorario: false
+      });
 
       if (this._ativo) {
         this._agendarCiclo(intervalo);
@@ -81,7 +95,7 @@ class CentralSyncBackgroundService {
   }
 
   obterStatus() {
-    const estado = this._execucao.obterEstado();
+    const estado = this._orch().obterEstadoSyncExecucao();
     return {
       servicoAtivo: this._ativo,
       syncAutomaticaHabilitada: this._flags.syncAutomaticaHabilitada(),
