@@ -111,14 +111,16 @@ async function main() {
     assert.ok(CentralConfiguracaoService.CHAVES.URL_DFE_PROD);
   });
 
-  await test('repository defaults incluem URLs DF-e (sem espalhar no código de sync)', async () => {
+  await test('repository defaults NÃO embutem URL SOAP DF-e (UrlResolver)', async () => {
     const defaults = CentralConfiguracaoRepository.DEFAULTS;
     const chaves = defaults.map((d) => d[0]);
     assert.ok(chaves.includes('sefaz_url_dfe_producao'));
     assert.ok(chaves.includes('sefaz_url_dfe_homologacao'));
     assert.ok(chaves.includes('central_ambiente'));
     const prod = defaults.find((d) => d[0] === 'sefaz_url_dfe_producao')[1];
-    assert.ok(prod.includes('NFeDistribuicaoDFe'));
+    const hom = defaults.find((d) => d[0] === 'sefaz_url_dfe_homologacao')[1];
+    assert.strictEqual(prod, '');
+    assert.strictEqual(hom, '');
   });
 
   await test('painel completo expõe 6 módulos enterprise', async () => {
@@ -142,7 +144,9 @@ async function main() {
     assert.ok(painel.avancado);
     assert.strictEqual(painel.versaoConfiguracao, 'RC4');
     assert.strictEqual(painel.ambiente.codigo, 2);
-    assert.ok(painel.sefaz.urlDistribuicaoDfeHomologacao.includes('hom1'));
+    assert.ok(painel.sefaz.urlDistribuicaoDfeHomologacao.includes('hom.nfe.fazenda.gov.br'));
+    assert.strictEqual(painel.sefaz.origemEndpointDfe, 'UrlResolver');
+    assert.strictEqual(painel.sefaz.endpointsEditaveis, false);
     assert.strictEqual(painel.sefaz.manifestacaoAtiva, false);
     assert.strictEqual(painel.avancado.proxyFuncional, false);
   });
@@ -160,7 +164,7 @@ async function main() {
     assert.ok(/Certificado/i.test(ctx.mensagem));
   });
 
-  await test('contexto operacional monta URL via Central (não hardcoded no sync)', async () => {
+  await test('contexto operacional resolve URL via UrlResolver (ignora KV Central)', async () => {
     const tmp = path.join(__dirname, '_tmp_rc4_cert.pfx');
     fs.writeFileSync(tmp, 'fake');
     const repo = criarRepoMemoria({
@@ -181,11 +185,14 @@ async function main() {
     const ctx = await svc.obterContextoOperacional();
     try { fs.unlinkSync(tmp); } catch { /* ignore */ }
     assert.strictEqual(ctx.ok, true);
-    assert.strictEqual(ctx.contexto.urls.distribuicaoDfe, 'https://central.example/dfe-prod');
+    assert.ok(ctx.contexto.urls.distribuicaoDfe.includes('www1.nfe.fazenda.gov.br'));
+    assert.ok(ctx.contexto.urls.distribuicaoDfe.includes('NFeDistribuicaoDFe'));
+    assert.strictEqual(ctx.contexto.urls.origemDistribuicaoDfe, 'UrlResolver');
+    assert.notStrictEqual(ctx.contexto.urls.distribuicaoDfe, 'https://central.example/dfe-prod');
     assert.strictEqual(ctx.contexto.ambiente, 1);
   });
 
-  await test('atualizar persiste ambiente e URL SEFAZ', async () => {
+  await test('atualizar persiste ambiente/timeout e ignora URL SOAP DF-e', async () => {
     const repo = criarRepoMemoria();
     const svc = new CentralConfiguracaoService({
       configuracaoRepository: repo,
@@ -200,7 +207,9 @@ async function main() {
     assert.strictEqual(painel.ambiente.codigo, 1);
     assert.strictEqual(painel.ambiente.uf, 'AN');
     assert.strictEqual(painel.sefaz.timeoutMs, 120000);
-    assert.strictEqual(painel.sefaz.urlDistribuicaoDfeProducao, 'https://x.example/dfe');
+    assert.ok(painel.sefaz.urlDistribuicaoDfeProducao.includes('www1.nfe.fazenda.gov.br'));
+    assert.notStrictEqual(painel.sefaz.urlDistribuicaoDfeProducao, 'https://x.example/dfe');
+    assert.strictEqual(repo._store.get('sefaz_url_dfe_producao')?.valor, '');
   });
 
   await test('sync retorna codigoErro amigável sem 502 semântico', async () => {

@@ -280,6 +280,18 @@ async function main() {
     assert.ok(status.transportMetrics);
   });
 
+  await test('erro HTTP 404 inclui URL completa (não só path IIS)', async () => {
+    const { formatSoapHttpError } = require('../../backend/services/fiscal/core/SoapTransport');
+    const msg = formatSoapHttpError({
+      url: 'https://hom.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx',
+      statusCode: 404,
+      rawBody: '<html><body>Requested URL<br>/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx</body></html>'
+    });
+    assert.ok(msg.includes('HTTP 404'));
+    assert.ok(msg.includes('https://hom.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx'));
+    assert.ok(!msg.startsWith('/NFeDistribuicaoDFe'));
+  });
+
   console.log(`\nResultado: ${passou} ok, ${falhou} falha(s)\n`);
   if (falhou > 0) process.exit(1);
 }

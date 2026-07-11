@@ -129,6 +129,30 @@ async function emitirDocumentoProcessado(documento, opcoes = {}) {
 }
 
 /**
+ * RC6.3 — XML completo aplicado a documento AGUARDANDO_XML_COMPLETO.
+ * @param {Object} documento
+ * @param {Object} [opcoes]
+ * @returns {Promise<void>}
+ */
+async function emitirDocumentoAtualizado(documento, opcoes = {}) {
+  if (!documento?.id) return;
+  await emitirEvento({
+    tipo: TIPOS_EVENTO.DOCUMENTO_ATUALIZADO,
+    origem: opcoes.origem || ORIGENS.SISTEMA,
+    descricao: `XML completo recebido — documento #${documento.id} atualizado`,
+    resultado: documento.status,
+    sucesso: true,
+    documentoId: documento.id,
+    usuarioId: documento.usuarioId || opcoes.usuarioId || null,
+    detalhe: {
+      chave: documento.chave,
+      tipoDfe: opcoes.tipoDfe || documento.tipoDocumento || null,
+      status: documento.status
+    }
+  });
+}
+
+/**
  * @param {Object} documento
  * @param {number|string} compraId
  * @param {Object} [opcoes]
@@ -176,10 +200,37 @@ async function emitirErro(mensagem, opcoes = {}) {
   });
 }
 
+/**
+ * RC6.5 — Documento legado migrado para AGUARDANDO_XML_COMPLETO.
+ * @param {Object} documento
+ * @param {Object} [opcoes]
+ * @returns {Promise<void>}
+ */
+async function emitirDocumentoMigrado(documento, opcoes = {}) {
+  if (!documento?.id) return;
+  await emitirEvento({
+    tipo: TIPOS_EVENTO.DOCUMENTO_MIGRADO,
+    origem: opcoes.origem || ORIGENS.MIGRACAO_RC65,
+    descricao: `Documento legado #${documento.id} migrado (RC6.5)`,
+    resultado: documento.status,
+    sucesso: true,
+    documentoId: documento.id,
+    usuarioId: opcoes.usuarioId || null,
+    detalhe: {
+      chave: documento.chave,
+      statusAnterior: opcoes.statusAnterior || null,
+      statusNovo: documento.status,
+      tipoDocumento: documento.tipoDocumento || 'RES_NFE'
+    }
+  });
+}
+
 module.exports = {
   emitirEvento,
   emitirDocumentoRecebido,
   emitirDocumentoProcessado,
+  emitirDocumentoAtualizado,
+  emitirDocumentoMigrado,
   emitirCompraGravada,
   emitirErro,
   normalizarEvento,

@@ -87,7 +87,7 @@ async function main() {
       versao: '1.01'
     });
     assert.strictEqual(result.success, true);
-    assert.ok(result.definition.endpoint.includes('hom1.nfe.fazenda.gov.br'));
+    assert.ok(result.definition.endpoint.includes('hom.nfe.fazenda.gov.br'));
     assert.strictEqual(result.definition.namespace, NS_DFE);
   });
 
@@ -253,7 +253,7 @@ async function main() {
       httpClient: async () => ({ statusCode: 200, body: SOAP_OK })
     });
     assert.strictEqual(result.success, true);
-    assert.ok(result.endpoint.includes('hom1'));
+    assert.ok(result.endpoint.includes('hom.nfe.fazenda.gov.br'));
   });
 
   await test('inutilização continua fora da plataforma', async () => {

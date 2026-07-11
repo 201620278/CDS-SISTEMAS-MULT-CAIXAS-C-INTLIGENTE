@@ -1,8 +1,9 @@
 /**
  * CentralConfiguracaoService — Único ponto oficial de configuração da Central (RC4).
  *
- * Nenhum módulo da Central deve ler getFiscalConfig / URLs hardcoded diretamente.
- * Este serviço agrega: ambiente, SEFAZ, certificado (visão), sync, diagnóstico e avançado.
+ * Nenhum módulo da Central deve ler getFiscalConfig / URLs SOAP hardcoded.
+ * Endpoints DF-e vêm exclusivamente do UrlResolver (Plataforma Fiscal).
+ * Este serviço agrega: ambiente, SEFAZ (timeouts/visão), certificado, sync, diagnóstico e avançado.
  *
  * @module motores/central-entradas/services/CentralConfiguracaoService
  */
@@ -36,6 +37,12 @@ const CHAVES = Object.freeze({
   LOG_DETALHADO: 'log_detalhado',
   MODO_DEBUG: 'modo_debug'
 });
+
+/** Campos de endpoint SOAP que a Central não persiste nem usa (UrlResolver). */
+const CAMPOS_ENDPOINT_SOAP_IGNORADOS = Object.freeze([
+  'urlDistribuicaoDfeProducao',
+  'urlDistribuicaoDfeHomologacao'
+]);
 
 class CentralConfiguracaoService {
   /**
@@ -75,6 +82,7 @@ class CentralConfiguracaoService {
     ]);
 
     const ambienteCode = Number(mapa[CHAVES.AMBIENTE]) === 1 ? 1 : 2;
+    const endpointsDfe = this._resolverEndpointsDfe();
 
     return {
       versaoConfiguracao: 'RC4',
@@ -87,9 +95,11 @@ class CentralConfiguracaoService {
         ultimaAlteracao: meta.ultimaAlteracao
       },
       sefaz: {
-        urlDistribuicaoDfe: this._urlDfe(ambienteCode, mapa),
-        urlDistribuicaoDfeProducao: mapa[CHAVES.URL_DFE_PROD] || '',
-        urlDistribuicaoDfeHomologacao: mapa[CHAVES.URL_DFE_HOM] || '',
+        urlDistribuicaoDfe: ambienteCode === 1 ? endpointsDfe.producao : endpointsDfe.homologacao,
+        urlDistribuicaoDfeProducao: endpointsDfe.producao,
+        urlDistribuicaoDfeHomologacao: endpointsDfe.homologacao,
+        origemEndpointDfe: 'UrlResolver',
+        endpointsEditaveis: false,
         urlConsultaChave: this._urlPorAmbiente(ambienteCode, mapa[CHAVES.URL_CONSULTA_PROD], mapa[CHAVES.URL_CONSULTA_HOM]),
         urlConsultaChaveProducao: mapa[CHAVES.URL_CONSULTA_PROD] || '',
         urlConsultaChaveHomologacao: mapa[CHAVES.URL_CONSULTA_HOM] || '',
@@ -178,12 +188,12 @@ class CentralConfiguracaoService {
       };
     }
 
-    const urlDfe = this._urlDfe(ambiente, mapa);
+    const urlDfe = this._resolverEndpointDfe(ambiente);
     if (!urlDfe) {
       return {
         ok: false,
         codigoErro: 'URL_SEFAZ',
-        mensagem: 'URL de Distribuição DF-e não configurada na Central.'
+        mensagem: 'Endpoint DF-e não resolvido pela Plataforma Fiscal (UrlResolver).'
       };
     }
 
@@ -197,7 +207,9 @@ class CentralConfiguracaoService {
         certificadoPath,
         certificadoSenha,
         urls: {
+          // Somente informativo — SOAP usa UrlResolver em distribuicaoDfeRuntime
           distribuicaoDfe: urlDfe,
+          origemDistribuicaoDfe: 'UrlResolver',
           consultaChave: this._urlPorAmbiente(ambiente, mapa[CHAVES.URL_CONSULTA_PROD], mapa[CHAVES.URL_CONSULTA_HOM]),
           manifestacao: this._urlPorAmbiente(ambiente, mapa[CHAVES.URL_MANIF_PROD], mapa[CHAVES.URL_MANIF_HOM])
         },
@@ -240,8 +252,6 @@ class CentralConfiguracaoService {
       ambiente: [CHAVES.AMBIENTE, 'number'],
       uf: [CHAVES.UF, 'string'],
       codigoUf: [CHAVES.CODIGO_UF, 'string'],
-      urlDistribuicaoDfeProducao: [CHAVES.URL_DFE_PROD, 'string'],
-      urlDistribuicaoDfeHomologacao: [CHAVES.URL_DFE_HOM, 'string'],
       urlConsultaChaveProducao: [CHAVES.URL_CONSULTA_PROD, 'string'],
       urlConsultaChaveHomologacao: [CHAVES.URL_CONSULTA_HOM, 'string'],
       urlManifestacaoProducao: [CHAVES.URL_MANIF_PROD, 'string'],
@@ -263,6 +273,10 @@ class CentralConfiguracaoService {
     if (alteracoes.ambiente?.codigo != null) flat.ambiente = alteracoes.ambiente.codigo;
     if (alteracoes.ambiente?.uf != null) flat.uf = alteracoes.ambiente.uf;
     if (alteracoes.ambiente?.codigoUf != null) flat.codigoUf = alteracoes.ambiente.codigoUf;
+
+    for (const campoIgnorado of CAMPOS_ENDPOINT_SOAP_IGNORADOS) {
+      delete flat[campoIgnorado];
+    }
 
     for (const [campo, valor] of Object.entries(flat)) {
       if (valor === undefined || !mapaCampos[campo]) continue;
@@ -331,9 +345,50 @@ class CentralConfiguracaoService {
     return mapa;
   }
 
-  /** @private */
-  _urlDfe(ambiente, mapa) {
-    return this._urlPorAmbiente(ambiente, mapa[CHAVES.URL_DFE_PROD], mapa[CHAVES.URL_DFE_HOM]);
+  /**
+   * Resolve endpoint DF-e via Plataforma Fiscal (UrlResolver + Registry).
+   * A Central não monta nem armazena a URL SOAP efetiva.
+   * @private
+   * @param {number} ambienteCode 1|2
+   * @returns {string|null}
+   */
+  _resolverEndpointDfe(ambienteCode) {
+    try {
+      const { FiscalWebServices } = require('../../../services/fiscal/core/FiscalWebServices');
+      const { ModelType } = require('../../../services/fiscal/core/ModelType');
+      const { OperationType } = require('../../../services/fiscal/core/OperationType');
+      const { fromAmbienteCode } = require('../../../services/fiscal/core/EnvironmentType');
+      const { UF_AN } = require('../../../services/fiscal/core/RegistryBuilder');
+
+      const ambiente = fromAmbienteCode(ambienteCode);
+      if (!ambiente) return null;
+
+      const resolution = new FiscalWebServices().resolve({
+        modelo: ModelType.NFE,
+        operacao: OperationType.DISTRIBUICAO_DFE,
+        ambiente,
+        uf: UF_AN,
+        versao: '1.01'
+      });
+
+      return resolution.success && resolution.definition?.endpoint
+        ? resolution.definition.endpoint
+        : null;
+    } catch (error) {
+      logCentralErro('CONFIG', { fase: 'resolver-dfe', erro: error.message });
+      return null;
+    }
+  }
+
+  /**
+   * @private
+   * @returns {{ producao: string, homologacao: string }}
+   */
+  _resolverEndpointsDfe() {
+    return {
+      producao: this._resolverEndpointDfe(1) || '',
+      homologacao: this._resolverEndpointDfe(2) || ''
+    };
   }
 
   /** @private */

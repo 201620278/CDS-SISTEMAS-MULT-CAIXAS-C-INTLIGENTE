@@ -111,7 +111,7 @@ async function main() {
       uf: UF_AN
     });
     assert.ok(nfe.endpoint.includes('nfe.svrs.rs.gov.br'));
-    assert.ok(dfe.endpoint.includes('hom1.nfe.fazenda.gov.br'));
+    assert.ok(dfe.endpoint.includes('hom.nfe.fazenda.gov.br'));
     assert.strictEqual(dfe.versao, '1.01');
     assert.ok(dfe.soapAction.includes('nfeDistDFeInteresse'));
   });

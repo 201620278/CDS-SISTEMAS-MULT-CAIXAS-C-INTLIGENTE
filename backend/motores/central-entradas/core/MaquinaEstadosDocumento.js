@@ -2,11 +2,13 @@
  * MaquinaEstadosDocumento — Validação de transições de estado do documento fiscal.
  *
  * RC3: transições alinhadas aos fluxos reais (persistência → processamento → compras).
+ * RC6.2: AGUARDANDO_XML_COMPLETO para resumos DF-e (resNFe).
  *
  * Notas de consolidação:
- * - RECEBIDA: reservado (default de inserir); fluxo normal persiste como SINCRONIZADA/DUPLICADA.
+ * - RECEBIDA: reservado (default de inserir); fluxo normal persiste como SINCRONIZADA/DUPLICADA/AGUARDANDO_XML_COMPLETO.
  * - EM_PROCESSAMENTO → REVISADA: removido (nunca usado pelo pipeline; usa AGUARDANDO_REVISAO).
  * - REVISADA → EM_COMPRA: permitido para alinhar com registrarAberturaCompra.
+ * - AGUARDANDO_XML_COMPLETO: não entra no pipeline Parser/MIIP até haver XML completo (→ SINCRONIZADA).
  *
  * @module motores/central-entradas/core/MaquinaEstadosDocumento
  */
@@ -16,6 +18,7 @@ const { DocumentoFiscalStatus, isTerminal } = require('./DocumentoFiscalStatus')
 const TRANSICOES_PERMITIDAS = Object.freeze({
   [DocumentoFiscalStatus.RECEBIDA]: [
     DocumentoFiscalStatus.SINCRONIZADA,
+    DocumentoFiscalStatus.AGUARDANDO_XML_COMPLETO,
     DocumentoFiscalStatus.DUPLICADA,
     DocumentoFiscalStatus.ERRO
   ],
@@ -24,6 +27,10 @@ const TRANSICOES_PERMITIDAS = Object.freeze({
     DocumentoFiscalStatus.DESCARTADA,
     DocumentoFiscalStatus.DUPLICADA,
     DocumentoFiscalStatus.ERRO
+  ],
+  [DocumentoFiscalStatus.AGUARDANDO_XML_COMPLETO]: [
+    DocumentoFiscalStatus.SINCRONIZADA,
+    DocumentoFiscalStatus.DESCARTADA
   ],
   [DocumentoFiscalStatus.EM_PROCESSAMENTO]: [
     DocumentoFiscalStatus.AGUARDANDO_REVISAO,

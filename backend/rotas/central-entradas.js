@@ -10,6 +10,7 @@ const express = require('express');
 const multer = require('multer');
 const { exigirDiagnosticoCentral } = require('../middleware/auth');
 const CentralEntradasService = require('../motores/central-entradas/CentralEntradasService');
+const CentralMigracaoLegadoService = require('../motores/central-entradas/services/CentralMigracaoLegadoService');
 
 const router = express.Router();
 const centralEntradasService = new CentralEntradasService();
@@ -50,6 +51,25 @@ router.get('/health', async (req, res) => {
     return res.json(health);
   } catch (error) {
     return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * RC6.5 — Migração idempotente de documentos legados (RES_NFE pré-RC6.2).
+ * Não altera Orchestrator/Parser/MIIP/Compras.
+ */
+router.post('/admin/migrar-legado', exigirDiagnosticoCentral, async (req, res) => {
+  try {
+    const migracao = new CentralMigracaoLegadoService();
+    const resultado = await migracao.executar();
+    return res.json({
+      analisados: resultado.analisados,
+      migrados: resultado.migrados,
+      ignorados: resultado.ignorados,
+      erros: resultado.erros
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
 

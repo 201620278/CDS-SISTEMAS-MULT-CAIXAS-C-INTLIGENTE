@@ -35,6 +35,7 @@ const MAPA_CAMPOS = {
   origem: 'origem',
   status: 'status',
   statusDetalhe: 'status_detalhe',
+  tipoDocumento: 'tipo_documento',
   parseJson: 'parse_json',
   miipSessaoId: 'miip_sessao_id',
   miipResumoJson: 'miip_resumo_json',
@@ -101,6 +102,7 @@ class CentralDocumentosRepository extends IRepository {
       origem: row.origem,
       status: row.status,
       statusDetalhe: row.status_detalhe,
+      tipoDocumento: row.tipo_documento || null,
       parseJson: deserializarJson(row.parse_json),
       miipSessaoId: row.miip_sessao_id,
       miipResumoJson: deserializarJson(row.miip_resumo_json),
@@ -268,7 +270,7 @@ class CentralDocumentosRepository extends IRepository {
    */
   static get COLUNAS_LISTAGEM() {
     return `id, chave, numero, serie, modelo, fornecedor, cnpj_fornecedor,
-      data_emissao, data_entrada, valor_total, nsu, origem, status, status_detalhe,
+      data_emissao, data_entrada, valor_total, nsu, origem, status, status_detalhe, tipo_documento,
       miip_sessao_id, miip_resumo_json, compra_id, usuario_id, processado_em, created_at, updated_at`;
   }
 
@@ -316,6 +318,7 @@ class CentralDocumentosRepository extends IRepository {
       origem: row.origem,
       status: row.status,
       statusDetalhe: row.status_detalhe,
+      tipoDocumento: row.tipo_documento || null,
       miipSessaoId: row.miip_sessao_id,
       miipResumoJson: deserializarJson(row.miip_resumo_json),
       compraId: row.compra_id,
@@ -384,9 +387,9 @@ class CentralDocumentosRepository extends IRepository {
       `INSERT INTO ${CentralDocumentosRepository.TABELA} (
         chave, numero, serie, modelo, fornecedor, cnpj_fornecedor,
         data_emissao, data_entrada, valor_total, xml, nsu, origem,
-        status, status_detalhe, parse_json, miip_sessao_id, miip_resumo_json,
+        status, status_detalhe, tipo_documento, parse_json, miip_sessao_id, miip_resumo_json,
         compra_id, usuario_id, processado_em, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
       [
         dados.chave,
         dados.numero ?? null,
@@ -402,6 +405,7 @@ class CentralDocumentosRepository extends IRepository {
         dados.origem ?? 'dfe',
         dados.status ?? DocumentoFiscalStatus.RECEBIDA,
         dados.statusDetalhe ?? dados.status_detalhe ?? null,
+        dados.tipoDocumento ?? dados.tipo_documento ?? null,
         serializarJson(dados.parseJson ?? dados.parse_json),
         dados.miipSessaoId ?? dados.miip_sessao_id ?? null,
         serializarJson(dados.miipResumoJson ?? dados.miip_resumo_json),

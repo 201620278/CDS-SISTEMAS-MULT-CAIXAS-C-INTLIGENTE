@@ -61,6 +61,7 @@ const CENTRAL_STATUS_META = {
     SINCRONIZADA: { cor: '#0d6efd', bg: 'rgba(13,110,253,.10)', icone: 'fa-inbox', badge: 'bg-primary', descricao: 'Nova nota encontrada' },
     EM_PROCESSAMENTO: { cor: '#f59e0b', bg: 'rgba(245,158,11,.12)', icone: 'fa-cog', badge: 'bg-warning text-dark', descricao: 'Pipeline em execução' },
     AGUARDANDO_REVISAO: { cor: '#fd7e14', bg: 'rgba(253,126,20,.12)', icone: 'fa-user-check', badge: 'central-badge-orange', descricao: 'Produtos aguardando revisão' },
+    AGUARDANDO_XML_COMPLETO: { cor: '#64748b', bg: 'rgba(100,116,139,.12)', icone: 'fa-file-import', badge: 'bg-secondary', descricao: 'Aguardando XML completo' },
     REVISADA: { cor: '#0dcaf0', bg: 'rgba(13,202,240,.12)', icone: 'fa-clipboard-check', badge: 'bg-info', descricao: 'Revisão concluída' },
     PRONTA_PARA_COMPRA: { cor: '#198754', bg: 'rgba(25,135,84,.12)', icone: 'fa-check-circle', badge: 'bg-success', descricao: 'Pronta para lançamento' },
     EM_COMPRA: { cor: '#6610f2', bg: 'rgba(102,16,242,.12)', icone: 'fa-shopping-cart', badge: 'bg-info', descricao: 'Aberta na tela de Compras' },
@@ -626,6 +627,7 @@ function renderAtividadeRodapeUx1() {
 
     const iconePorTipo = {
         DOCUMENTO_RECEBIDO: 'fa-inbox',
+        DOCUMENTO_ATUALIZADO: 'fa-file-import',
         DOCUMENTO_PROCESSADO: 'fa-brain',
         COMPRA_GRAVADA: 'fa-shopping-cart',
         SYNC_CONCLUIDA: 'fa-sync-alt',
@@ -1245,19 +1247,23 @@ function renderAbaSefazCfg(painel) {
                     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
                         <div class="central-cfg-card__title mb-0"><i class="fas fa-network-wired me-1"></i> Endpoints SEFAZ</div>
                         <div class="central-cfg-meta">
+                            ${badgeCfgCentral('DF-e via UrlResolver', 'ok')}
                             ${s.manifestacaoPreparada ? badgeCfgCentral('Manifestação preparada', 'prep') : ''}
                             ${!s.manifestacaoAtiva ? badgeCfgCentral('Manifestação desativada', 'neutral') : badgeCfgCentral('Manifestação ativa', 'ok')}
                         </div>
                     </div>
+                    <div class="central-cfg-disabled-note mb-3">
+                        Endpoints DF-e são resolvidos pela Plataforma Fiscal (UrlResolver). A Central não edita nem monta URLs SOAP.
+                    </div>
                     <div class="row g-3">
                         <div class="col-md-6">
                             <label class="central-cfg-label" for="cfgUrlDfeProd">Distribuição DF-e — Produção</label>
-                            <input type="url" class="form-control form-control-sm" id="cfgUrlDfeProd"
+                            <input type="url" class="form-control form-control-sm" id="cfgUrlDfeProd" readonly disabled
                                 value="${escapeHtmlCentralEntradas(s.urlDistribuicaoDfeProducao || '')}">
                         </div>
                         <div class="col-md-6">
                             <label class="central-cfg-label" for="cfgUrlDfeHom">Distribuição DF-e — Homologação</label>
-                            <input type="url" class="form-control form-control-sm" id="cfgUrlDfeHom"
+                            <input type="url" class="form-control form-control-sm" id="cfgUrlDfeHom" readonly disabled
                                 value="${escapeHtmlCentralEntradas(s.urlDistribuicaoDfeHomologacao || '')}">
                         </div>
                         <div class="col-md-6">
@@ -1646,8 +1652,6 @@ function coletarPayloadConfigCentral() {
             codigoUf: document.getElementById('cfgCodigoUf')?.value?.trim() || '23'
         },
         sefaz: {
-            urlDistribuicaoDfeProducao: document.getElementById('cfgUrlDfeProd')?.value?.trim() || '',
-            urlDistribuicaoDfeHomologacao: document.getElementById('cfgUrlDfeHom')?.value?.trim() || '',
             urlConsultaChaveProducao: document.getElementById('cfgUrlConsultaProd')?.value?.trim() || '',
             urlConsultaChaveHomologacao: document.getElementById('cfgUrlConsultaHom')?.value?.trim() || '',
             versaoServico: document.getElementById('cfgVersaoServico')?.value?.trim() || '1.01',
@@ -2112,6 +2116,7 @@ const CENTRAL_TIMELINE_ICONES = {
     SINCRONIZADA: { icone: 'fa-cloud-download-alt', cor: '#0d6efd' },
     EM_PROCESSAMENTO: { icone: 'fa-cog', cor: '#f59e0b' },
     AGUARDANDO_REVISAO: { icone: 'fa-user-check', cor: '#fd7e14' },
+    AGUARDANDO_XML_COMPLETO: { icone: 'fa-file-import', cor: '#64748b' },
     REVISADA: { icone: 'fa-clipboard-check', cor: '#0dcaf0' },
     PRONTA_PARA_COMPRA: { icone: 'fa-check-circle', cor: '#198754' },
     EM_COMPRA: { icone: 'fa-shopping-cart', cor: '#6610f2' },
@@ -2232,8 +2237,22 @@ function renderAbaResumoCentral(doc) {
         ? `<div class="text-center mb-3">${UX.renderGaugeScoreCentral(doc.scoreGeral, doc.scoreCor, { tamanho: 108 })}</div>`
         : '';
 
+    const msgAguardandoXml = doc.status === 'AGUARDANDO_XML_COMPLETO'
+        ? `<div class="alert alert-secondary border-0 small mb-3 central-entradas-anim-in" role="status">
+                <i class="fas fa-file-import me-1" aria-hidden="true"></i>
+                <strong>Resumo da NF-e recebido.</strong><br>
+                Aguardando o XML completo para continuar o processamento.
+           </div>`
+        : '';
+
+    const descricaoResumo = doc.status === 'AGUARDANDO_XML_COMPLETO'
+        ? (doc.statusDetalhe || doc.status_detalhe || 'Resumo da NF-e recebido. Aguardando o XML completo para continuar o processamento.')
+        : meta.descricao;
+
     return `
         ${gaugeHtml}
+
+        ${msgAguardandoXml}
 
         <div class="central-entradas-resumo-executivo mb-3 central-entradas-anim-in"
              style="border-left-color:${meta.cor}; background:${meta.bg}">
@@ -2241,7 +2260,7 @@ function renderAbaResumoCentral(doc) {
                 <i class="fas ${meta.icone}" style="color:${meta.cor}" aria-hidden="true"></i>
                 <strong>${escapeHtmlCentralEntradas(obterLabelStatusCentral(doc.status))}</strong>
             </div>
-            <div class="small text-muted">${escapeHtmlCentralEntradas(meta.descricao)}</div>
+            <div class="small text-muted">${escapeHtmlCentralEntradas(descricaoResumo)}</div>
         </div>
 
         <div class="central-entradas-painel-executivo mb-3">
@@ -3436,6 +3455,7 @@ function loadCentralEntradas() {
                                 <option value="SYNC_CONCLUIDA">Sync concluída</option>
                                 <option value="SYNC_ERRO">Sync erro</option>
                                 <option value="DOCUMENTO_RECEBIDO">Documento recebido</option>
+                                <option value="DOCUMENTO_ATUALIZADO">Documento atualizado</option>
                                 <option value="DOCUMENTO_PROCESSADO">Documento processado</option>
                                 <option value="COMPRA_GRAVADA">Compra gravada</option>
                                 <option value="ERRO">Erro</option>

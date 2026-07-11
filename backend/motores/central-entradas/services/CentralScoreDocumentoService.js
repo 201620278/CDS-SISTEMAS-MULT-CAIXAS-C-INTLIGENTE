@@ -25,6 +25,7 @@ const SCORE_POR_STATUS = Object.freeze({
   [DocumentoFiscalStatus.EM_COMPRA]: 85,
   [DocumentoFiscalStatus.EM_PROCESSAMENTO]: 70,
   [DocumentoFiscalStatus.AGUARDANDO_REVISAO]: 65,
+  [DocumentoFiscalStatus.AGUARDANDO_XML_COMPLETO]: 55,
   [DocumentoFiscalStatus.SINCRONIZADA]: 60,
   [DocumentoFiscalStatus.RECEBIDA]: 55,
   [DocumentoFiscalStatus.ERRO]: 15,

@@ -72,9 +72,22 @@ test('REVISADA → EM_COMPRA é permitida (RC3)', () => {
   );
 });
 
-test('EM_PROCESSAMENTO → REVISADA é bloqueada (RC3)', () => {
+test('AGUARDANDO_XML_COMPLETO → SINCRONIZADA é permitida (RC6.2)', () => {
   assert.strictEqual(
-    podeTransicionar(DocumentoFiscalStatus.EM_PROCESSAMENTO, DocumentoFiscalStatus.REVISADA),
+    podeTransicionar(
+      DocumentoFiscalStatus.AGUARDANDO_XML_COMPLETO,
+      DocumentoFiscalStatus.SINCRONIZADA
+    ),
+    true
+  );
+});
+
+test('AGUARDANDO_XML_COMPLETO → EM_PROCESSAMENTO é bloqueada (RC6.2)', () => {
+  assert.strictEqual(
+    podeTransicionar(
+      DocumentoFiscalStatus.AGUARDANDO_XML_COMPLETO,
+      DocumentoFiscalStatus.EM_PROCESSAMENTO
+    ),
     false
   );
 });

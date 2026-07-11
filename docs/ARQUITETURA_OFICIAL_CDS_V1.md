@@ -332,9 +332,9 @@ Padrão: **Facade → Orchestrator → Services → Repositories**
 
 Toda configuração operacional da Central passa por `CentralConfiguracaoService`:
 
-Ambiente · SEFAZ (URLs/timeouts) · Certificado (visão) · Sincronização · Diagnóstico · Avançado
+Ambiente · SEFAZ (timeouts / visão de endpoints via UrlResolver) · Certificado (visão) · Sincronização · Diagnóstico · Avançado
 
-**Regra:** nenhum serviço da Central lê URL/ambiente/timeout diretamente do Motor Fiscal nem hardcoda URL SEFAZ.
+**Regra:** a Central **não** hardcoda nem edita endpoints SOAP SEFAZ. O SOAP DF-e resolve exclusivamente via Plataforma Fiscal (`distribuicaoDfeRuntime` → `UrlResolver` → Registry). Timeouts/ambiente operacional passam por `CentralConfiguracaoService`.
 
 ### 5.3 Diagrama Central RC4
 

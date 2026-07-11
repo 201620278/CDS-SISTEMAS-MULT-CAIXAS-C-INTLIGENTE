@@ -7,13 +7,17 @@
 
 const CentralConfigRepository = require('./CentralConfigRepository');
 
-/** Defaults oficiais da Central (URLs AN DF-e + operação). */
+/**
+ * Defaults oficiais da Central (operação).
+ * Endpoints SOAP DF-e NÃO vivem aqui — exclusivos do UrlResolver (Plataforma Fiscal).
+ * Chaves sefaz_url_dfe_* permanecem vazias/legado de schema (não usadas no SOAP).
+ */
 const DEFAULTS = Object.freeze([
   ['central_ambiente', '2', 'number', 'Ambiente operacional da Central (1=Produção, 2=Homologação)'],
   ['central_uf', 'SVRS', 'string', 'UF/autorizador operacional'],
   ['central_codigo_uf', '23', 'string', 'Código IBGE da UF autor'],
-  ['sefaz_url_dfe_producao', 'https://www.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx', 'string', 'URL Distribuição DF-e (produção)'],
-  ['sefaz_url_dfe_homologacao', 'https://hom1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx', 'string', 'URL Distribuição DF-e (homologação)'],
+  ['sefaz_url_dfe_producao', '', 'string', 'DEPRECATED — endpoint DF-e via UrlResolver (Plataforma Fiscal)'],
+  ['sefaz_url_dfe_homologacao', '', 'string', 'DEPRECATED — endpoint DF-e via UrlResolver (Plataforma Fiscal)'],
   ['sefaz_url_consulta_chave_producao', '', 'string', 'URL Consulta por chave (preparação)'],
   ['sefaz_url_consulta_chave_homologacao', '', 'string', 'URL Consulta por chave homologação (preparação)'],
   ['sefaz_url_manifestacao_producao', '', 'string', 'URL Manifestação (preparação futura)'],

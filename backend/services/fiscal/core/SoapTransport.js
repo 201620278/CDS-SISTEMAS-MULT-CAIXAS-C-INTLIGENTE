@@ -28,6 +28,32 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Evita expor HTML IIS ("Requested URL: /path") sem o host completo.
+ * @param {{ url: string, statusCode: number|null, rawBody: *, fallback?: string }} params
+ * @returns {string}
+ */
+function formatSoapHttpError({ url, statusCode, rawBody, fallback }) {
+  const statusPart = statusCode ? `HTTP ${statusCode}` : 'Erro HTTP';
+  const urlPart = url ? ` em ${url}` : '';
+  let detail = '';
+
+  if (typeof rawBody === 'string' && rawBody.trim()) {
+    const compact = rawBody.replace(/\s+/g, ' ').trim();
+    if (/Requested URL/i.test(compact) || /<!DOCTYPE|<html/i.test(compact)) {
+      detail = ' — resposta HTML da SEFAZ/proxy (endpoint ou rota inválida).';
+    } else if (compact.length <= 240) {
+      detail = `: ${compact}`;
+    } else {
+      detail = `: ${compact.slice(0, 240)}…`;
+    }
+  } else if (fallback) {
+    detail = `: ${fallback}`;
+  }
+
+  return `${statusPart}${urlPart}${detail}`;
+}
+
 class SoapTransport {
   /**
    * @param {object} [options]
@@ -322,12 +348,14 @@ class SoapTransport {
         headers: response.headers || {}
       };
     } catch (error) {
+      const statusCode = error.response?.status || null;
+      const rawBody = error.response?.data || null;
       const wrapped = new Error(
-        error.response?.data || error.message || 'Erro HTTP SoapTransport'
+        formatSoapHttpError({ url, statusCode, rawBody, fallback: error.message })
       );
       wrapped.code = error.code || 'NETWORK_ERROR';
-      wrapped.statusCode = error.response?.status || null;
-      wrapped.body = error.response?.data || null;
+      wrapped.statusCode = statusCode;
+      wrapped.body = rawBody;
       throw wrapped;
     }
   }
@@ -369,6 +397,7 @@ class SoapTransport {
 
 module.exports = {
   SoapTransport,
+  formatSoapHttpError,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_RETRIES,
   PLATFORM_USER_AGENT

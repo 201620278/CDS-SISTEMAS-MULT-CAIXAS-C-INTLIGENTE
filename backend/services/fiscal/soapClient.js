@@ -285,6 +285,19 @@ async function enviarSoapDFe(envelope, certificadoPath, certificadoSenha, url) {
   } catch (error) {
     console.error('ERRO DF-e:', error.message);
     console.error('ERRO RESPONSE:', error.response?.data || null);
-    throw new Error(error.response?.data || error.message);
+    const statusCode = error.response?.status || null;
+    const rawBody = error.response?.data || null;
+    let detail = error.message || 'Erro HTTP DF-e';
+    if (typeof rawBody === 'string' && (/Requested URL/i.test(rawBody) || /<!DOCTYPE|<html/i.test(rawBody))) {
+      detail = statusCode
+        ? `HTTP ${statusCode} em ${url} — resposta HTML da SEFAZ/proxy (endpoint ou rota inválida).`
+        : `Falha HTTP em ${url} — resposta HTML da SEFAZ/proxy (endpoint ou rota inválida).`;
+    } else if (statusCode) {
+      detail = `HTTP ${statusCode} em ${url}`;
+    }
+    const err = new Error(detail);
+    err.statusCode = statusCode;
+    err.body = rawBody;
+    throw err;
   }
 }

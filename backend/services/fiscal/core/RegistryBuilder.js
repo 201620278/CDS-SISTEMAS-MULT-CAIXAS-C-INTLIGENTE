@@ -69,8 +69,9 @@ const ENDPOINTS = Object.freeze({
     [EnvironmentType.HOMOLOGACAO]: 'https://nfe-homologacao.svrs.rs.gov.br/ws/recepcaoevento/recepcaoevento4.asmx'
   },
   DFE: {
-    [EnvironmentType.PRODUCAO]: 'https://www.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx',
-    [EnvironmentType.HOMOLOGACAO]: 'https://hom1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx'
+    // Portal Nacional NF-e (AN) — www.nfe retorna 404; oficial é www1 / hom
+    [EnvironmentType.PRODUCAO]: 'https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx',
+    [EnvironmentType.HOMOLOGACAO]: 'https://hom.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx'
   }
 });
 
@@ -209,7 +210,7 @@ function listOfficialDefinitions() {
       namespace: NS.DFE,
       versao: '1.01',
       descricao: `Distribuição DF-e (${ambiente}) — Ambiente Nacional`,
-      observacoes: 'Hoje hardcoded em distribuicaoDFe.js / CentralDiagnosticoService.'
+      observacoes: 'Ambiente Nacional. Runtime F6 via distribuicaoDfeRuntime + Central Sync.'
     }));
 
     const manifestacoes = [

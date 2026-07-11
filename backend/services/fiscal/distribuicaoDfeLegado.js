@@ -1,24 +1,28 @@
 /**
  * Distribuição DF-e — fluxo LEGADO (soapClient / axios direto).
  * Isolado para fallback automático da Plataforma Fiscal (Sprint F6).
+ * URLs SOAP vêm exclusivamente do Registry (ENDPOINTS.DFE).
  *
  * @module services/fiscal/distribuicaoDfeLegado
  */
 
 const { montarSoapDFe, enviarSoapDFe } = require('./soapClient');
+const { ENDPOINTS } = require('./core/RegistryBuilder');
+const { EnvironmentType } = require('./core/EnvironmentType');
 
 const NS_DFE = 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe';
 const ACTION_DFE = `${NS_DFE}/nfeDistDFeInteresse`;
 
 /**
- * URLs oficiais Ambiente Nacional (legado).
+ * URLs oficiais Ambiente Nacional (via Registry).
  * @param {number} ambiente 1=prod 2=hom
  * @returns {string}
  */
 function getDfeUrl(ambiente) {
-  return Number(ambiente) === 1
-    ? 'https://www.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx'
-    : 'https://hom1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx';
+  const key = Number(ambiente) === 1
+    ? EnvironmentType.PRODUCAO
+    : EnvironmentType.HOMOLOGACAO;
+  return ENDPOINTS.DFE[key];
 }
 
 /**

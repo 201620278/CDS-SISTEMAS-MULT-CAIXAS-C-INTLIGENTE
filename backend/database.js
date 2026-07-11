@@ -1790,6 +1790,12 @@ function criarTabelas() {
       else console.log('Tabela central_entradas_documentos criada/verificada');
     });
 
+    // RC6.3 — tipo DF-e classificado (RES_NFE, PROC_NFE, …)
+    aplicarAlteracaoSegura(
+      'central_entradas_documentos',
+      'ALTER TABLE central_entradas_documentos ADD COLUMN tipo_documento TEXT'
+    );
+
     db.run(`
       CREATE TABLE IF NOT EXISTS central_entradas_historico (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
