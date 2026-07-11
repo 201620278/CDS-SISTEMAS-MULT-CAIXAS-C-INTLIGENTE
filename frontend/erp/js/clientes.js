@@ -22,12 +22,16 @@ function loadClientes() {
 
 // Render clientes
 function renderClientes(clientes) {
+    const shell = (typeof CdsPageShell !== 'undefined' && CdsPageShell.renderHeader)
+        ? CdsPageShell.renderHeader({ page: 'clientes' })
+        : '';
     const html = `
+        ${shell}
         <div class="card">
             <div class="card-header">
                 <div class="row">
                     <div class="col-md-6">
-                        <i class="fas fa-users"></i> Lista de Clientes
+                        <i class="fas fa-user-friends"></i> Lista de Clientes
                     </div>
                     <div class="col-md-6 text-end">
                         <input type="text" class="form-control form-control-sm d-inline-block w-auto me-2" id="buscaCliente" placeholder="Buscar cliente...">

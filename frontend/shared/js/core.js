@@ -273,8 +273,8 @@ async function sincronizarModoFiscalServidor(opcoes = {}) {
     if (alterou && opcoes.notificar) {
         showNotification(
             remoto === '1'
-                ? 'Modo fiscal ativado no servidor (F12). PDV sincronizado.'
-                : 'Modo completo ativado no servidor (F12). PDV sincronizado.',
+                ? 'Modo fiscal ativado no servidor. PDV sincronizado.'
+                : 'Modo completo ativado no servidor. PDV sincronizado.',
             'info'
         );
     }
@@ -311,8 +311,8 @@ function alternarModoFiscalGlobal() {
 
     showNotification(
         novoValor === '1'
-            ? 'Modo fiscal ativado (F12). Exibindo somente informações fiscais.'
-            : 'Modo completo ativado (F12). Exibindo fiscal, não fiscal e total.',
+            ? 'Modo fiscal ativado. Exibindo somente informações fiscais.'
+            : 'Modo completo ativado. Exibindo fiscal, não fiscal e total.',
         novoValor === '1' ? 'success' : 'info'
     );
 
@@ -358,10 +358,14 @@ function renderSidebarBrandPadrao() {
     if (!brandContent) return;
 
     const modulo = window.CDS_MODULE === 'pdv' ? 'PDV' : 'ERP';
-    brandContent.innerHTML = `
-        <h5 class="text-white">CDS</h5>
-        <small class="text-muted">${modulo}</small>
-    `;
+    if (typeof BrandService !== 'undefined' && BrandService.htmlSidebarPadrao) {
+        brandContent.innerHTML = BrandService.htmlSidebarPadrao(modulo);
+    } else {
+        brandContent.innerHTML = `
+            <h5 class="text-white">CDS</h5>
+            <small class="text-muted">${modulo}</small>
+        `;
+    }
 
     if (typeof atualizarBarraModoFiscalSidebar === 'function') {
         atualizarBarraModoFiscalSidebar();
@@ -512,7 +516,7 @@ function carregarPaginaHtml(url, callback) {
 function filtrarMenuPorPermissoes() {
     $('.nav-link[data-page]').each(function () {
         const page = $(this).data('page');
-        const $item = $(this).closest('li');
+        const $item = $(this).closest('li.nav-item');
 
         if (!paginaPermitidaPorImplantacao(page)) {
             $item.hide();
@@ -536,6 +540,74 @@ function filtrarMenuPorPermissoes() {
         typeof podeAbrirERP === 'function' &&
         podeAbrirERP(obterUsuarioLogado())
     );
+
+    // UX-A: ocultar grupos sem itens visíveis (ACL/implantação inalteradas)
+    if (typeof atualizarVisibilidadeGruposMenu === 'function') {
+        atualizarVisibilidadeGruposMenu();
+    }
+}
+
+/**
+ * UX-A — Esconde seções do sidebar quando nenhum filho está visível.
+ * Placeholder de Relatórios permanece visível.
+ */
+function atualizarVisibilidadeGruposMenu() {
+    $('.nav-group').each(function () {
+        const $group = $(this);
+        if ($group.data('placeholder')) {
+            $group.show();
+            return;
+        }
+
+        const $itens = $group.find('> .nav-group-items > .nav-item');
+        let visiveis = 0;
+        $itens.each(function () {
+            if ($(this).css('display') !== 'none' && $(this).is(':visible')) {
+                visiveis += 1;
+            }
+        });
+
+        // :visible pode falhar se ancestral oculto — usar display do próprio item
+        if (visiveis === 0) {
+            visiveis = $itens.filter(function () {
+                return this.style.display !== 'none' && $(this).css('display') !== 'none';
+            }).length;
+        }
+
+        $group.toggle(visiveis > 0);
+    });
+}
+
+/**
+ * UX-A — Recolher / expandir sidebar (somente visual).
+ */
+function inicializarSidebarToggle() {
+    const $btn = $('#sidebar-toggle');
+    if (!$btn.length) return;
+
+    const KEY = 'cds_erp_sidebar_collapsed';
+    try {
+        if (localStorage.getItem(KEY) === '1') {
+            document.body.classList.add('sidebar-collapsed');
+        }
+    } catch (e) { /* ignore */ }
+
+    const syncIcon = () => {
+        const collapsed = document.body.classList.contains('sidebar-collapsed');
+        $btn.find('i').attr('class', collapsed ? 'fas fa-angles-right' : 'fas fa-angles-left');
+        $btn.attr('title', collapsed ? 'Expandir menu' : 'Recolher menu');
+        $btn.attr('aria-label', collapsed ? 'Expandir menu' : 'Recolher menu');
+    };
+    syncIcon();
+
+    $btn.off('click.cdsSidebar').on('click.cdsSidebar', function () {
+        document.body.classList.toggle('sidebar-collapsed');
+        const collapsed = document.body.classList.contains('sidebar-collapsed');
+        try {
+            localStorage.setItem(KEY, collapsed ? '1' : '0');
+        } catch (e) { /* ignore */ }
+        syncIcon();
+    });
 }
 
 function formatCurrency(value) {
@@ -642,6 +714,26 @@ function logout() {
     }
 }
 
+/** Aplica identidade visual oficial (Branding 1.0) nos elementos data-brand. */
+function aplicarIdentidadeVisualCds() {
+    if (typeof BrandService === 'undefined') return;
+
+    BrandService.aplicarFavicon();
+
+    document.querySelectorAll('[data-brand="nome"]').forEach((el) => {
+        el.textContent = BrandService.NOME;
+    });
+    document.querySelectorAll('[data-brand="slogan"]').forEach((el) => {
+        el.innerHTML = BrandService.SLOGAN.replace(', ', ',<br>');
+    });
+    document.querySelectorAll('[data-brand="copyright"]').forEach((el) => {
+        el.textContent = BrandService.NOME;
+    });
+
+    const pdvTitle = document.getElementById('pdvBrandTitle');
+    if (pdvTitle) pdvTitle.textContent = BrandService.NOME_DISPLAY;
+}
+
 function inicializarShellModulo(options = {}) {
     const defaultPage = options.defaultPage || currentPage;
 
@@ -653,6 +745,8 @@ function inicializarShellModulo(options = {}) {
     if (redirecionarSeModuloNegado(window.CDS_MODULE)) {
         return;
     }
+
+    aplicarIdentidadeVisualCds();
 
     const user = obterUsuarioLogado();
     $('#user-nome').text(user.nome || user.username || 'Usuário');
@@ -692,6 +786,9 @@ function inicializarShellModulo(options = {}) {
 
                 carregarLogoSidebar();
                 filtrarMenuPorPermissoes();
+                if (typeof inicializarSidebarToggle === 'function') {
+                    inicializarSidebarToggle();
+                }
 
                 $('.nav-link[data-page]').off('click.cdsNav').on('click.cdsNav', function (e) {
                     e.preventDefault();
@@ -717,6 +814,8 @@ window.produtoUsaConversaoUnidades = function produtoUsaConversaoUnidades(produt
     if (!produto) return false;
     return Number(produto.produto_fracionado ?? produto.vendido_por_peso ?? 0) === 1;
 };
+
+window.aplicarIdentidadeVisualCds = aplicarIdentidadeVisualCds;
 
 /** @deprecated Alias legado — use produtoUsaConversaoUnidades */
 window.produtoEhFracionado = window.produtoUsaConversaoUnidades;

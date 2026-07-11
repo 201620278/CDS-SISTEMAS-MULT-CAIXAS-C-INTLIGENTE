@@ -1,7 +1,10 @@
 function loadCaixa() {
+  const shell = (typeof CdsPageShell !== 'undefined' && CdsPageShell.renderHeader)
+    ? CdsPageShell.renderHeader({ page: 'caixa' })
+    : '<h2 class="mb-3">Fechamento de Caixa</h2>';
   $('#page-content').html(`
     <div class="container-fluid">
-      <h2 class="mb-3">Fechamento de Caixa</h2>
+      ${shell}
 
       <div id="status-caixa-area" class="mb-3"></div>
       <div id="caixa-area"></div>

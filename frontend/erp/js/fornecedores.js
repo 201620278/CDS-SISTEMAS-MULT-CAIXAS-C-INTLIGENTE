@@ -9,12 +9,18 @@ function normalizarTexto(texto) {
 }
 
 function loadFornecedores() {
-  $('#page-content').html(`
-    <div class="fornecedores-page">
-      <div class="d-flex justify-content-between align-items-center mb-3">
+  const shell = (typeof CdsPageShell !== 'undefined' && CdsPageShell.renderHeader)
+    ? CdsPageShell.renderHeader({
+        page: 'fornecedores',
+        toolbarHtml: '<button class="btn btn-success btn-sm" id="btnNovoFornecedor"><i class="fas fa-plus"></i> Novo Fornecedor</button>'
+      })
+    : `<div class="d-flex justify-content-between align-items-center mb-3">
         <h2>Fornecedores</h2>
         <button class="btn btn-success" id="btnNovoFornecedor"><i class="fas fa-plus"></i> Novo Fornecedor</button>
-      </div>
+      </div>`;
+  $('#page-content').html(`
+    <div class="fornecedores-page">
+      ${shell}
       <div class="card">
         <div class="card-body">
           <div class="fornecedores-topo-lista mb-2">

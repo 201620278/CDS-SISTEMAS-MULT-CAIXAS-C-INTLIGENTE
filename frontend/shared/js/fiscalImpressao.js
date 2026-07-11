@@ -64,7 +64,7 @@ async function obterDadosEmpresaCupom() {
             headers: { Authorization: `Bearer ${token}` }
         });
         if (!resp.ok) {
-            return { nome_empresa: 'CDS Sistemas', endereco: '' };
+            return { nome_empresa: (typeof BrandService !== 'undefined' ? BrandService.NOME : 'CDS Sistemas'), endereco: '' };
         }
 
         const configs = await resp.json();
@@ -83,11 +83,11 @@ async function obterDadosEmpresaCupom() {
         ].filter(Boolean);
 
         return {
-            nome_empresa: map.nome_empresa || 'CDS Sistemas',
+            nome_empresa: map.nome_empresa || (typeof BrandService !== 'undefined' ? BrandService.NOME : 'CDS Sistemas'),
             endereco: partes.join(', ')
         };
     } catch (e) {
-        return { nome_empresa: 'CDS Sistemas', endereco: '' };
+        return { nome_empresa: (typeof BrandService !== 'undefined' ? BrandService.NOME : 'CDS Sistemas'), endereco: '' };
     }
 }
 
@@ -154,7 +154,7 @@ function montarHtmlCupomNaoFiscal(vendaId, venda, total, desconto) {
   margin: 0 auto;
   white-space: pre-wrap;
 ">
-        ${escapeHtmlCupom(venda.nome_empresa || 'CDS Sistemas')}
+        ${escapeHtmlCupom(venda.nome_empresa || (typeof BrandService !== 'undefined' ? BrandService.NOME : 'CDS Sistemas'))}
 ${escapeHtmlCupom(venda.endereco || '')}
 
 COMPROVANTE NÃO FISCAL

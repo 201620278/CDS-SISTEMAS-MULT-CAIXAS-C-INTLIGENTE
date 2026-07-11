@@ -36,9 +36,15 @@ function renderFiscal() {
         : '';
 
     const html = `
+        ${(typeof CdsPageShell !== 'undefined' && CdsPageShell.renderHeader)
+            ? CdsPageShell.renderHeader({
+                page: 'fiscal',
+                toolbarHtml: ''
+            })
+            : ''}
         <div class="card shadow-sm">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <div><i class="fas fa-receipt"></i> Módulo Fiscal NFC-e</div>
+                <div><i class="fas fa-file-invoice"></i> NFC-e Emitidas</div>
             </div>
             <div class="card-body">
                 ${avisoConfigAvancada}

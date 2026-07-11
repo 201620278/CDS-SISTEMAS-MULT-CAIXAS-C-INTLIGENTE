@@ -1,3 +1,7 @@
+/**
+ * Login — autenticação (inalterada em contrato).
+ * UX de loading/splash via LoginExperience 2.0.
+ */
 const API_URL = (() => {
   if (typeof window.API_URL === 'string' && window.API_URL.trim() !== '') {
     return window.API_URL;
@@ -27,22 +31,25 @@ const API_URL = (() => {
   window.location.replace(destino);
 })();
 
-$('#loginForm').on('submit', function(e) {
+$('#loginForm').on('submit', function (e) {
   e.preventDefault();
   const username = $('#username').val().trim();
   const password = $('#password').val();
-  const $err = $('#login-error');
-  const $btn = $('#btn-entrar');
 
-  $err.addClass('d-none').text('');
-  $btn.prop('disabled', true);
+  if (window.LoginExperience) {
+    LoginExperience.limparErroLogin();
+    LoginExperience.setBotaoLoading(true);
+  } else {
+    $('#login-error').addClass('d-none').text('');
+    $('#btn-entrar').prop('disabled', true);
+  }
 
   $.ajax({
     url: `${API_URL}/auth/login`,
     method: 'POST',
     contentType: 'application/json',
     data: JSON.stringify({ username, password }),
-    success: function(data) {
+    success: function (data) {
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
 
@@ -50,21 +57,33 @@ $('#loginForm').on('submit', function(e) {
         ? obterDestinoPosLogin(data.user)
         : '/erp';
 
+      if (window.LoginExperience && typeof LoginExperience.mostrarSplashEntrada === 'function') {
+        LoginExperience.mostrarSplashEntrada(destino);
+        return;
+      }
+
       window.location.replace(destino);
     },
-    error: function(xhr) {
+    error: function (xhr) {
       const msg = xhr.responseJSON && xhr.responseJSON.error
         ? xhr.responseJSON.error
         : 'Não foi possível entrar. Verifique o servidor.';
-      $err.removeClass('d-none').text(msg);
+
+      if (window.LoginExperience) {
+        LoginExperience.mostrarErroLogin(msg);
+        LoginExperience.setBotaoLoading(false);
+      } else {
+        $('#login-error').removeClass('d-none').text(msg);
+        $('#btn-entrar').prop('disabled', false);
+      }
     },
-    complete: function() {
-      $btn.prop('disabled', false);
+    complete: function () {
+      /* Botão permanece em loading no sucesso até o splash redirecionar. */
     }
   });
 });
 
-$(document).ready(function() {
+$(document).ready(function () {
   $('.modal-backdrop').remove();
   $('body').removeClass('modal-open').css('overflow', '').css('padding-right', '');
   document.body.classList.remove('pdv-mode', 'menu-open');

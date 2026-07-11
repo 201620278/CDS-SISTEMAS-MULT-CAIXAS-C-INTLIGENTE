@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CDS PDV — Frente de Caixa</title>
+    <link rel="icon" type="image/x-icon" href="/branding/favicon.ico">
     <link href="/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
     <link rel="stylesheet" href="/css/style.css">
@@ -19,7 +20,7 @@
                             <h5 class="text-white">CDS</h5>
                             <small class="text-muted">PDV</small>
                         </div>
-                        <div id="sidebar-modo-fiscal-bar" class="sidebar-modo-fiscal-bar sidebar-modo-fiscal-bar--off" title="Modo completo (F12 para ativar fiscal)"></div>
+                        <div id="sidebar-modo-fiscal-bar" class="sidebar-modo-fiscal-bar sidebar-modo-fiscal-bar--off" title="Modo completo"></div>
                     </div>
                     <ul class="nav flex-column">
                         <li class="nav-item">
@@ -112,6 +113,7 @@
         window.CDS_MODULE = 'pdv';
         window.CDS_DEFAULT_PAGE = 'pdv';
     </script>
+    <script src="/shared/js/brand-service.js"></script>
     <script src="/shared/js/estacaoHostname.js"></script>
     <script src="/shared/js/validarMotivo.js"></script>
     <script src="/shared/js/modalDevolucaoVenda.js"></script>
@@ -134,7 +136,7 @@
     <div id="notification-container" style="position: fixed; top: 20px; right: 20px; z-index: 9999; pointer-events: none;"></div>
 
     <footer style="position: fixed; bottom: 0; width: 100%; background: #111827; color: #9ca3af; text-align: center; padding: 6px; font-size: 12px; z-index: 1000;">
-        &copy; CDS Sistemas — PDV (Frente de Caixa)
+        &copy; <span data-brand="copyright">CDS Sistemas</span> — PDV (Frente de Caixa)
     </footer>
 
 </body>

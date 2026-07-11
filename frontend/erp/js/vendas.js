@@ -48,18 +48,24 @@ function toggleVerTodasVendas() {
 
 function renderVendas(vendas) {
     const modoFiscal = historicoVendaModoFiscalAtivo();
+    const shell = (typeof CdsPageShell !== 'undefined' && CdsPageShell.renderHeader)
+        ? CdsPageShell.renderHeader({
+            page: 'vendas',
+            toolbarHtml: `
+                <label class="form-check-label text-nowrap small mb-0">
+                    <input type="checkbox" class="form-check-input me-1" id="verTodasVendasCheck" onchange="toggleVerTodasVendas()" ${verTodasVendas ? 'checked' : ''}>
+                    Ver todas
+                </label>
+                <button class="btn btn-primary btn-sm" onclick="loadVendas()"><i class="fas fa-sync"></i> Atualizar</button>
+            `
+        })
+        : '';
 
     const html = `
+        ${shell}
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <div><i class="fas fa-receipt"></i> Histórico de Vendas</div>
-                <div class="d-flex gap-2 align-items-center">
-                    <label class="form-check-label text-nowrap" style="font-size:14px;">
-                        <input type="checkbox" class="form-check-input me-1" id="verTodasVendasCheck" onchange="toggleVerTodasVendas()" ${verTodasVendas ? 'checked' : ''}>
-                        Ver todas
-                    </label>
-                    <button class="btn btn-primary btn-sm" onclick="loadVendas()"><i class="fas fa-sync"></i> Atualizar</button>
-                </div>
+                <div><i class="fas fa-history"></i> Histórico de Vendas</div>
             </div>
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">

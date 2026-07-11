@@ -31,8 +31,8 @@ function atualizarBarraModoFiscalSidebar() {
     barra.classList.toggle('sidebar-modo-fiscal-bar--on', ativo);
     barra.classList.toggle('sidebar-modo-fiscal-bar--off', !ativo);
     barra.title = ativo
-        ? 'Modo fiscal ativo (F12 para modo completo)'
-        : 'Modo completo (F12 para ativar fiscal)';
+        ? 'Modo fiscal ativo'
+        : 'Modo completo';
 }
 
 function enriquecerProdutoComCacheEstoque(produto) {

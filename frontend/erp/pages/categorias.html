@@ -1,6 +1,6 @@
 <!-- Página de Categorias -->
 <div class="container mt-4">
-  <h2>Categorias</h2>
+  <div id="categorias-page-shell"></div>
   <div class="mb-3 d-flex justify-content-between align-items-center gap-2">
     <div>
       <label for="filtro-tipo-categoria" class="form-label">Filtrar por tipo:</label>
@@ -251,6 +251,10 @@
     });
     // Botão salvar subcategoria: decide se cria ou atualiza
     $('#btn-salvar-subcategoria').off('click').on('click', criarOuSalvarSubcategoria);
+    var shellHost = document.getElementById('categorias-page-shell');
+    if (shellHost && window.CdsPageShell && typeof CdsPageShell.renderHeader === 'function') {
+      shellHost.innerHTML = CdsPageShell.renderHeader({ page: 'categorias' });
+    }
     loadCategoriasAndSubcategorias();
   });
 </script>

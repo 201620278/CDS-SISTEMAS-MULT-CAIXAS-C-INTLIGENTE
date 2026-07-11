@@ -185,7 +185,7 @@ function renderPainelDiagnosticoCentral(dados) {
     <div class="central-diag-page central-entradas-anim-in">
       <div class="central-diag-hero d-flex flex-wrap justify-content-between align-items-center mb-4">
         <div>
-          <h2 class="mb-1"><i class="fas fa-stethoscope me-2"></i>Diagnóstico da Central Inteligente de Entradas</h2>
+          <h2 class="mb-1"><i class="fas fa-heartbeat me-2"></i>Saúde da Central</h2>
           <p class="text-muted mb-0">Ferramenta de suporte técnico — somente leitura e ações operacionais seguras.</p>
           <small class="text-muted">Atualizado: ${dados.geradoEm ? new Date(dados.geradoEm).toLocaleString('pt-BR') : '—'}</small>
         </div>

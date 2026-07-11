@@ -21,10 +21,14 @@ function loadCompras() {
 }
 
 function renderCompras(compras) {
+    const shell = (typeof CdsPageShell !== 'undefined' && CdsPageShell.renderHeader)
+        ? CdsPageShell.renderHeader({ page: 'compras' })
+        : '';
     const html = `
+        ${shell}
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <div><i class="fas fa-shopping-cart"></i> Compras</div>
+                <div><i class="fas fa-cart-plus"></i> Compras</div>
                 <div>
                     <button class="btn btn-outline-primary btn-sm me-1" onclick="abrirCentralInteligenteEntradas()" title="Documentos fiscais entram pela Central Inteligente">
                         📥 Importar pela Central Inteligente

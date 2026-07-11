@@ -470,7 +470,7 @@ function criarMainWindow(tituloJanela, opcoes = {}) {
     autoHideMenuBar: true,
     focusable: true,
     skipTaskbar: false,
-    icon: path.join(__dirname, 'assets/icon.ico'),
+    icon: require('./assets/branding/BrandService').electronIconPath(),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

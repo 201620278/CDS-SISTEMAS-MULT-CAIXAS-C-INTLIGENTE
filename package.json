@@ -147,7 +147,7 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "assets/icon.ico",
+      "icon": "assets/branding/icon.ico",
       "signtoolOptions": {
         "publisherName": "CDS Sistemas"
       }

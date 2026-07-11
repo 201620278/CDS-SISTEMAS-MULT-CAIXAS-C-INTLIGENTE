@@ -3,213 +3,122 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login — CDS Sistemas</title>
+    <title>Login</title>
+    <link rel="icon" type="image/x-icon" href="/branding/favicon.ico">
     <link href="/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
-    <link rel="stylesheet" href="/css/style.css">
-    <style>
-        :root {
-            --cds-gold-light: #ffe08a;
-            --cds-gold-mid: #e8b84a;
-            --cds-gold-deep: #c9922e;
-            --cds-header-bg: #0a0a0a;
-        }
-
-        body {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 1.25rem;
-            background: linear-gradient(145deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-            background-size: cover;
-            background-position: center;
-            background-attachment: fixed;
-        }
-
-        .login-card {
-            max-width: 440px;
-            width: 100%;
-            border: none;
-            box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.04);
-            border-radius: 16px;
-            overflow: hidden;
-            background: rgba(255, 255, 255, 0.97);
-        }
-
-        .login-card .card-header {
-            background: var(--cds-header-bg);
-            color: #fff;
-            border: none;
-            padding: 2rem 1.75rem 1.65rem;
-        }
-
-        .login-brand {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            text-align: center;
-        }
-
-        .login-logo {
-            display: block;
-            width: min(148px, 42vw);
-            height: auto;
-            margin-bottom: 1.1rem;
-            filter: drop-shadow(0 8px 18px rgba(232, 184, 74, 0.22));
-        }
-
-        .login-title {
-            margin: 0;
-            font-size: 1.45rem;
-            font-weight: 700;
-            letter-spacing: 0.08em;
-            color: #ffffff;
-            line-height: 1.2;
-        }
-
-        .login-subtitle {
-            margin: 0.45rem 0 0;
-            font-size: 0.92rem;
-            font-weight: 400;
-            color: rgba(255, 255, 255, 0.68);
-            line-height: 1.4;
-        }
-
-        .login-slogan {
-            margin: 0.65rem 0 0;
-            font-size: 0.8rem;
-            font-weight: 500;
-            letter-spacing: 0.02em;
-            line-height: 1.45;
-            background: linear-gradient(135deg, var(--cds-gold-light) 0%, var(--cds-gold-mid) 48%, var(--cds-gold-deep) 100%);
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
-            max-width: 26rem;
-        }
-
-        .login-card .card-body {
-            padding: 1.65rem 1.75rem 1.75rem;
-        }
-
-        .login-welcome-title {
-            font-size: 0.95rem;
-            font-weight: 600;
-            color: #212529;
-            margin: 0;
-        }
-
-        .login-welcome-text {
-            font-size: 0.85rem;
-            color: #6c757d;
-            margin: 0;
-        }
-
-        .login-card .form-label {
-            font-size: 0.875rem;
-            font-weight: 500;
-        }
-
-        .login-card .btn-primary {
-            padding: 0.65rem 1rem;
-            font-weight: 600;
-        }
-
-        body.has-background {
-            background: none;
-        }
-
-        body.has-background::before {
-            content: '';
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: inherit;
-            background-size: cover;
-            background-position: center;
-            z-index: -1;
-        }
-
-        @media (max-width: 480px) {
-            .login-card .card-header {
-                padding: 1.6rem 1.25rem 1.35rem;
-            }
-
-            .login-card .card-body {
-                padding: 1.35rem 1.25rem 1.5rem;
-            }
-
-            .login-title {
-                font-size: 1.25rem;
-                letter-spacing: 0.06em;
-            }
-
-            .login-subtitle {
-                font-size: 0.86rem;
-            }
-
-            .login-slogan {
-                font-size: 0.76rem;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="/css/login-experience.css">
+    <link rel="stylesheet" href="/shared/intro/intro.css">
 </head>
-<body>
-    <div class="card login-card">
-        <div class="card-header">
-            <div class="login-brand">
-                <img
-                    src="/shared/img/logo-cds-sistemas.png"
-                    alt="CDS Sistemas"
-                    class="login-logo"
-                    width="148"
-                    height="148"
-                >
-                <h1 class="login-title">CDS SISTEMAS</h1>
-                <p class="login-subtitle">Plataforma Inteligente de Gestão</p>
-                <p class="login-slogan">Inteligência para gerir, tecnologia para crescer.</p>
-            </div>
+<body class="lx-body">
+    <!-- Fundo premium (CSS) — sem logo repetida -->
+    <div class="lx-stage" aria-hidden="true">
+        <div class="lx-stage__grid"></div>
+        <div class="lx-stage__lines"></div>
+        <div class="lx-stage__glow"></div>
+        <div class="lx-particles">
+            <span class="lx-particle"></span>
+            <span class="lx-particle"></span>
+            <span class="lx-particle"></span>
+            <span class="lx-particle"></span>
+            <span class="lx-particle"></span>
+            <span class="lx-particle"></span>
+            <span class="lx-particle"></span>
+            <span class="lx-particle"></span>
         </div>
-        <div class="card-body">
-            <div class="login-welcome mb-3">
-                <p class="login-welcome-title">Bem-vindo ao CDS Sistemas.</p>
-                <p class="login-welcome-text">Faça login para acessar sua plataforma.</p>
+    </div>
+
+    <main class="lx-shell">
+        <header class="lx-hero">
+            <div class="lx-logo-wrap">
+                <img id="loginLogo" class="lx-logo" src="/branding/logo-oficial.png" alt="" width="132" height="132">
             </div>
-            <form id="loginForm" autocomplete="on">
-                <div class="mb-3">
-                    <label for="username" class="form-label">Usuário</label>
-                    <input type="text" class="form-control" id="username" name="username" required autofocus tabindex="1" placeholder="Digite seu usuário">
+            <h1 class="lx-title" id="loginTitle"></h1>
+            <p class="lx-subtitle" id="loginSubtitle"></p>
+            <p class="lx-slogan" id="loginSlogan"></p>
+            <div class="lx-welcome">
+                <p class="lx-welcome__title" id="loginWelcomeTitle">Bem-vindo.</p>
+                <p class="lx-welcome__text" id="loginWelcomeText">Acesse sua plataforma.</p>
+            </div>
+        </header>
+
+        <section class="lx-card" aria-label="Acesso">
+            <form id="loginForm" autocomplete="on" novalidate>
+                <div class="lx-field">
+                    <label for="username">Usuário</label>
+                    <div class="lx-input-wrap">
+                        <i class="fas fa-user" aria-hidden="true"></i>
+                        <input
+                            type="text"
+                            class="lx-input"
+                            id="username"
+                            name="username"
+                            required
+                            autofocus
+                            tabindex="1"
+                            placeholder="Usuário"
+                            autocomplete="username"
+                        >
+                    </div>
                 </div>
-                <div class="mb-3">
-                    <label for="password" class="form-label">Senha</label>
-                    <input type="password" class="form-control" id="password" name="password" required tabindex="2" placeholder="Digite sua senha">
+
+                <div class="lx-field">
+                    <label for="password">Senha</label>
+                    <div class="lx-input-wrap">
+                        <i class="fas fa-lock" aria-hidden="true"></i>
+                        <input
+                            type="password"
+                            class="lx-input"
+                            id="password"
+                            name="password"
+                            required
+                            tabindex="2"
+                            placeholder="Senha"
+                            autocomplete="current-password"
+                        >
+                    </div>
                 </div>
-                <div id="login-error" class="alert alert-danger py-2 d-none" role="alert"></div>
-                <button type="submit" class="btn btn-primary w-100" id="btn-entrar">
-                    <i class="fas fa-sign-in-alt"></i> Entrar
+
+                <div id="login-error" class="lx-error" role="alert" aria-live="polite"></div>
+
+                <button type="submit" class="lx-btn" id="btn-entrar" tabindex="3">
+                    <span class="lx-btn__label">
+                        <i class="fas fa-sign-in-alt" aria-hidden="true"></i>
+                        Entrar
+                    </span>
+                    <span class="lx-btn__spinner" aria-hidden="true">
+                        <span class="lx-spinner"></span>
+                        Entrando…
+                    </span>
                 </button>
             </form>
+        </section>
+
+        <footer class="lx-footer">
+            <p class="lx-footer__name" id="loginFooterName"></p>
+            <p class="lx-footer__meta">
+                <span id="loginFooterVersion"></span><br>
+                <span id="loginFooterSubtitle"></span>
+            </p>
+        </footer>
+    </main>
+
+    <!-- Splash visual pós-autenticação (não altera init real) -->
+    <div id="loginBootSplash" class="lx-boot" aria-live="polite" aria-atomic="true" hidden>
+        <div class="lx-boot__inner">
+            <img id="loginBootLogo" class="lx-boot__logo" src="/branding/splash.png" alt="">
+            <p class="lx-boot__msg" id="loginBootMsg">Inicializando Plataforma...</p>
         </div>
     </div>
 
     <script src="/vendor/jquery/jquery.min.js"></script>
     <script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/shared/js/brand-service.js"></script>
+    <script src="/shared/intro/intro-animator.js"></script>
+    <script src="/shared/intro/intro.js"></script>
     <script src="/shared/js/estacaoHostname.js"></script>
     <script src="/shared/js/access-control.js"></script>
+    <script src="/shared/js/login-experience.js"></script>
     <script src="/shared/js/login.js"></script>
-    <script>
-        fetch('/api/configuracoes/login_background')
-            .then(r => r.json())
-            .then(config => {
-                if (config && config.valor) {
-                    document.body.style.backgroundImage = `url('${config.valor}')`;
-                    document.body.classList.add('has-background');
-                }
-            })
-            .catch(() => {});
-    </script>
 </body>
 </html>

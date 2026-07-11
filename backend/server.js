@@ -37,6 +37,16 @@ app.get('/api/ping', (req, res) => {
 });
 
 app.use(express.static(path.join(__dirname, '../frontend')));
+
+// Branding oficial 1.0 — assets canônicos (Electron + Web)
+const brandingRoot = path.join(__dirname, '../assets/branding');
+app.use('/branding', express.static(brandingRoot));
+
+// Compatibilidade: URL legada da logo
+app.get('/shared/img/logo-cds-sistemas.png', (req, res) => {
+  res.sendFile(path.join(brandingRoot, 'logo-oficial.png'));
+});
+
 function getWritableStoragePath() {
     if (process.platform === 'win32') {
       return path.join(

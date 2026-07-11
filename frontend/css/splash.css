@@ -1,17 +1,18 @@
-/* Splash Screen - Tela de Carregamento */
-#splash-screen {
+/* Splash — alinhado ao Login Experience 2.0 / BrandService */
+#splash-screen,
+.lx-boot {
     position: fixed;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    background: linear-gradient(145deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    background: radial-gradient(ellipse at center, #0c1628 0%, #05070c 70%);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 9999;
     opacity: 1;
-    transition: opacity 0.5s ease-in-out;
+    transition: opacity 0.28s ease;
 }
 
 #splash-screen.hide {
@@ -21,7 +22,6 @@
 
 .splash-content {
     text-align: center;
-    animation: fadeInScale 0.6s ease-out;
 }
 
 .splash-logo {
@@ -37,36 +37,14 @@
     color: #fff;
     font-size: 14px;
     letter-spacing: 1px;
-    animation: pulse 1.5s ease-in-out infinite;
     margin-top: 20px;
 }
 
-@keyframes fadeInScale {
-    from {
-        opacity: 0;
-        transform: scale(0.9);
-    }
-    to {
-        opacity: 1;
-        transform: scale(1);
-    }
-}
-
-@keyframes pulse {
-    0%, 100% {
-        opacity: 0.6;
-    }
-    50% {
-        opacity: 1;
-    }
-}
-
-/* Responsivo */
 @media (max-width: 768px) {
     .splash-logo {
         max-width: 250px;
     }
-    
+
     .splash-text {
         font-size: 12px;
     }

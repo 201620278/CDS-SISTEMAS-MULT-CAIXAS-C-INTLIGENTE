@@ -58,7 +58,7 @@ async function gerarRelatorio() {
 function renderizarRelatorio(tipo, titulo, dados, periodo) {
   const container = document.getElementById('relatorioContainer');
   const sufixoModo = dados.modo_fiscal_ativo
-    ? ' · Somente fiscal (F12)'
+    ? ' · Somente fiscal'
     : (dados.recebimentos_venda || dados.entradas_venda || dados.totais ? ' · Fiscal + Não fiscal + Total' : '');
 
   let html = `

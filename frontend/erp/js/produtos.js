@@ -1178,7 +1178,11 @@ function gerarRelatorioEstoque() {
 function renderProdutos(produtos) {
     window.produtosCache = produtos;
     window.produtosOriginais = produtos;
+    const shell = (typeof CdsPageShell !== 'undefined' && CdsPageShell.renderHeader)
+        ? CdsPageShell.renderHeader({ page: 'produtos' })
+        : '';
     const html = `
+        ${shell}
         <div class="row mb-3 g-3">
             <div class="col-md-6 col-lg-4">
                 <div class="card mb-0 border-danger h-100" id="cardEstoqueBaixoProdutos">

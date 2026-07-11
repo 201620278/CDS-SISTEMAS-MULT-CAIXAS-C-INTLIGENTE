@@ -11,6 +11,12 @@ function initFinanceiro() {
     return;
   }
 
+  const shellHost = document.getElementById('financeiro-page-shell');
+  if (shellHost && window.CdsPageShell && typeof CdsPageShell.renderHeader === 'function' && !shellHost.dataset.ready) {
+    shellHost.innerHTML = CdsPageShell.renderHeader({ page: 'financeiro' });
+    shellHost.dataset.ready = '1';
+  }
+
   if (pageRoot.dataset.financeiroInitialized === 'true') {
     return;
   }

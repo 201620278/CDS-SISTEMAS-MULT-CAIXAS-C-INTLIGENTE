@@ -223,8 +223,7 @@ function preencherDashboard(data) {
     const modoFiscalAtivo = Boolean(data.modo_fiscal_ativo);
     const labelPeriodo = document.getElementById('dashboardPeriodoLabel');
     if (labelPeriodo) {
-        const sufixoModo = modoFiscalAtivo ? ' · Somente fiscal (F12)' : ' · Fiscal + Não fiscal + Total';
-        labelPeriodo.textContent = `Período: ${formatarDataBr(periodo.inicio)} a ${formatarDataBr(periodo.fim)}${sufixoModo}`;
+        labelPeriodo.textContent = `Período: ${formatarDataBr(periodo.inicio)} a ${formatarDataBr(periodo.fim)}`;
     }
 
     setDashboardText('dashboardVendasHoje', data.vendas_hoje ?? 0);
@@ -303,6 +302,10 @@ function preencherDashboard(data) {
 
     const alertsEl = document.getElementById('dashboardAlerts');
     if (alertsEl) alertsEl.innerHTML = montarListaAlerts(data.alerts || {});
+
+    if (typeof atualizarCommandCenter === 'function') {
+        atualizarCommandCenter(data);
+    }
 }
 
 function mostrarErroDashboard(mensagem) {
@@ -438,7 +441,7 @@ async function carregarDashboard(inicio = null, fim = null) {
 
         const modoFiscalAtivo = modoDashboardFiscalAtivo();
 
-        console.log('Modo dashboard fiscal ativo:', modoFiscalAtivo);
+        console.log('Dashboard carregado.');
 
         const response = await fetch(`${apiUrl}/dashboard/resumo?inicio=${dataInicio}&fim=${dataFim}&modo_fiscal=${modoFiscalAtivo ? '1' : '0'}`, {
             headers: {
@@ -490,6 +493,10 @@ async function carregarVencimentosDashboard(apiUrl) {
             }
             if (vencidos) {
                 vencidos.innerHTML = montarListaValidadeProdutos(vencidosList);
+            }
+
+            if (typeof atualizarCommandCenterVencimentos === 'function') {
+                atualizarCommandCenterVencimentos(proximos, vencidosList);
             }
         }
     } catch (error) {
