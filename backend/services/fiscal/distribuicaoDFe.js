@@ -16,6 +16,7 @@ const {
 const CentralDfePersistenciaService = require('../../motores/central-entradas/services/CentralDfePersistenciaService');
 const CentralDocumentosRepository = require('../../motores/central-entradas/repositories/CentralDocumentosRepository');
 const CentralNsuRepository = require('../../motores/central-entradas/repositories/CentralNsuRepository');
+const CentralNsuService = require('../../motores/central-entradas/services/CentralNsuService');
 const {
   NSU_ZERADO,
   normalizarNsu,
@@ -168,9 +169,12 @@ async function sincronizarDistribuicaoDFe(deps = {}) {
   const codigoUf = obterCodigoUf(config);
 
   const nsuRepository = deps.nsuRepository ?? new CentralNsuRepository();
+  const nsuService = deps.nsuService
+    ?? new CentralNsuService({ nsuRepository });
   const persistencia = deps.persistenciaService ?? new CentralDfePersistenciaService();
+  const correlationId = deps.correlationId || null;
 
-  let controleNsu = await nsuRepository.obterOuCriar(cnpj, ambiente);
+  let controleNsu = await nsuService.obterOuCriar(cnpj, ambiente);
   let ultNsuAtual = normalizarNsu(controleNsu.ultNsu);
   let maxNsuAtual = normalizarNsu(controleNsu.maxNsu || NSU_ZERADO);
 
@@ -200,18 +204,50 @@ async function sincronizarDistribuicaoDFe(deps = {}) {
       );
     }
 
+    // cStat 656: não persiste documentos nem altera NSU — apenas cooldown.
+    if (String(ultimoRetorno.cStat) === '656') {
+      const aplicado = await nsuService.aplicarRetornoDistDfe({
+        controle: controleNsu,
+        cStat: '656',
+        xmlRetorno,
+        correlationId
+      });
+      controleNsu = aplicado.controle;
+      ultNsuAtual = normalizarNsu(aplicado.ultNsu);
+      maxNsuAtual = normalizarNsu(aplicado.maxNsu);
+      return {
+        sucesso: false,
+        codigo: 'CONSUMO_INDEVIDO',
+        notasNovas: notasNovasTotal,
+        notasDuplicadas: notasDuplicadasTotal,
+        ignorados: ignoradosTotal,
+        ultNsu: ultNsuAtual,
+        maxNsu: maxNsuAtual,
+        iteracoes,
+        cStat: '656',
+        proximaConsultaEm: aplicado.proximaConsultaEm,
+        mensagem: ultimoRetorno.xMotivo
+          || 'Consumo indevido (cStat 656) — NSU preservado; nova consulta após 1 hora.',
+        ultimaSincronizacao: controleNsu.dataSincronizacao || controleNsu.updatedAt
+      };
+    }
+
     const persistidos = await persistirDocumentosRetorno(xmlRetorno, persistencia, 'dfe');
     notasNovasTotal += persistidos.notasNovas;
     notasDuplicadasTotal += persistidos.notasDuplicadas;
     ignoradosTotal += persistidos.ignorados;
 
-    ultNsuAtual = normalizarNsu(ultimoRetorno.ultNSU);
-    maxNsuAtual = normalizarNsu(ultimoRetorno.maxNSU);
-
-    controleNsu = await nsuRepository.atualizarSincronizacao(controleNsu.id, {
-      ultNsu: ultNsuAtual,
-      maxNsu: maxNsuAtual
+    const aplicado = await nsuService.aplicarRetornoDistDfe({
+      controle: controleNsu,
+      cStat: ultimoRetorno.cStat,
+      xmlRetorno,
+      ultNsu: ultimoRetorno.ultNSU,
+      maxNsu: ultimoRetorno.maxNSU,
+      correlationId
     });
+    controleNsu = aplicado.controle;
+    ultNsuAtual = normalizarNsu(aplicado.ultNsu);
+    maxNsuAtual = normalizarNsu(aplicado.maxNsu);
 
     if (!nsuMenorQue(ultNsuAtual, maxNsuAtual)) {
       break;

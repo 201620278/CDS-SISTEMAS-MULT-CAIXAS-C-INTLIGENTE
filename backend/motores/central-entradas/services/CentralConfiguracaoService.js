@@ -1,9 +1,16 @@
 /**
- * CentralConfiguracaoService — Único ponto oficial de configuração da Central (RC4).
+ * CentralConfiguracaoService — Provider operacional da Central (RC4 + RC3.1).
  *
- * Nenhum módulo da Central deve ler getFiscalConfig / URLs SOAP hardcoded.
- * Endpoints DF-e vêm exclusivamente do UrlResolver (Plataforma Fiscal).
- * Este serviço agrega: ambiente, SEFAZ (timeouts/visão), certificado, sync, diagnóstico e avançado.
+ * RC3.1 — Fonte fiscal única:
+ *   Ambiente SEFAZ + UF emitente + certificado + CNPJ vêm exclusivamente de
+ *   getFiscalConfig() (Configurações Avançadas → fiscal_ambiente / fiscal_uf_*).
+ *   A Central NÃO persiste nem grava ambiente/UF emitente.
+ *
+ * Endpoints DF-e e Manifestação (SOAP) vêm exclusivamente do UrlResolver (Plataforma Fiscal).
+ * Timeouts, sync, proxy e debug permanecem na tabela central_entradas_config.
+ *
+ * Demais módulos da Central NÃO devem importar getFiscalConfig diretamente —
+ * consomem via obterContextoOperacional() / obterPainelCompleto().
  *
  * @module motores/central-entradas/services/CentralConfiguracaoService
  */
@@ -16,9 +23,6 @@ const centralEntradasFlags = require('../config/centralEntradasFlags');
 const { logCentral, logCentralErro } = require('../utils/centralLog');
 
 const CHAVES = Object.freeze({
-  AMBIENTE: 'central_ambiente',
-  UF: 'central_uf',
-  CODIGO_UF: 'central_codigo_uf',
   URL_DFE_PROD: 'sefaz_url_dfe_producao',
   URL_DFE_HOM: 'sefaz_url_dfe_homologacao',
   URL_CONSULTA_PROD: 'sefaz_url_consulta_chave_producao',
@@ -29,6 +33,7 @@ const CHAVES = Object.freeze({
   TIMEOUT_MS: 'sefaz_timeout_ms',
   MAX_TENTATIVAS: 'sefaz_max_tentativas',
   INTERVALO_TENTATIVAS: 'sefaz_intervalo_tentativas_ms',
+  POLITICA_MANIFESTACAO: 'manifestacao_destinatario_politica',
   REPROCESSAMENTO: 'sync_reprocessamento_automatico',
   HTTP_TIMEOUT: 'http_timeout_ms',
   HTTP_RETRY: 'http_retry',
@@ -38,10 +43,34 @@ const CHAVES = Object.freeze({
   MODO_DEBUG: 'modo_debug'
 });
 
+const POLITICAS_MANIFESTACAO = Object.freeze([
+  'MANUAL',
+  'AUTOMATICA_CIENCIA',
+  'CONFIRMAR_OPERADOR'
+]);
+
 /** Campos de endpoint SOAP que a Central não persiste nem usa (UrlResolver). */
 const CAMPOS_ENDPOINT_SOAP_IGNORADOS = Object.freeze([
   'urlDistribuicaoDfeProducao',
-  'urlDistribuicaoDfeHomologacao'
+  'urlDistribuicaoDfeHomologacao',
+  'urlConsultaChaveProducao',
+  'urlConsultaChaveHomologacao',
+  'urlManifestacaoProducao',
+  'urlManifestacaoHomologacao'
+]);
+
+/**
+ * Campos oficiais do cadastro fiscal — Central só consome (RC3.1).
+ * Também ignora chaves legadas no flat do PUT.
+ */
+const CAMPOS_FISCAL_SOMENTE_LEITURA = Object.freeze([
+  'ambiente',
+  'uf',
+  'codigoUf',
+  'codigo',
+  'central_ambiente',
+  'central_uf',
+  'central_codigo_uf'
 ]);
 
 class CentralConfiguracaoService {
@@ -74,23 +103,33 @@ class CentralConfiguracaoService {
    */
   async obterPainelCompleto() {
     await this._repository.ensureDefaults();
-    const [sync, mapa, certificado, meta] = await Promise.all([
+    const [sync, mapa, certificado, meta, fiscalSnap] = await Promise.all([
       this._syncConfig.obterResumo(),
       this._obterMapaValores(),
       this._obterVisaoCertificado(),
-      this._obterMetadadosAlteracao()
+      this._obterMetadadosAlteracao(),
+      this._obterSnapshotFiscal()
     ]);
 
-    const ambienteCode = Number(mapa[CHAVES.AMBIENTE]) === 1 ? 1 : 2;
+    const ambienteCode = fiscalSnap.ambiente;
     const endpointsDfe = this._resolverEndpointsDfe();
+    const endpointsManif = this._resolverEndpointsManifestacao();
+    const endpointsConsulta = this._resolverEndpointsConsultaChave();
+    const politicaManifestacao = POLITICAS_MANIFESTACAO.includes(mapa[CHAVES.POLITICA_MANIFESTACAO])
+      ? mapa[CHAVES.POLITICA_MANIFESTACAO]
+      : 'MANUAL';
 
     return {
       versaoConfiguracao: 'RC4',
+      unificacaoFiscal: 'RC3.1',
       ambiente: {
         codigo: ambienteCode,
         label: ambienteCode === 1 ? 'Produção' : 'Homologação',
-        uf: mapa[CHAVES.UF] || 'SVRS',
-        codigoUf: String(mapa[CHAVES.CODIGO_UF] || '23').padStart(2, '0'),
+        uf: fiscalSnap.uf,
+        codigoUf: fiscalSnap.codigoUf,
+        somenteLeitura: true,
+        origem: 'getFiscalConfig',
+        origemLabel: 'Centro de Configurações (fonte oficial)',
         atualizadoEm: meta.atualizadoEm,
         ultimaAlteracao: meta.ultimaAlteracao
       },
@@ -100,18 +139,40 @@ class CentralConfiguracaoService {
         urlDistribuicaoDfeHomologacao: endpointsDfe.homologacao,
         origemEndpointDfe: 'UrlResolver',
         endpointsEditaveis: false,
-        urlConsultaChave: this._urlPorAmbiente(ambienteCode, mapa[CHAVES.URL_CONSULTA_PROD], mapa[CHAVES.URL_CONSULTA_HOM]),
-        urlConsultaChaveProducao: mapa[CHAVES.URL_CONSULTA_PROD] || '',
-        urlConsultaChaveHomologacao: mapa[CHAVES.URL_CONSULTA_HOM] || '',
-        urlManifestacao: this._urlPorAmbiente(ambienteCode, mapa[CHAVES.URL_MANIF_PROD], mapa[CHAVES.URL_MANIF_HOM]),
-        urlManifestacaoProducao: mapa[CHAVES.URL_MANIF_PROD] || '',
-        urlManifestacaoHomologacao: mapa[CHAVES.URL_MANIF_HOM] || '',
+        // RC4.3.1 — Consulta chave somente leitura via Registry → UrlResolver
+        urlConsultaChave: ambienteCode === 1 ? endpointsConsulta.producao : endpointsConsulta.homologacao,
+        urlConsultaChaveProducao: endpointsConsulta.producao,
+        urlConsultaChaveHomologacao: endpointsConsulta.homologacao,
+        origemEndpointConsulta: 'UrlResolver',
+        endpointConsultaResolvido: Boolean(endpointsConsulta.producao && endpointsConsulta.homologacao),
+        // RC4.1 — URLs de Manifestação somente leitura, resolvidas via Registry → UrlResolver
+        urlManifestacao: ambienteCode === 1 ? endpointsManif.producao : endpointsManif.homologacao,
+        urlManifestacaoProducao: endpointsManif.producao,
+        urlManifestacaoHomologacao: endpointsManif.homologacao,
+        origemEndpointManifestacao: 'UrlResolver',
+        endpointManifestacaoResolvido: Boolean(endpointsManif.producao && endpointsManif.homologacao),
         versaoServico: mapa[CHAVES.VERSAO_SERVICO] || '1.01',
         timeoutMs: Number(mapa[CHAVES.TIMEOUT_MS]) || 90000,
         maxTentativas: Number(mapa[CHAVES.MAX_TENTATIVAS]) || 2,
         intervaloTentativasMs: Number(mapa[CHAVES.INTERVALO_TENTATIVAS]) || 3000,
         manifestacaoPreparada: true,
-        manifestacaoAtiva: false
+        // Compat: "ativa" = automática; UI RC4.1 usa politicaManifestacao (um único estado)
+        manifestacaoAtiva: politicaManifestacao === 'AUTOMATICA_CIENCIA',
+        politicaManifestacao,
+        politicaManifestacaoLabel: this._labelPoliticaManifestacao(politicaManifestacao),
+        politicasManifestacaoDisponiveis: [...POLITICAS_MANIFESTACAO]
+      },
+      plataformaFiscal: {
+        registry: true,
+        urlResolver: true,
+        soapTransport: true,
+        endpointResolvido: Boolean(
+          (ambienteCode === 1 ? endpointsDfe.producao : endpointsDfe.homologacao)
+          && (ambienteCode === 1 ? endpointsManif.producao : endpointsManif.homologacao)
+          && (ambienteCode === 1 ? endpointsConsulta.producao : endpointsConsulta.homologacao)
+        ),
+        modo: this._labelPoliticaManifestacao(politicaManifestacao),
+        modoCodigo: politicaManifestacao
       },
       certificado,
       sincronizacao: {
@@ -137,6 +198,7 @@ class CentralConfiguracaoService {
 
   /**
    * Contexto operacional para sync/SOAP — único contrato interno.
+   * Ambiente/UF/certificado/CNPJ: sempre getFiscalConfig (RC3.1).
    * @returns {Promise<{ ok: boolean, codigoErro?: string, mensagem?: string, contexto?: Object }>}
    */
   async obterContextoOperacional() {
@@ -155,10 +217,8 @@ class CentralConfiguracaoService {
       };
     }
 
-    const ambienteCentral = Number(mapa[CHAVES.AMBIENTE]);
-    const ambiente = ambienteCentral === 1 || ambienteCentral === 2
-      ? ambienteCentral
-      : (Number(fiscal.ambiente) === 1 ? 1 : 2);
+    const ambiente = this._ambienteDeFiscal(fiscal);
+    const ufSnap = this._ufDeFiscal(fiscal);
 
     const certificadoPath = fiscal.certificadoPath || null;
     const certificadoSenha = fiscal.certificadoSenha || null;
@@ -168,7 +228,7 @@ class CentralConfiguracaoService {
       return {
         ok: false,
         codigoErro: 'CERTIFICADO',
-        mensagem: 'Certificado digital não configurado. Abra Configuração da Central → Certificado.'
+        mensagem: 'Certificado digital não configurado. Configure em Configurações Avançadas → Fiscal.'
       };
     }
 
@@ -201,8 +261,9 @@ class CentralConfiguracaoService {
       ok: true,
       contexto: {
         ambiente,
-        uf: mapa[CHAVES.UF] || 'SVRS',
-        codigoUf: String(mapa[CHAVES.CODIGO_UF] || fiscal.codigoUf || fiscal.fiscal_codigo_uf || '23').replace(/\D/g, '').padStart(2, '0'),
+        uf: ufSnap.uf,
+        codigoUf: ufSnap.codigoUf,
+        origemAmbiente: 'getFiscalConfig',
         cnpj,
         certificadoPath,
         certificadoSenha,
@@ -218,6 +279,9 @@ class CentralConfiguracaoService {
         maxTentativas: Number(mapa[CHAVES.MAX_TENTATIVAS]) || 2,
         intervaloTentativasMs: Number(mapa[CHAVES.INTERVALO_TENTATIVAS]) || 3000,
         syncMaxDocumentos: sync.syncMaxDocumentos,
+        politicaManifestacao: POLITICAS_MANIFESTACAO.includes(mapa[CHAVES.POLITICA_MANIFESTACAO])
+          ? mapa[CHAVES.POLITICA_MANIFESTACAO]
+          : 'MANUAL',
         reprocessamentoAutomatico: mapa[CHAVES.REPROCESSAMENTO] !== false,
         logDetalhado: mapa[CHAVES.LOG_DETALHADO] === true,
         modoDebug: mapa[CHAVES.MODO_DEBUG] === true
@@ -249,17 +313,11 @@ class CentralConfiguracaoService {
     }
 
     const mapaCampos = {
-      ambiente: [CHAVES.AMBIENTE, 'number'],
-      uf: [CHAVES.UF, 'string'],
-      codigoUf: [CHAVES.CODIGO_UF, 'string'],
-      urlConsultaChaveProducao: [CHAVES.URL_CONSULTA_PROD, 'string'],
-      urlConsultaChaveHomologacao: [CHAVES.URL_CONSULTA_HOM, 'string'],
-      urlManifestacaoProducao: [CHAVES.URL_MANIF_PROD, 'string'],
-      urlManifestacaoHomologacao: [CHAVES.URL_MANIF_HOM, 'string'],
       versaoServico: [CHAVES.VERSAO_SERVICO, 'string'],
       timeoutMs: [CHAVES.TIMEOUT_MS, 'number'],
       maxTentativas: [CHAVES.MAX_TENTATIVAS, 'number'],
       intervaloTentativasMs: [CHAVES.INTERVALO_TENTATIVAS, 'number'],
+      politicaManifestacao: [CHAVES.POLITICA_MANIFESTACAO, 'string'],
       reprocessamentoAutomatico: [CHAVES.REPROCESSAMENTO, 'boolean'],
       httpTimeoutMs: [CHAVES.HTTP_TIMEOUT, 'number'],
       httpRetry: [CHAVES.HTTP_RETRY, 'number'],
@@ -269,30 +327,50 @@ class CentralConfiguracaoService {
       modoDebug: [CHAVES.MODO_DEBUG, 'boolean']
     };
 
-    const flat = { ...alteracoes, ...(alteracoes.ambiente || {}), ...(alteracoes.sefaz || {}), ...(alteracoes.avancado || {}), ...(alteracoes.sincronizacao || {}) };
-    if (alteracoes.ambiente?.codigo != null) flat.ambiente = alteracoes.ambiente.codigo;
-    if (alteracoes.ambiente?.uf != null) flat.uf = alteracoes.ambiente.uf;
-    if (alteracoes.ambiente?.codigoUf != null) flat.codigoUf = alteracoes.ambiente.codigoUf;
+    const flat = {
+      ...alteracoes,
+      ...(alteracoes.sefaz || {}),
+      ...(alteracoes.avancado || {}),
+      ...(alteracoes.sincronizacao || {})
+    };
+    // RC3.1 — bloco ambiente não é persistido (fonte oficial: getFiscalConfig)
+    delete flat.ambiente;
+    // RC4.3.1 — endpoints SOAP não são persistidos (fonte: UrlResolver)
+    delete flat.urlConsultaChaveProducao;
+    delete flat.urlConsultaChaveHomologacao;
+    delete flat.urlManifestacaoProducao;
+    delete flat.urlManifestacaoHomologacao;
+    delete flat.urlDistribuicaoDfeProducao;
+    delete flat.urlDistribuicaoDfeHomologacao;
+
+    if (
+      flat.politicaManifestacao !== undefined
+      && !POLITICAS_MANIFESTACAO.includes(String(flat.politicaManifestacao))
+    ) {
+      throw new Error('Política de manifestação inválida.');
+    }
 
     for (const campoIgnorado of CAMPOS_ENDPOINT_SOAP_IGNORADOS) {
+      delete flat[campoIgnorado];
+    }
+    for (const campoIgnorado of CAMPOS_FISCAL_SOMENTE_LEITURA) {
       delete flat[campoIgnorado];
     }
 
     for (const [campo, valor] of Object.entries(flat)) {
       if (valor === undefined || !mapaCampos[campo]) continue;
       const [chave, tipo] = mapaCampos[campo];
-      let v = valor;
-      if (campo === 'ambiente') v = Number(valor) === 1 ? 1 : 2;
-      await this._repository.salvar(chave, v, tipo);
+      await this._repository.salvar(chave, valor, tipo);
     }
 
     await this._syncConfig.hidratarFlags();
-    logCentral('CONFIG', { fase: 'atualizado' });
+    logCentral('CONFIG', { fase: 'atualizado', unificacaoFiscal: 'RC3.1' });
     return this.obterPainelCompleto();
   }
 
   /**
-   * Restaura defaults RC4 (não apaga sync operacional do usuário se omitido).
+   * Restaura defaults operacionais da Central (timeouts/sync/etc.).
+   * Não toca fiscal_ambiente / UF emitente (fonte oficial externa).
    * @param {Object} [opcoes]
    * @returns {Promise<Object>}
    */
@@ -319,6 +397,14 @@ class CentralConfiguracaoService {
     return this._syncConfig.obterResumo();
   }
 
+  async obterPoliticaManifestacao() {
+    await this._repository.ensureDefaults();
+    const mapa = await this._obterMapaValores();
+    return POLITICAS_MANIFESTACAO.includes(mapa[CHAVES.POLITICA_MANIFESTACAO])
+      ? mapa[CHAVES.POLITICA_MANIFESTACAO]
+      : 'MANUAL';
+  }
+
   atualizarSync(alteracoes) {
     return this._syncConfig.atualizar(alteracoes);
   }
@@ -343,6 +429,44 @@ class CentralConfiguracaoService {
       mapa[reg.chave] = this._repository.parseValor(reg);
     }
     return mapa;
+  }
+
+  /**
+   * Snapshot seguro do cadastro fiscal oficial (nunca falha o painel).
+   * @private
+   * @returns {Promise<{ ambiente: number, uf: string, codigoUf: string }>}
+   */
+  async _obterSnapshotFiscal() {
+    try {
+      const fiscal = await this._getFiscalConfig();
+      return {
+        ambiente: this._ambienteDeFiscal(fiscal),
+        ...this._ufDeFiscal(fiscal)
+      };
+    } catch {
+      return { ambiente: 2, uf: 'CE', codigoUf: '23' };
+    }
+  }
+
+  /**
+   * @private
+   * @param {Object} fiscal
+   * @returns {number} 1|2
+   */
+  _ambienteDeFiscal(fiscal = {}) {
+    const code = Number(fiscal.ambiente ?? fiscal.fiscal_ambiente);
+    return code === 1 ? 1 : 2;
+  }
+
+  /**
+   * @private
+   * @param {Object} fiscal
+   * @returns {{ uf: string, codigoUf: string }}
+   */
+  _ufDeFiscal(fiscal = {}) {
+    const uf = String(fiscal.uf || fiscal.fiscal_uf_sigla || fiscal.fiscal_uf || 'CE').trim().toUpperCase() || 'CE';
+    const codigoUf = String(fiscal.codigoUf || fiscal.fiscal_codigo_uf || '23').replace(/\D/g, '').padStart(2, '0') || '23';
+    return { uf, codigoUf };
   }
 
   /**
@@ -391,6 +515,112 @@ class CentralConfiguracaoService {
     };
   }
 
+  /**
+   * Resolve endpoint de Manifestação (RecepcaoEvento) via Plataforma Fiscal.
+   * Somente leitura para o painel — não altera Registry/UrlResolver/Runtime.
+   * @private
+   * @param {number} ambienteCode 1|2
+   * @returns {string|null}
+   */
+  _resolverEndpointManifestacao(ambienteCode) {
+    try {
+      const { FiscalWebServices } = require('../../../services/fiscal/core/FiscalWebServices');
+      const { ModelType } = require('../../../services/fiscal/core/ModelType');
+      const { OperationType } = require('../../../services/fiscal/core/OperationType');
+      const { fromAmbienteCode } = require('../../../services/fiscal/core/EnvironmentType');
+      const { UF_SVRS } = require('../../../services/fiscal/core/RegistryBuilder');
+
+      const ambiente = fromAmbienteCode(ambienteCode);
+      if (!ambiente) return null;
+
+      const resolution = new FiscalWebServices().resolve({
+        modelo: ModelType.NFE,
+        operacao: OperationType.MANIFESTACAO_CIENCIA,
+        ambiente,
+        uf: UF_SVRS,
+        versao: '1.00'
+      });
+
+      return resolution.success && resolution.definition?.endpoint
+        ? resolution.definition.endpoint
+        : null;
+    } catch (error) {
+      logCentralErro('CONFIG', { fase: 'resolver-manifestacao', erro: error.message });
+      return null;
+    }
+  }
+
+  /**
+   * @private
+   * @returns {{ producao: string, homologacao: string }}
+   */
+  _resolverEndpointsManifestacao() {
+    return {
+      producao: this._resolverEndpointManifestacao(1) || '',
+      homologacao: this._resolverEndpointManifestacao(2) || ''
+    };
+  }
+
+  /**
+   * Resolve endpoint de Consulta por chave (consSitNFe) via Plataforma Fiscal.
+   * RC4.3.1 — somente leitura no painel; não altera Registry/UrlResolver/Runtime.
+   * @private
+   * @param {number} ambienteCode 1|2
+   * @returns {string|null}
+   */
+  _resolverEndpointConsultaChave(ambienteCode) {
+    try {
+      const { FiscalWebServices } = require('../../../services/fiscal/core/FiscalWebServices');
+      const { ModelType } = require('../../../services/fiscal/core/ModelType');
+      const { OperationType } = require('../../../services/fiscal/core/OperationType');
+      const { fromAmbienteCode } = require('../../../services/fiscal/core/EnvironmentType');
+      const { UF_SVRS } = require('../../../services/fiscal/core/RegistryBuilder');
+
+      const ambiente = fromAmbienteCode(ambienteCode);
+      if (!ambiente) return null;
+
+      const resolution = new FiscalWebServices().resolve({
+        modelo: ModelType.NFE,
+        operacao: OperationType.CONSULTA_PROTOCOLO,
+        ambiente,
+        uf: UF_SVRS,
+        versao: '4.00'
+      });
+
+      return resolution.success && resolution.definition?.endpoint
+        ? resolution.definition.endpoint
+        : null;
+    } catch (error) {
+      logCentralErro('CONFIG', { fase: 'resolver-consulta-chave', erro: error.message });
+      return null;
+    }
+  }
+
+  /**
+   * @private
+   * @returns {{ producao: string, homologacao: string }}
+   */
+  _resolverEndpointsConsultaChave() {
+    return {
+      producao: this._resolverEndpointConsultaChave(1) || '',
+      homologacao: this._resolverEndpointConsultaChave(2) || ''
+    };
+  }
+
+  /**
+   * @private
+   * @param {string} politica
+   * @returns {string}
+   */
+  _labelPoliticaManifestacao(politica) {
+    const mapa = {
+      AUTOMATICA_CIENCIA: 'Automática',
+      CONFIRMAR_OPERADOR: 'Solicitar Confirmação',
+      MANUAL: 'Manual'
+    };
+    return mapa[politica] || 'Manual';
+  }
+
   /** @private */
   _urlPorAmbiente(ambiente, prod, hom) {
     return Number(ambiente) === 1 ? (prod || '') : (hom || '');
@@ -410,7 +640,7 @@ class CentralConfiguracaoService {
           diasRestantes: null,
           status: 'AUSENTE',
           caminho: null,
-          mensagem: 'Nenhum certificado configurado'
+          mensagem: 'Nenhum certificado configurado — edite em Configurações Avançadas'
         };
       }
 
@@ -523,8 +753,9 @@ class CentralConfiguracaoService {
   /** @private */
   _mensagemAmigavel(msg) {
     const m = String(msg || '');
-    if (/certificado/i.test(m)) return 'Certificado digital ausente ou inválido. Configure na aba Certificado.';
+    if (/certificado/i.test(m)) return 'Certificado digital ausente ou inválido. Configure em Configurações Avançadas → Fiscal.';
     if (/cnpj/i.test(m)) return 'CNPJ do emitente não configurado.';
+    if (/ambiente fiscal/i.test(m)) return 'Ambiente fiscal não configurado. Defina em Configurações Avançadas.';
     if (/url|autoriza/i.test(m)) return 'Configuração SEFAZ incompleta. Verifique a aba SEFAZ.';
     if (/timeout|ECONNABORTED/i.test(m)) return 'A SEFAZ não respondeu a tempo. Tente novamente.';
     return m || 'Falha na configuração operacional da Central.';
@@ -532,5 +763,7 @@ class CentralConfiguracaoService {
 }
 
 CentralConfiguracaoService.CHAVES = CHAVES;
+CentralConfiguracaoService.CAMPOS_FISCAL_SOMENTE_LEITURA = CAMPOS_FISCAL_SOMENTE_LEITURA;
+CentralConfiguracaoService.POLITICAS_MANIFESTACAO = POLITICAS_MANIFESTACAO;
 
 module.exports = CentralConfiguracaoService;

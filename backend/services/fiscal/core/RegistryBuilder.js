@@ -69,9 +69,9 @@ const ENDPOINTS = Object.freeze({
     [EnvironmentType.HOMOLOGACAO]: 'https://nfe-homologacao.svrs.rs.gov.br/ws/recepcaoevento/recepcaoevento4.asmx'
   },
   DFE: {
-    // Portal Nacional NF-e (AN) — www.nfe retorna 404; oficial é www1 / hom
+    // Portal Nacional NF-e (AN) — www/hom desativados (404); oficiais: www1 / hom1 (aviso RFB 23/05/2022)
     [EnvironmentType.PRODUCAO]: 'https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx',
-    [EnvironmentType.HOMOLOGACAO]: 'https://hom.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx'
+    [EnvironmentType.HOMOLOGACAO]: 'https://hom1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx'
   }
 });
 

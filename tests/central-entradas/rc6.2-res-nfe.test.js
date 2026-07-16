@@ -116,7 +116,7 @@ async function main() {
     );
     assert.strictEqual(
       LABELS_UI[DocumentoFiscalStatus.AGUARDANDO_XML_COMPLETO],
-      'Aguardando XML completo'
+      'Aguardando XML Completo'
     );
     assert.ok(TRANSICOES_PERMITIDAS[DocumentoFiscalStatus.AGUARDANDO_XML_COMPLETO]);
   });

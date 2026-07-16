@@ -23,9 +23,36 @@ Services especializados
 Repositories (SQLite)
 ```
 
-## Configuração Enterprise (RC4)
+## Configuração Enterprise (RC4 + RC3.1)
 
-Ponto único: **`CentralConfiguracaoService`**.
+Ponto único operacional: **`CentralConfiguracaoService`**.
+
+### Fonte fiscal única (RC3.1)
+
+**Existe apenas uma configuração fiscal do sistema.**
+
+```
+Configurações Avançadas → Fiscal
+        ↓
+getFiscalConfig()  (fiscal_ambiente, UF, CNPJ, certificado, CSC)
+        ↓
+CentralConfiguracaoService (somente leitura de Ambiente/UF)
+        ↓
+obterContextoOperacional() → Sync DF-e / Diagnóstico / Manifestação
+        ↓
+Plataforma Fiscal (UrlResolver) + Emissão NFC-e
+```
+
+| Campo | Fonte | Central grava? |
+|---|---|---|
+| Ambiente Prod/Hom (`fiscal_ambiente`) | Configurações Avançadas | **Não** — somente leitura |
+| UF emitente | Configurações Avançadas | **Não** — somente leitura |
+| Certificado / CNPJ / CSC | Configurações Avançadas | **Não** — visão/adapter |
+| Timeouts / retries / sync / proxy | `central_entradas_config` | **Sim** |
+| Endpoints DF-e SOAP | UrlResolver (Plataforma) | **Não** |
+| Endpoints Consulta / Manifestação | UrlResolver (Plataforma) — RO na Central (RC4.3.1) | **Não** |
+
+Chaves legadas `central_ambiente` / `central_uf` / `central_codigo_uf` **não são mais semeadas nem gravadas**. Se existirem no banco, são **ignoradas**.
 
 ```
 Tela Configuração (6 abas)
@@ -36,21 +63,22 @@ CentralConfiguracaoController
         ↓
 CentralConfiguracaoService
         ↓
-CentralConfiguracaoRepository (central_entradas_config)
+└─ Ambiente/UF ← getFiscalConfig (oficial)
+└─ Timeouts/sync ← CentralConfiguracaoRepository (central_entradas_config)
         ↓
 CentralSincronizacao → SOAP DF-e (contextoCentral)
 ```
 
 | Módulo | Conteúdo |
 |---|---|
-| Ambiente | Produção/Homologação, UF, metadados |
-| SEFAZ | URLs DF-e / consulta / manifestação (prep), timeout, retries |
+| Ambiente | Produção/Homologação, UF — **somente leitura** (fonte oficial) |
+| SEFAZ | Timeouts/retries operacionais; URLs SOAP via UrlResolver (somente leitura) |
 | Certificado | Visão (nome, CNPJ, validade, status) — path/senha via adapter fiscal |
 | Sincronização | Auto, ao abrir, intervalo, janelas, max docs |
 | Diagnóstico | Health, testes, versões, tempos |
 | Avançado | HTTP timeout/retry, proxy (estrutura), debug |
 
-**Regra:** nenhum serviço da Central lê URL/ambiente/timeout diretamente do Motor Fiscal nem hardcoda URL SEFAZ. Certificado físico permanece no cadastro fiscal; a Central só consome via `obterContextoOperacional()`.
+**Regra:** nenhum serviço da Central hardcoda URL SEFAZ. Ambiente/UF/certificado/CNPJ vêm da configuração fiscal oficial via `obterContextoOperacional()`. Timeouts e sync permanecem na config operacional da Central.
 
 Rotas: `GET|PUT /configuracao`, `POST .../testar-sefaz|testar-certificado|health|limpar-cache|restaurar`.
 
@@ -67,7 +95,8 @@ Sync HTTP: **nunca 502** — 200 / 422 (config) / 503 (SEFAZ) + `mensagemAmigave
 | Existe apenas uma integração MIIP? | **Sim** — via `CentralProcessamentoService` |
 | Existe apenas uma forma de criar compras? | **Sim** — Bridge → Compras; vínculo via Orchestrator |
 | Existe apenas um fluxo de processamento? | **Sim** — `processar` / `processarDocumentosPendentes` |
-| Existe apenas um serviço de configuração? | **Sim** — `CentralConfiguracaoService` (RC4) |
+| Existe apenas um serviço de configuração? | **Sim** — `CentralConfiguracaoService` (ops) + fonte fiscal única `getFiscalConfig` (RC3.1) |
+| Existe apenas uma configuração de ambiente SEFAZ? | **Sim** — `fiscal_ambiente` (Configurações Avançadas); Central só consome |
 
 ## Fluxo oficial unificado
 

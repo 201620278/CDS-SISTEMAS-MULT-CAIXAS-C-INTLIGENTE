@@ -15,6 +15,7 @@
 | **Data de consolidação** | 2026-07-10 |
 | **Congelamentos** | MIIP `1.0 RC1` · Central Inteligente `1.0 RC4` |
 | **Hardening** | RC5 (2026-07-10) |
+| **Núcleo Venda** | [NUCLEO_TRANSACIONAL_VENDA_V1.md](./NUCLEO_TRANSACIONAL_VENDA_V1.md) (2026-07-11) |
 | **Constituição** | [ARQUITETURA_OFICIAL_CDS_V1.md](./ARQUITETURA_OFICIAL_CDS_V1.md) |
 
 ---
@@ -175,6 +176,118 @@
 
 ---
 
+### 12. Núcleo Transacional da Venda V1.0 (Sprint 1 — Fase 1)
+
+| Campo | Conteúdo |
+|---|---|
+| **Versão** | Núcleo Transacional Venda **1.0** |
+| **Data** | 2026-07-11 |
+| **Resumo** | Consolidação documental do pipeline oficial de venda (`POST /api/vendas` → `VendaPagamentoService` → motores F×NF / pagamento / estoque / financeiro / NFC-e) |
+| **Arquitetura** | PDV deixa de ser descrito como centro; núcleo = agregado Venda + `VendaPagamentoService`; origens futuras documentadas sem implementação |
+| **Motivos** | Preparar Pedidos, Faturamento NF-e, Compra Fácil e API sem alterar regras congeladas |
+| **Impacto** | Nenhuma alteração de código, banco, rotas, payload ou regras (F×NF, financeiro, estoque, TEF, PIX, NFC-e) |
+| **Documentos relacionados** | [NUCLEO_TRANSACIONAL_VENDA_V1.md](./NUCLEO_TRANSACIONAL_VENDA_V1.md), [ARQUITETURA_OFICIAL_CDS_V1.md](./ARQUITETURA_OFICIAL_CDS_V1.md) |
+
+---
+
+### 13. Porta de Aplicação do Núcleo Transacional (Sprint 2.0)
+
+| Campo | Conteúdo |
+|---|---|
+| **Versão** | Núcleo Transacional Venda **1.1** |
+| **Data** | 2026-07-11 |
+| **Resumo** | Introdução de `VendaApplicationService` como fachada oficial entre Controller e `VendaPagamentoService` |
+| **Arquitetura** | `Controller → VendaApplicationService → VendaPagamentoService` (delegação integral, sem regras na fachada) |
+| **Motivos** | Impedir que Pedido, Faturamento, Compra Fácil, Marketplace e API acessem o núcleo diretamente |
+| **Impacto** | Comportamento idêntico; apenas wiring de entrada. Núcleo, F×NF, financeiro, estoque, TEF, PIX e NFC-e **inalterados** |
+| **Documentos relacionados** | [NUCLEO_TRANSACIONAL_VENDA_V1.md](./NUCLEO_TRANSACIONAL_VENDA_V1.md), [ARQUITETURA_OFICIAL_CDS_V1.md](./ARQUITETURA_OFICIAL_CDS_V1.md) |
+
+---
+
+### 14. Unificação da Configuração Fiscal (RC3.1)
+
+| Campo | Conteúdo |
+|---|---|
+| **Versão** | RC3.1 |
+| **Data** | 2026-07-14 |
+| **Resumo** | Eliminação da duplicação `fiscal_ambiente` × `central_ambiente` — **existe apenas uma configuração fiscal** |
+| **Arquitetura** | Configurações Avançadas → `getFiscalConfig()` → Central (somente leitura) / Emissão / DF-e / Plataforma (por parâmetro) |
+| **Motivos** | Auditoria confirmou risco operacional silencioso (Central em Homologação e emissão em Produção) |
+| **Impacto** | Central deixa de gravar ambiente/UF; aba Ambiente vira somente leitura; timeouts/sync permanecem editáveis; Plataforma Fiscal/XML/SOAP/runtimes **inalterados** |
+| **Documentos relacionados** | [CENTRAL_ENTRADAS_ARQUITETURA.md](./CENTRAL_ENTRADAS_ARQUITETURA.md), [ARQUITETURA_OFICIAL_CDS_V1.md](./ARQUITETURA_OFICIAL_CDS_V1.md), `tests/central-entradas/rc31-fonte-fiscal-unica.test.js` |
+
+---
+
+### 15. Centro de Configurações CDS (RC3.2)
+
+| Campo | Conteúdo |
+|---|---|
+| **Versão** | RC3.2 |
+| **Data** | 2026-07-14 |
+| **Resumo** | Modernização UX das Configurações Avançadas → **Centro de Configurações do CDS Sistemas** |
+| **Arquitetura** | Shell lateral + painel executivo + cards; Fiscal permanece fonte oficial (RC3.1); sem mudança de APIs/regras |
+| **Motivos** | Alinhar identidade visual à Central / Dashboard / Diagnóstico e consolidar navegação enterprise |
+| **Impacto** | Somente frontend (CSS/JS/HTML); Central ganha atalho UX “Abrir Configuração Fiscal” |
+| **Documentos relacionados** | [RC3.2_CENTRO_CONFIGURACOES.md](./RC3.2_CENTRO_CONFIGURACOES.md) |
+
+---
+
+### RC3.4 — Homologação Assistida (observabilidade)
+
+| Campo | Conteúdo |
+|---|---|
+| **Versão** | Central Inteligente — RC3.4 |
+| **Data** | 2026-07-15 |
+| **Resumo** | Painel somente leitura de telemetria do ciclo DF-e para homologação SEFAZ (monitor, timeline, diagnóstico, métricas, inspeção, exportação) |
+| **Arquitetura** | Sem mudança de regras fiscais; agregação de eventos/NSU/documentos existentes via `CentralHomologacaoService` |
+| **Motivos** | Validar comportamento real junto à SEFAZ após RC3.3 / RC3.3.3 |
+| **Impacto** | APIs `/homologacao/*` + view Monitor de Ciclo DF-e; Plataforma Fiscal / Parser / MIIP intactos |
+| **Documentos relacionados** | [RC3.4_HOMOLOGACAO_ASSISTIDA.md](./RC3.4_HOMOLOGACAO_ASSISTIDA.md) |
+
+---
+
+### RC4.1 — UX Endpoints SEFAZ
+
+| Campo | Conteúdo |
+|---|---|
+| **Versão** | Central Inteligente — RC4.1 |
+| **Data** | 2026-07-15 |
+| **Resumo** | Campos Manifestação exibem URL resolvida (Registry→UrlResolver); badges de política únicos; tooltip e card Plataforma Fiscal |
+| **Arquitetura** | Sem mudança na Plataforma Fiscal; painel da Central apenas consome `resolve()` para apresentação |
+| **Motivos** | Campos vazios e badges contraditórios geravam falsa impressão de erro de configuração |
+| **Impacto** | Somente `CentralConfiguracaoService` + UI/CSS da aba SEFAZ |
+| **Documentos relacionados** | [RC4.1_ENDPOINTS_UX.md](./RC4.1_ENDPOINTS_UX.md) |
+
+---
+
+### RC4.3 — Consolidação UX Manifestação
+
+| Campo | Conteúdo |
+|---|---|
+| **Versão** | Central / Centro Config — RC4.3 |
+| **Data** | 2026-07-15 |
+| **Resumo** | Interface oficial de edição da política de Manifestação no Centro → Fiscal; Central somente leitura |
+| **Arquitetura** | Mesma tabela/chave/API; sem duplicidade de persistência |
+| **Motivos** | Usuário buscava a config no Centro Fiscal; ela estava aninhada na Central |
+| **Impacto** | Somente frontend (cds-centro-configuracoes + central-entradas) |
+| **Documentos relacionados** | [RC4.3_CONSOLIDACAO_MANIFESTACAO.md](./RC4.3_CONSOLIDACAO_MANIFESTACAO.md) |
+
+---
+
+### RC4.3.1 — HotFix alinhamento arquitetural
+
+| Campo | Conteúdo |
+|---|---|
+| **Versão** | HotFix RC4.3.1 |
+| **Data** | 2026-07-15 |
+| **Resumo** | Consulta chave RO + UrlResolver; feedback unificado; nomenclatura Centro de Configurações |
+| **Arquitetura** | Endpoints SEFAZ não editáveis/persistidos pela Central; resolução = Plataforma Fiscal |
+| **Motivos** | Fechar divergências da auditoria final de consistência |
+| **Impacto** | CentralConfiguracaoService (painel) + UI Central/Centro/core; sem mudança Plataforma Fiscal |
+| **Documentos relacionados** | [RC4.3.1_HOTFIX_ALINHAMENTO.md](./RC4.3.1_HOTFIX_ALINHAMENTO.md) |
+
+---
+
 ## Linha do tempo (resumo)
 
 ```mermaid
@@ -194,4 +307,7 @@ timeline
   section Constituição
     Arquitetura Oficial v1.0 : OFICIAL
     Hardening RC5 : Consistência final V1
+  section Núcleo Venda
+    Núcleo Transacional V1.0 : Documentação oficial Sprint 1
+    Porta Aplicação V1.1 : VendaApplicationService Sprint 2.0
 ```

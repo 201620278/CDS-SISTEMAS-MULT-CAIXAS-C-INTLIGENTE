@@ -18,6 +18,7 @@ class DocumentoFiscalInboxDTO {
     this.dataEmissao = dados.dataEmissao ?? dados.data_emissao ?? null;
     this.valorTotal = dados.valorTotal ?? dados.valor_total ?? null;
     this.status = dados.status ?? null;
+    this.tipoDocumento = dados.tipoDocumento ?? dados.tipo_documento ?? null;
     this.origem = dados.origem ?? null;
     this.compraId = dados.compraId ?? dados.compra_id ?? null;
     this.createdAt = dados.createdAt ?? dados.created_at ?? null;
@@ -45,6 +46,7 @@ class DocumentoFiscalInboxDTO {
       dataEmissao: this.dataEmissao,
       valorTotal: this.valorTotal,
       status: this.status,
+      tipoDocumento: this.tipoDocumento,
       origem: this.origem,
       compraId: this.compraId,
       createdAt: this.createdAt

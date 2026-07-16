@@ -141,7 +141,8 @@ Persistência / SEFAZ / Hardware
 | Central Inteligente de Entradas | `backend/motores/central-entradas/` | `1.0.0-rc4` | **Congelada (RC4)** |
 | MIIP | `backend/motores/miip/` | `1.0.0-rc1` | **Congelado (RC1)** |
 | Plataforma Fiscal | `backend/services/fiscal/` (+ `core/`) | F10 / RC1.1 | Operacional (plataforma) |
-| Motor Comercial (Compras / Vendas) | `backend/rotas/compras.js`, serviços comerciais | ERP core | Operacional |
+| Motor Comercial (Compras / Vendas) | Compras + **Núcleo Transacional da Venda** | ERP core | Operacional |
+| Núcleo Transacional da Venda | `VendaApplicationService` → `VendaPagamentoService` + distribuidores / orquestrador | Venda **1.1** | **Oficial (Sprint 2.0 — porta de aplicação)** |
 | Motor Financeiro | Contas, recebimentos, financeiro | ERP core | Operacional |
 | Motor Produto | Cadastro, estoque, preços | ERP core | Operacional |
 | Motor TEF / Equipamentos | `backend/motores/equipamentos/` | Motor dedicado | Operacional |
@@ -199,6 +200,19 @@ Persistência / SEFAZ / Hardware
 | **Dependências** | Produto, Financeiro; Central para documentos de entrada |
 | **Estado atual** | Operacional |
 | **Versão** | ERP core |
+
+#### Núcleo Transacional da Venda
+
+| Campo | Conteúdo |
+|---|---|
+| **Objetivo** | Pipeline único de criação e quitação da Venda (multi-origem) |
+| **Responsabilidade** | Porta de aplicação (`VendaApplicationService`) + núcleo (`VendaPagamentoService`): distribuir F×NF, orquestrar pagamentos, baixar estoque, lançar financeiro, disparar NFC-e |
+| **Entradas** | Contrato Venda via `POST /api/vendas` (PDV hoje; outras origens futuras) |
+| **Saídas** | `vendas` + itens, recebimentos, financeiro, estoque, `nfce_notas` |
+| **Dependências** | Produto/saldos, TEF, Plataforma Fiscal (emissão NFC-e), caixa (porta atual) |
+| **Estado atual** | Oficial (Sprint 2.0 — camada de aplicação); regras do núcleo inalteradas |
+| **Versão** | `1.1` |
+| **Doc** | [NUCLEO_TRANSACIONAL_VENDA_V1.md](./NUCLEO_TRANSACIONAL_VENDA_V1.md) |
 
 #### Motor Financeiro
 
@@ -328,13 +342,30 @@ Padrão: **Facade → Orchestrator → Services → Repositories**
 | Eventos | `centralEventosEmitter` |
 | Máquina de estados | `MaquinaEstadosDocumento` + `DocumentoTransitionService` |
 
-### 5.2 Configuração Enterprise (RC4)
+### 5.2 Configuração Enterprise (RC4 + RC3.1)
 
-Toda configuração operacional da Central passa por `CentralConfiguracaoService`:
+Toda configuração **operacional** da Central (timeouts, sync, proxy, diagnóstico) passa por `CentralConfiguracaoService`.
 
-Ambiente · SEFAZ (timeouts / visão de endpoints via UrlResolver) · Certificado (visão) · Sincronização · Diagnóstico · Avançado
+**RC3.1 — Existe apenas uma configuração fiscal do sistema:**
 
-**Regra:** a Central **não** hardcoda nem edita endpoints SOAP SEFAZ. O SOAP DF-e resolve exclusivamente via Plataforma Fiscal (`distribuicaoDfeRuntime` → `UrlResolver` → Registry). Timeouts/ambiente operacional passam por `CentralConfiguracaoService`.
+| Configuração | Fonte oficial | Central |
+|---|---|---|
+| Ambiente Produção/Homologação | Configurações Avançadas → `fiscal_ambiente` via `getFiscalConfig()` | Somente leitura |
+| UF emitente | Configurações Avançadas | Somente leitura |
+| Certificado / CNPJ / CSC | Cadastro fiscal | Adapter / visão |
+| Endpoints DF-e SOAP | Plataforma Fiscal (`UrlResolver`) | Não edita |
+
+```
+Configurações Avançadas / **Centro de Configurações** (única escrita de ambiente)
+        ↓
+getFiscalConfig()
+        ↓
+Central Inteligente / Emissão / DF-e / motores
+```
+
+A aba Ambiente da Central **não grava** mais `central_ambiente`. Chaves legadas são ignoradas.
+
+**Regra:** a Central **não** hardcoda nem edita endpoints SOAP SEFAZ. O SOAP DF-e resolve exclusivamente via Plataforma Fiscal (`distribuicaoDfeRuntime` → `UrlResolver` → Registry). Ambiente fiscal é o mesmo da emissão.
 
 ### 5.3 Diagrama Central RC4
 
@@ -402,12 +433,38 @@ Central Inteligente
 Mesmo pipeline
 ```
 
-### 6.4 Regra absoluta
+### 6.4 Pipeline oficial de venda (núcleo transacional)
+
+```
+Origem (PDV)
+    ↓
+Controller (POST /api/vendas)
+    ↓
+VendaApplicationService
+    ↓
+VendaPagamentoService
+    ↓
+Motor Fiscal × Não Fiscal
+    ↓
+Financeiro
+    ↓
+Estoque
+    ↓
+Documento Fiscal (NFC-e modelo 65)
+```
+
+> Documento normativo: [NUCLEO_TRANSACIONAL_VENDA_V1.md](./NUCLEO_TRANSACIONAL_VENDA_V1.md).  
+> O PDV **inicia** o pipeline; **não** é o centro das regras.  
+> `VendaApplicationService` é a **única porta oficial** de entrada do núcleo.  
+> Regras F×NF, financeiro, estoque, TEF, PIX e NFC-e estão congeladas neste núcleo.
+
+### 6.5 Regra absoluta
 
 > **Nenhum fluxo paralelo é permitido** para o mesmo objetivo.  
 > Compras **não** importa XML diretamente.  
 > Identificação **não** bypassa o MIIP.  
-> Parse **não** bypassa o Parser Oficial.
+> Parse **não** bypassa o Parser Oficial.  
+> Venda **não** bypassa o Núcleo Transacional (`VendaApplicationService` → `VendaPagamentoService`).
 
 ```mermaid
 flowchart TB
@@ -439,6 +496,9 @@ flowchart TB
 |---|---|---|
 | `CentralEntradasOrchestrator` | Central | Único coordenador dos fluxos de negócio da Central |
 | `MiipOrchestrator` | MIIP | Delega execução ao `MiipPipeline` |
+| `VendaApplicationService.criarVenda` | Núcleo Venda (porta) | Fachada oficial de entrada — delega ao núcleo sem regras |
+| `VendaPagamentoService.criarVenda` | Núcleo Venda | Orquestra criação completa da venda (estoque, pagamento, financeiro, fiscal) |
+| `OrquestradorPagamento` | Núcleo Venda | Único ponto de decisão do fluxo de pagamento fiscal/não fiscal |
 
 ### 7.2 Quem pode chamar
 
@@ -664,6 +724,8 @@ Fica registrado oficialmente que:
 | Versão | Data | Descrição |
 |---|---|---|
 | **1.0** | **2026-07-10** | Publicação oficial após congelamento MIIP RC1 e Central RC4 |
+| **1.0 + Núcleo Venda** | **2026-07-11** | Inclusão do pipeline oficial de venda e referência a [NUCLEO_TRANSACIONAL_VENDA_V1.md](./NUCLEO_TRANSACIONAL_VENDA_V1.md) (somente documentação) |
+| **1.1 + Porta de Aplicação** | **2026-07-11** | Sprint 2.0 — `VendaApplicationService` como porta oficial do Núcleo Transacional (sem alteração de regras) |
 
 ---
 
@@ -684,6 +746,7 @@ Fica registrado oficialmente que:
 | [MIIP_CENTRAL_REVISAO.md](./MIIP_CENTRAL_REVISAO.md) | Central Revisão |
 | [CENTRAL_ENTRADAS_ARQUITETURA.md](./CENTRAL_ENTRADAS_ARQUITETURA.md) | Central RC4 |
 | [FISCAL_PLATFORM.md](./FISCAL_PLATFORM.md) | Plataforma Fiscal |
+| [NUCLEO_TRANSACIONAL_VENDA_V1.md](./NUCLEO_TRANSACIONAL_VENDA_V1.md) | Núcleo Transacional da Venda V1.0 |
 
 ### Código de referência (somente leitura neste documento)
 

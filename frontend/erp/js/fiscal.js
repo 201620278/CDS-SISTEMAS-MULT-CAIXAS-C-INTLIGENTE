@@ -31,7 +31,7 @@ function renderFiscal() {
         ? `<div class="alert alert-info py-2 mb-3">
                 <i class="fas fa-info-circle"></i>
                 A configuração fiscal (certificado, CSC, numeração) está em
-                <a href="#" onclick="loadPage('configuracoes-avancadas'); return false;">Configurações Avançadas</a>.
+                <a href="#" onclick="loadPage('configuracoes-avancadas'); return false;">Centro de Configurações</a>.
            </div>`
         : '';
 
@@ -135,66 +135,76 @@ function getFiscalField(label, id, value = '', help = '', type = 'text', onblur 
     const onblurAttr = onblur ? ` onblur="${onblur}"` : '';
     const oninputAttr = oninput ? ` oninput="${oninput}"` : '';
     return `
-        <div class="col-md-4 mb-3">
-            <label class="form-label">${label}</label>
+        <div class="col-md-4 mb-3" data-cfg-search="${String(label).toLowerCase()} ${id}">
+            <label class="form-label cds-cfg-label">${label}</label>
             <input type="${type}" class="form-control fiscal-field" id="${id}" value="${String(value || '').replace(/"/g, '&quot;')}"${onblurAttr}${oninputAttr}>
-            ${help ? `<div class="form-text">${help}</div>` : ''}
+            ${help ? `<div class="form-text cds-cfg-hint">${help}</div>` : ''}
         </div>
     `;
+}
+
+function _fiscalCard(title, body, search) {
+    return `
+        <div class="cds-cfg-card" data-cfg-search="${search || title}">
+            <div class="cds-cfg-card__title">${title}</div>
+            <div class="row g-2">${body}</div>
+        </div>`;
 }
 
 function carregarFiscalConfig(targetSelector = '#fiscal-config-form-area') {
     const $target = $(targetSelector);
     if (!$target.length) return;
+    const layoutCentro = targetSelector.includes('avancadas') || $target.hasClass('cds-cfg-fiscal-grid');
 
     $.ajax({
         url: `${API_URL}/fiscal/config`,
         method: 'GET',
         success: function(cfg) {
-            const html = `
-                <div class="row">
-                    <div class="col-md-4 mb-3">
-                        <label class="form-label">Ambiente</label>
+            const blocoAmbiente = `
+                    <div class="col-md-4 mb-3" data-cfg-search="ambiente produção homologação">
+                        <label class="form-label cds-cfg-label">Ambiente</label>
                         <select class="form-control fiscal-field" id="fiscal_ambiente">
                             <option value="">Selecione</option>
                             <option value="2" ${Number(cfg.ambiente) === 2 ? 'selected' : ''}>2 - Homologação</option>
                             <option value="1" ${Number(cfg.ambiente) === 1 ? 'selected' : ''}>1 - Produção</option>
                         </select>
-                        <div class="form-text">Escolha manualmente o ambiente fiscal</div>
+                        <div class="form-text cds-cfg-hint">Fonte oficial do ambiente SEFAZ (RC3.1)</div>
                         <div id="alertaAmbiente" class="mt-2"></div>
                     </div>
                     ${getFiscalField('UF', 'fiscal_uf_sigla', cfg.uf || 'CE')}
                     ${getFiscalField('Código UF', 'fiscal_codigo_uf', cfg.codigoUf || '23')}
                     ${getFiscalField('Série', 'fiscal_serie', cfg.serie || 1, '', 'number')}
-                    <div class="col-md-4 mb-3">
-                        <label class="form-label">Próximo Número NFC-e</label>
+                    <div class="col-md-4 mb-3" data-cfg-search="número nfc-e numeração">
+                        <label class="form-label cds-cfg-label">Próximo Número NFC-e</label>
                         <input type="number" id="proximoNumeroNfce" class="form-control fiscal-field" min="1" placeholder="Ex: 5001">
-                        <div class="form-text">Informe o próximo número da NFC-e. Exemplo: se a última NFC-e emitida foi 2458, informe 2459.</div>
+                        <div class="form-text cds-cfg-hint">Informe o próximo número da NFC-e.</div>
                         <small style="color:red;" id="msgNumeroNfceSuperUser">Apenas SUPER ADMIN pode alterar a numeração NFC-e.</small>
                     </div>
                     <input type="hidden" class="fiscal-field" id="fiscal_numero_atual" value="${cfg.numeroAtual || 1}">
                     ${getFiscalField('Regime tributário CRT', 'fiscal_regime_tributario', cfg.crt || '1', '1 = Simples Nacional')}
+            `;
 
+            const blocoEmpresa = `
                     ${getFiscalField('Nome da empresa', 'nome_empresa', cfg.nomeEmpresa || '')}
                     ${getFiscalField('CNPJ', 'cnpj', cfg.cnpj || '')}
                     ${getFiscalField('Inscrição Estadual', 'fiscal_ie', cfg.ie || '')}
                     ${getFiscalField('Telefone', 'telefone', cfg.telefone || '', '', 'text', '', 'formatPhone(this)')}
                     ${getFiscalField('Email', 'email', cfg.email || '')}
-
                     ${getFiscalField('Código do município', 'fiscal_municipio_codigo', cfg.municipioCodigo || '2307304')}
                     ${getFiscalField('Município', 'fiscal_municipio_nome', cfg.municipioNome || 'Juazeiro do Norte')}
                     ${getFiscalField('CEP emitente', 'fiscal_emitente_cep', cfg.cep || '', '', 'text', 'buscarCepFiscal(this.value)', 'formatCep(this)')}
                     ${getFiscalField('Logradouro', 'fiscal_emitente_logradouro', cfg.logradouro || '')}
                     ${getFiscalField('Número', 'fiscal_emitente_numero', cfg.numeroEndereco || 'S/N')}
                     ${getFiscalField('Bairro', 'fiscal_emitente_bairro', cfg.bairro || '')}
+            `;
 
+            const blocoCert = `
                     ${getFiscalField('ID CSC', 'fiscal_id_csc', cfg.idCSC || '')}
                     ${getFiscalField('Token CSC', 'fiscal_token_csc', cfg.tokenCSC || '')}
-
-                    <div class="col-md-4 mb-3">
-                        <label class="form-label">Enviar certificado A1 (.pfx)</label>
+                    <div class="col-md-4 mb-3" data-cfg-search="certificado pfx a1">
+                        <label class="form-label cds-cfg-label">Enviar certificado A1 (.pfx)</label>
                         <input type="file" id="fiscal_certificado_upload" class="form-control" accept=".pfx">
-                        <div class="form-text">Envie o certificado digital da empresa em formato .pfx</div>
+                        <div class="form-text cds-cfg-hint">Envie o certificado digital da empresa em formato .pfx</div>
                         <div class="form-text mt-2" style="color: ${cfg.certificadoPath ? 'green' : 'red'};">
                             ${cfg.certificadoPath ? 'Certificado ativo' : 'Certificado inativo'}
                         </div>
@@ -202,30 +212,26 @@ function carregarFiscalConfig(targetSelector = '#fiscal-config-form-area') {
                     ${getFiscalField('Senha do certificado', 'fiscal_certificado_senha', cfg.certificadoSenha || '', '', 'password')}
                     <input type="hidden" class="fiscal-field" id="fiscal_certificado_path" value="${cfg.certificadoPath || ''}">
                     ${getFiscalField('Tipo impressão', 'fiscal_tp_imp', cfg.tpImp || 4, '4 = DANFE NFC-e')}
-                    <div class="col-12">
-                        <hr>
-                        <h6 class="text-warning">URLs de Homologação</h6>
-                    </div>
+            `;
 
+            const blocoUrlsHom = `
                     ${getFiscalField('URL consulta QRCode homologação', 'fiscal_csc_qrcode_url_homologacao', (cfg.urlsHomologacao && cfg.urlsHomologacao.consultaQr) || '')}
                     ${getFiscalField('URL consulta chave homologação', 'fiscal_consulta_chave_url_homologacao', (cfg.urlsHomologacao && cfg.urlsHomologacao.consultaChave) || '')}
                     ${getFiscalField('WS autorização homologação', 'fiscal_ws_autorizacao_homologacao', (cfg.urlsHomologacao && cfg.urlsHomologacao.autorizacao) || '')}
                     ${getFiscalField('WS retorno homologação', 'fiscal_ws_retorno_homologacao', (cfg.urlsHomologacao && cfg.urlsHomologacao.retorno) || '')}
                     ${getFiscalField('WS status homologação', 'fiscal_ws_status_homologacao', (cfg.urlsHomologacao && cfg.urlsHomologacao.status) || '')}
+            `;
 
-                    <div class="col-12">
-                        <hr>
-                        <h6 class="text-danger">URLs de Produção</h6>
-                    </div>
-
+            const blocoUrlsProd = `
                     ${getFiscalField('URL consulta QRCode produção', 'fiscal_csc_qrcode_url_producao', (cfg.urlsProducao && cfg.urlsProducao.consultaQr) || '')}
                     ${getFiscalField('URL consulta chave produção', 'fiscal_consulta_chave_url_producao', (cfg.urlsProducao && cfg.urlsProducao.consultaChave) || '')}
                     ${getFiscalField('WS autorização produção', 'fiscal_ws_autorizacao_producao', (cfg.urlsProducao && cfg.urlsProducao.autorizacao) || '')}
                     ${getFiscalField('WS retorno produção', 'fiscal_ws_retorno_producao', (cfg.urlsProducao && cfg.urlsProducao.retorno) || '')}
                     ${getFiscalField('WS status produção', 'fiscal_ws_status_producao', (cfg.urlsProducao && cfg.urlsProducao.status) || '')}
-                </div>
+            `;
 
-                <div class="d-flex gap-2 flex-wrap align-items-center">
+            const acoes = `
+                <div class="cds-cfg-actions">
                     <button class="btn btn-success btn-sm" onclick="salvarConfigFiscal()">
                         <i class="fas fa-save"></i> Salvar tudo
                     </button>
@@ -237,6 +243,38 @@ function carregarFiscalConfig(targetSelector = '#fiscal-config-form-area') {
                     </button>
                 </div>
             `;
+
+            const html = layoutCentro
+                ? `
+                ${_fiscalCard('<i class="fas fa-globe"></i> Ambiente e numeração', blocoAmbiente, 'ambiente uf série nfc-e produção homologação')}
+                ${_fiscalCard('<i class="fas fa-building"></i> Emitente', blocoEmpresa, 'empresa cnpj ie município endereço')}
+                ${_fiscalCard('<i class="fas fa-certificate"></i> Certificado e CSC', blocoCert, 'certificado csc senha')}
+                ${_fiscalCard('<i class="fas fa-link"></i> URLs Homologação', blocoUrlsHom, 'urls homologação qrcode')}
+                ${_fiscalCard('<i class="fas fa-link"></i> URLs Produção', blocoUrlsProd, 'urls produção autorização')}
+                ${acoes}
+                `
+                : `
+                <div class="row">
+                    ${blocoAmbiente}
+                    ${blocoEmpresa}
+                    ${blocoCert}
+                    <div class="col-12"><hr><h6 class="text-warning">URLs de Homologação</h6></div>
+                    ${blocoUrlsHom}
+                    <div class="col-12"><hr><h6 class="text-danger">URLs de Produção</h6></div>
+                    ${blocoUrlsProd}
+                </div>
+                <div class="d-flex gap-2 flex-wrap align-items-center">
+                    <button class="btn btn-success btn-sm" onclick="salvarConfigFiscal()">
+                        <i class="fas fa-save"></i> Salvar tudo
+                    </button>
+                    <button class="btn btn-primary btn-sm" onclick="uploadCertificadoFiscal()">
+                        <i class="fas fa-upload"></i> Enviar certificado
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="testarCertificadoFiscal()">
+                        <i class="fas fa-certificate"></i> Testar certificado
+                    </button>
+                </div>
+                `;
 
             $target.html(html);
 
@@ -302,7 +340,9 @@ function salvarConfigFiscal() {
     // Validação do próximo número NFC-e
     const proximoNumero = parseInt(document.getElementById('proximoNumeroNfce').value);
     if (!proximoNumero || proximoNumero <= 0) {
-        alert('Informe um próximo número NFC-e válido.');
+        if (typeof showNotification === 'function') {
+            showNotification('Informe um próximo número NFC-e válido.', 'warning');
+        }
         return;
     }
 
@@ -323,6 +363,9 @@ function salvarConfigFiscal() {
             } else {
                 carregarFiscalConfig();
             }
+            if (typeof atualizarPainelExecutivoCentroCfg === 'function') {
+                atualizarPainelExecutivoCentroCfg();
+            }
         },
         error: function(xhr) {
             showNotification(xhr.responseJSON?.error || 'Erro ao salvar configuração fiscal.', 'danger');
@@ -341,6 +384,9 @@ function testarCertificadoFiscal() {
         data: JSON.stringify({ certificadoPath, senha }),
         success: function(resp) {
             showNotification(`Certificado validado com sucesso. Tamanho base64: ${resp.certBase64Length}`);
+            if (typeof atualizarPainelExecutivoCentroCfg === 'function') {
+                atualizarPainelExecutivoCentroCfg();
+            }
         },
         error: function(xhr) {
             showNotification(xhr.responseJSON?.error || 'Falha ao validar certificado.', 'danger');
@@ -368,6 +414,9 @@ function uploadCertificadoFiscal() {
         success: function(resp) {
             $('#fiscal_certificado_path').val(resp.path || '');
             showNotification('Certificado enviado com sucesso!');
+            if (typeof atualizarPainelExecutivoCentroCfg === 'function') {
+                atualizarPainelExecutivoCentroCfg();
+            }
         },
         error: function(xhr) {
             showNotification(xhr.responseJSON?.error || 'Erro ao enviar certificado.', 'danger');

@@ -13,6 +13,17 @@ const CentralScoreDocumentoService = require('../services/CentralScoreDocumentoS
 /** @type {CentralScoreDocumentoService} */
 const scoreService = new CentralScoreDocumentoService();
 
+function obterLabelDocumento(documento) {
+  const tipo = documento?.tipoDocumento ?? documento?.tipo_documento;
+  if (
+    documento?.status === 'SINCRONIZADA'
+    && ['PROC_NFE', 'NFE'].includes(tipo)
+  ) {
+    return 'XML Completo Recebido';
+  }
+  return obterLabel(documento?.status);
+}
+
 /**
  * @param {Object|null} documento
  * @returns {DocumentoFiscalInboxDTO}
@@ -28,7 +39,7 @@ function paraInboxDTO(documento) {
 function paraListaInboxDTO(documentos) {
   return (documentos || []).map((doc) => {
     const dto = paraInboxDTO(doc).toJSON();
-    dto.statusLabel = obterLabel(dto.status);
+    dto.statusLabel = obterLabelDocumento(doc);
     dto.parseDisponivel = Boolean(doc.parseJson);
     dto.miipDisponivel = Boolean(doc.miipResumoJson || doc.miipSessaoId);
     const score = scoreService.calcular(doc);
@@ -54,7 +65,7 @@ function paraDocumentoDetalheDTO(documento) {
 
   return {
     ...restante,
-    statusLabel: obterLabel(documento.status),
+    statusLabel: obterLabelDocumento(documento),
     xmlDisponivel: Boolean(xml),
     parseDisponivel: Boolean(parseJson),
     miipDisponivel: Boolean(miipResumoJson || documento.miipSessaoId),

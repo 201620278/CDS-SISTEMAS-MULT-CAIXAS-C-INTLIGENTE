@@ -140,6 +140,19 @@
     return `${sinal}${pct.toFixed(1).replace('.', ',')}%`;
   }
 
+  function montarDetalhesEstoqueBaixo(lista) {
+    return `<ul class="cc-alert__detail-list">${lista.map((p) => {
+      const atual = typeof obterEstoqueExibicaoSimplesProduto === 'function'
+        ? obterEstoqueExibicaoSimplesProduto(p)
+        : Number(p.estoque_atual || 0);
+      return `
+      <li>
+        <span class="cc-alert__detail-name">${esc(p.nome || 'Produto')}</span>
+        <span class="cc-alert__detail-meta">${esc(atual)} / mín. ${esc(Number(p.estoque_minimo || 0))} ${esc(p.unidade || '')}</span>
+      </li>`;
+    }).join('')}</ul>`;
+  }
+
   function DashboardAlert(itens) {
     const root = document.getElementById('ccAlertsList');
     if (!root) return;
@@ -155,13 +168,43 @@
       return pa - pb;
     });
 
-    root.innerHTML = `<ul class="cc-alerts">${ordenados.map((item) => `
-      <li class="cc-alert" data-priority="${esc(item.priority || 'info')}">
+    root.innerHTML = `<ul class="cc-alerts">${ordenados.map((item) => {
+      const hasDetails = Boolean(item.detailsHtml);
+      return `
+      <li class="cc-alert${hasDetails ? ' cc-alert--expandable' : ''}"
+          data-priority="${esc(item.priority || 'info')}"
+          ${hasDetails ? 'role="button" tabindex="0" aria-expanded="false" title="Clique para ver os itens"' : ''}>
         <span class="cc-alert__icon"><i class="fas fa-exclamation-triangle"></i></span>
-        <div class="cc-alert__body">${esc(item.text)}</div>
+        <div class="cc-alert__body">
+          <div class="cc-alert__text">
+            ${esc(item.text)}
+            ${hasDetails ? '<i class="fas fa-chevron-down cc-alert__chevron" aria-hidden="true"></i>' : ''}
+          </div>
+          ${hasDetails ? `<div class="cc-alert__details" hidden>${item.detailsHtml}</div>` : ''}
+        </div>
         ${item.actionHtml || ''}
-      </li>
-    `).join('')}</ul>`;
+      </li>`;
+    }).join('')}</ul>`;
+
+    root.querySelectorAll('.cc-alert--expandable').forEach((el) => {
+      const toggle = () => {
+        const details = el.querySelector('.cc-alert__details');
+        const open = !el.classList.contains('is-open');
+        el.classList.toggle('is-open', open);
+        el.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (details) details.hidden = !open;
+      };
+      el.addEventListener('click', (e) => {
+        if (e.target.closest('.cc-alert__action')) return;
+        toggle();
+      });
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          toggle();
+        }
+      });
+    });
   }
 
   function montarAlertas(data, vencExtras) {
@@ -177,7 +220,8 @@
     if (estoque.length > 0) {
       itens.push({
         priority: 'danger',
-        text: `${estoque.length} produto(s) com estoque baixo`
+        text: `${estoque.length} produto(s) com estoque baixo`,
+        detailsHtml: montarDetalhesEstoqueBaixo(estoque)
       });
     }
     if (Array.isArray(vencidos) && vencidos.length > 0) {

@@ -44,6 +44,8 @@ class CentralDiagnosticoService {
     /** @private */
     this._flags = deps.flags ?? require('../config/centralEntradasFlags');
     /** @private */
+    this._syncExecucao = deps.syncExecucao || null;
+    /** @private */
     this._cache = new Map();
   }
 
@@ -203,8 +205,7 @@ class CentralDiagnosticoService {
 </distDFeInt>`;
 
     try {
-      // RC5: Fiscal Platform (distribuicaoDfeRuntime) — sem acesso SOAP legado direto
-      const runtimeResult = await enviarDistribuicaoDfe({
+      const executarProbe = async () => enviarDistribuicaoDfe({
         xmlConsulta,
         ambiente,
         cUF: codigoUf,
@@ -212,6 +213,22 @@ class CentralDiagnosticoService {
         certificadoSenha: ctx.certificadoSenha,
         versao: ctx.versaoServico || '1.01'
       });
+
+      // RC3.3.3 — probe DistNSU sob o mesmo mutex da sync (não altera NSU).
+      let runtimeResult;
+      if (this._syncExecucao?.comLockDistDfe) {
+        runtimeResult = await this._syncExecucao.comLockDistDfe('diagnostico:testar-sefaz', executarProbe);
+        if (runtimeResult?.codigo === 'SYNC_EM_ANDAMENTO') {
+          return {
+            sucesso: false,
+            tempoMs: Date.now() - inicio,
+            mensagem: runtimeResult.mensagem,
+            bloqueadoPorMutex: true
+          };
+        }
+      } else {
+        runtimeResult = await executarProbe();
+      }
 
       const body = runtimeResult.body || '';
       const meta = typeof body === 'string' && body

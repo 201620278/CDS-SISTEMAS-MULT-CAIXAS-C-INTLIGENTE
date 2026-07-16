@@ -151,6 +151,71 @@
   color: #1e40af;
 }
 
+.central-cfg-tip {
+  color: #64748b;
+  cursor: help;
+  font-size: 0.85em;
+}
+
+.central-cfg-endpoint-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+}
+
+.central-cfg-endpoint-origem {
+  font-size: 0.72rem;
+  color: var(--cfg-muted, #6b7280);
+}
+
+.central-cfg-endpoint--unresolved {
+  color: #92400e !important;
+  background: #fffbeb !important;
+  border-color: #f59e0b !important;
+  font-style: italic;
+}
+
+.central-cfg-platform-dl {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+}
+
+.central-cfg-platform-dl > div {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.75rem;
+  align-items: center;
+  font-size: 0.82rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px dashed #e5e7eb;
+}
+
+.central-cfg-platform-dl > div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.central-cfg-platform-dl dt {
+  margin: 0;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.central-cfg-platform-dl dd {
+  margin: 0;
+  font-weight: 600;
+  color: #111827;
+  text-align: right;
+}
+
+.central-cfg-card--nested {
+  background: #f8fafc;
+  box-shadow: none;
+}
+
 .central-cfg-meta {
   display: flex;
   flex-wrap: wrap;

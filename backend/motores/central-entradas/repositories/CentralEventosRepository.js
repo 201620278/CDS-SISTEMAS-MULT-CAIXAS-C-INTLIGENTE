@@ -89,6 +89,55 @@ class CentralEventosRepository extends IRepository {
   }
 
   /**
+   * Insert idempotente — retorna { evento, criado } e não lança em unique violation.
+   * @param {Object} dados
+   * @returns {Promise<{ evento: Object|null, criado: boolean, conflito: boolean }>}
+   */
+  async inserirUnico(dados) {
+    try {
+      const evento = await this.inserir(dados);
+      return { evento, criado: true, conflito: false };
+    } catch (error) {
+      const msg = String(error.message || error);
+      if (/UNIQUE|constraint/i.test(msg)) {
+        const existentes = await this.listar({
+          tipo: dados.tipo,
+          documentoId: dados.documentoId ?? dados.documento_id,
+          limite: 1
+        });
+        return { evento: existentes[0] || null, criado: false, conflito: true };
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * @param {string} tipo
+   * @param {number|string} documentoId
+   * @returns {Promise<boolean>}
+   */
+  async existePorTipoDocumento(tipo, documentoId) {
+    const total = await this.contar({ tipo, documentoId });
+    return total > 0;
+  }
+
+  /**
+   * @param {string} tipo
+   * @param {number|string} documentoId
+   * @returns {Promise<boolean>}
+   */
+  async removerPorTipoDocumento(tipo, documentoId) {
+    const sql = this._obterSql();
+    await sql.whenReady();
+    const resultado = await sql.run(
+      `DELETE FROM ${CentralEventosRepository.TABELA}
+       WHERE tipo = ? AND documento_id = ?`,
+      [tipo, documentoId]
+    );
+    return resultado.changes > 0;
+  }
+
+  /**
    * @param {Object} [filtros]
    * @returns {Promise<Object[]>}
    */
@@ -169,6 +218,10 @@ class CentralEventosRepository extends IRepository {
     if (filtros.origem) {
       where.push('origem = ?');
       params.push(filtros.origem);
+    }
+    if (filtros.documentoId != null || filtros.documento_id != null) {
+      where.push('documento_id = ?');
+      params.push(filtros.documentoId ?? filtros.documento_id);
     }
     if (filtros.busca) {
       const termo = `%${String(filtros.busca).trim()}%`;

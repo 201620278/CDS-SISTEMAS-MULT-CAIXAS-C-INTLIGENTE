@@ -476,6 +476,9 @@ function renderCabecalhoUx1Central() {
                 <button type="button" class="btn btn-outline-light btn-sm" id="centralBtnAdicionarDocumento" title="Adicionar documento via XML">
                     <i class="fas fa-plus"></i>
                 </button>
+                <button type="button" class="btn btn-outline-light btn-sm central-nav-view" data-view="ciclo-dfe" title="Monitor de Ciclo DF-e (homologação)">
+                    <i class="fas fa-project-diagram"></i>
+                </button>
                 <button type="button" class="btn btn-outline-light btn-sm central-nav-view" data-view="config" title="Configurações">
                     <i class="fas fa-cog"></i>
                 </button>
@@ -629,6 +632,12 @@ function renderAtividadeRodapeUx1() {
         DOCUMENTO_RECEBIDO: 'fa-inbox',
         DOCUMENTO_ATUALIZADO: 'fa-file-import',
         DOCUMENTO_PROCESSADO: 'fa-brain',
+        CIENCIA_ENVIADA: 'fa-paper-plane',
+        MANIFESTACAO_ACEITA: 'fa-check-circle',
+        MANIFESTACAO_REJEITADA: 'fa-times-circle',
+        CONSULTA_DFE_POS_MANIFESTACAO: 'fa-cloud-download-alt',
+        PARSER_CONCLUIDO: 'fa-file-code',
+        MIIP_CONCLUIDO: 'fa-brain',
         COMPRA_GRAVADA: 'fa-shopping-cart',
         SYNC_CONCLUIDA: 'fa-sync-alt',
         SYNC_INICIADA: 'fa-cloud-download-alt',
@@ -1140,9 +1149,11 @@ function mostrarViewCentral(view) {
     const inbox = document.getElementById('centralEntradasViewInbox');
     const config = document.getElementById('centralEntradasViewConfig');
     const log = document.getElementById('centralEntradasViewLog');
+    const ciclo = document.getElementById('centralEntradasViewCicloDfe');
     if (inbox) inbox.classList.toggle('d-none', view !== 'inbox');
     if (config) config.classList.toggle('d-none', view !== 'config');
     if (log) log.classList.toggle('d-none', view !== 'log');
+    if (ciclo) ciclo.classList.toggle('d-none', view !== 'ciclo-dfe');
 
     document.querySelectorAll('.central-nav-view').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.view === view);
@@ -1150,6 +1161,9 @@ function mostrarViewCentral(view) {
 
     if (view === 'config') carregarConfigCentral();
     if (view === 'log') carregarLogCentral();
+    if (view === 'ciclo-dfe' && typeof carregarHomologacaoCentral === 'function') {
+        carregarHomologacaoCentral();
+    }
 }
 
 function badgeCfgCentral(texto, tipo = 'neutral') {
@@ -1188,32 +1202,43 @@ function formatarMsCfgCentral(ms) {
 function renderAbaAmbienteCfg(painel) {
     const amb = painel.ambiente || {};
     const codigo = Number(amb.codigo) === 1 ? 1 : 2;
+    const origemLabel = amb.origemLabel || 'Centro de Configurações (fonte oficial)';
     return `
         <div class="row g-3">
             <div class="col-lg-7">
                 <div class="central-cfg-card">
-                    <div class="central-cfg-card__title"><i class="fas fa-globe me-1"></i> Ambiente SEFAZ</div>
-                    <div class="central-cfg-radio-group mb-3" role="radiogroup" aria-label="Ambiente">
-                        <label class="central-cfg-radio">
-                            <input type="radio" name="cfgAmbiente" id="cfgAmbienteProd" value="1" ${codigo === 1 ? 'checked' : ''}>
-                            <span><strong>Produção</strong><div class="central-cfg-hint mb-0">Ambiente real</div></span>
-                        </label>
-                        <label class="central-cfg-radio">
-                            <input type="radio" name="cfgAmbiente" id="cfgAmbienteHom" value="2" ${codigo === 2 ? 'checked' : ''}>
-                            <span><strong>Homologação</strong><div class="central-cfg-hint mb-0">Testes SEFAZ</div></span>
-                        </label>
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                        <div class="central-cfg-card__title mb-0"><i class="fas fa-globe me-1"></i> Ambiente SEFAZ</div>
+                        <div class="central-cfg-meta">
+                            ${badgeCfgCentral('Somente leitura', 'neutral')}
+                            ${badgeCfgCentral('RC3.1 fonte única', 'ok')}
+                        </div>
+                    </div>
+                    <div class="central-cfg-disabled-note mb-3">
+                        Ambiente e UF emitente vêm de <strong>Centro de Configurações → Fiscal</strong>
+                        (<span class="text-muted">(${escapeHtmlCentralEntradas(origemLabel)})</span>.
+                        A Central apenas consome — altere a fonte oficial para mudar Produção/Homologação.
+                    </div>
+                    <div class="mb-3">
+                        <button type="button" class="btn btn-primary btn-sm" id="btnCentralAbrirConfigFiscal">
+                            <i class="fas fa-file-invoice me-1"></i> Abrir Configuração Fiscal
+                        </button>
                     </div>
                     <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="central-cfg-label" for="cfgUf">UF / Autoridade</label>
-                            <input type="text" class="form-control" id="cfgUf" maxlength="10"
-                                value="${escapeHtmlCentralEntradas(amb.uf || 'SVRS')}" placeholder="SVRS">
-                            <div class="central-cfg-hint">Ex.: SVRS, AN, SP</div>
+                        <div class="col-md-4">
+                            <label class="central-cfg-label">Ambiente</label>
+                            <input type="text" class="form-control" id="cfgAmbienteReadonly" readonly disabled
+                                value="${escapeHtmlCentralEntradas(codigo === 1 ? 'Produção (1)' : 'Homologação (2)')}">
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-4">
+                            <label class="central-cfg-label" for="cfgUf">UF emitente</label>
+                            <input type="text" class="form-control" id="cfgUf" maxlength="10" readonly disabled
+                                value="${escapeHtmlCentralEntradas(amb.uf || '—')}">
+                        </div>
+                        <div class="col-md-4">
                             <label class="central-cfg-label" for="cfgCodigoUf">Código UF</label>
-                            <input type="text" class="form-control" id="cfgCodigoUf" maxlength="2"
-                                value="${escapeHtmlCentralEntradas(amb.codigoUf || '23')}" placeholder="23">
+                            <input type="text" class="form-control" id="cfgCodigoUf" maxlength="2" readonly disabled
+                                value="${escapeHtmlCentralEntradas(amb.codigoUf || '—')}">
                         </div>
                     </div>
                 </div>
@@ -1223,14 +1248,19 @@ function renderAbaAmbienteCfg(painel) {
                     <div class="central-cfg-card__title"><i class="fas fa-info-circle me-1"></i> Metadados</div>
                     <div class="central-cfg-meta mb-3">
                         ${badgeCfgCentral(amb.label || (codigo === 1 ? 'Produção' : 'Homologação'), codigo === 1 ? 'ok' : 'info')}
+                        ${badgeCfgCentral(painel.unificacaoFiscal || 'RC3.1', 'ok')}
                         ${badgeCfgCentral(painel.versaoConfiguracao || 'RC4', 'prep')}
                     </div>
                     <div class="central-cfg-stat mb-2">
-                        <div class="central-cfg-stat__label">Atualizado em</div>
+                        <div class="central-cfg-stat__label">Fonte oficial</div>
+                        <div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(origemLabel)}</div>
+                    </div>
+                    <div class="central-cfg-stat mb-2">
+                        <div class="central-cfg-stat__label">Atualizado em (ops. Central)</div>
                         <div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(formatarDataHoraCentral(amb.atualizadoEm) || '—')}</div>
                     </div>
                     <div class="central-cfg-stat">
-                        <div class="central-cfg-stat__label">Última alteração</div>
+                        <div class="central-cfg-stat__label">Última alteração (ops. Central)</div>
                         <div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(formatarDataHoraCentral(amb.ultimaAlteracao) || '—')}</div>
                     </div>
                 </div>
@@ -1240,56 +1270,136 @@ function renderAbaAmbienteCfg(painel) {
 
 function renderAbaSefazCfg(painel) {
     const s = painel.sefaz || {};
+    const pf = painel.plataformaFiscal || {};
+    const amb = painel.ambiente || {};
+    const dfeOk = Boolean(s.urlDistribuicaoDfeProducao && s.urlDistribuicaoDfeHomologacao);
+    const manifOk = Boolean(s.urlManifestacaoProducao && s.urlManifestacaoHomologacao);
+    const politica = s.politicaManifestacao || pf.modoCodigo || 'MANUAL';
+    const politicaBadge = badgePoliticaManifestacaoCfg(politica);
+    const ambienteLabel = Number(amb.codigo) === 1 ? 'Produção' : 'Homologação';
+    const atualizadoEm = amb.ultimaAlteracao || amb.atualizadoEm || null;
+
     return `
         <div class="row g-3">
             <div class="col-12">
                 <div class="central-cfg-card">
                     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-                        <div class="central-cfg-card__title mb-0"><i class="fas fa-network-wired me-1"></i> Endpoints SEFAZ</div>
+                        <div class="central-cfg-card__title mb-0">
+                            <i class="fas fa-file-signature me-1"></i> Manifestação do Destinatário
+                            ${badgeCfgCentral('Somente leitura', 'neutral')}
+                        </div>
+                        <div class="central-cfg-meta">${politicaBadge}</div>
+                    </div>
+                    <div class="central-cfg-disabled-note mb-3">
+                        A política da Manifestação do Destinatário define como a Central Inteligente enviará o evento
+                        Ciência da Emissão (210210) durante o ciclo DF-e. Esta configuração afeta apenas futuras sincronizações.
+                    </div>
+                    <dl class="central-cfg-platform-dl mb-3">
+                        <div><dt>Modo atual</dt><dd>${politicaBadge}</dd></div>
+                        <div><dt>Origem</dt><dd>Centro de Configurações → Fiscal</dd></div>
+                        <div><dt>Última atualização</dt><dd>${escapeHtmlCentralEntradas(atualizadoEm ? formatarDataHoraCentral(atualizadoEm) : '—')}</dd></div>
+                    </dl>
+                    <button type="button" class="btn btn-primary btn-sm mb-3" id="btnCentralAbrirConfigManifestacao">
+                        <i class="fas fa-cog me-1"></i> Abrir Configuração Fiscal
+                    </button>
+                    <div class="central-cfg-card central-cfg-card--nested">
+                        <div class="central-cfg-card__title"><i class="fas fa-heartbeat me-1"></i> Status (somente leitura)</div>
+                        <div id="centralCfgManifStatusBody" class="small text-muted">Carregando status operacional…</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="central-cfg-card">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                        <div class="central-cfg-card__title mb-0">
+                            <i class="fas fa-network-wired me-1"></i> Endpoints SEFAZ
+                            <i class="fas fa-info-circle ms-1 central-cfg-tip"
+                               title="Os endpoints de Manifestação são resolvidos automaticamente pela Plataforma Fiscal (Registry + UrlResolver)."></i>
+                        </div>
                         <div class="central-cfg-meta">
-                            ${badgeCfgCentral('DF-e via UrlResolver', 'ok')}
-                            ${s.manifestacaoPreparada ? badgeCfgCentral('Manifestação preparada', 'prep') : ''}
-                            ${!s.manifestacaoAtiva ? badgeCfgCentral('Manifestação desativada', 'neutral') : badgeCfgCentral('Manifestação ativa', 'ok')}
+                            ${badgeCfgCentral('DF-e via UrlResolver', dfeOk ? 'ok' : 'warn')}
+                            ${badgeCfgCentral('Manifestação via UrlResolver', manifOk ? 'ok' : 'warn')}
                         </div>
                     </div>
                     <div class="central-cfg-disabled-note mb-3">
-                        Endpoints DF-e são resolvidos pela Plataforma Fiscal (UrlResolver). A Central não edita nem monta URLs SOAP.
+                        Endpoints DF-e e Manifestação são resolvidos pela Plataforma Fiscal (Registry → UrlResolver). A Central não edita nem monta URLs SOAP.
                     </div>
                     <div class="row g-3">
                         <div class="col-md-6">
                             <label class="central-cfg-label" for="cfgUrlDfeProd">Distribuição DF-e — Produção</label>
-                            <input type="url" class="form-control form-control-sm" id="cfgUrlDfeProd" readonly disabled
-                                value="${escapeHtmlCentralEntradas(s.urlDistribuicaoDfeProducao || '')}">
+                            ${renderCampoEndpointResolvidoCfg({
+                                id: 'cfgUrlDfeProd',
+                                url: s.urlDistribuicaoDfeProducao,
+                                origem: s.origemEndpointDfe || 'UrlResolver'
+                            })}
                         </div>
                         <div class="col-md-6">
                             <label class="central-cfg-label" for="cfgUrlDfeHom">Distribuição DF-e — Homologação</label>
-                            <input type="url" class="form-control form-control-sm" id="cfgUrlDfeHom" readonly disabled
-                                value="${escapeHtmlCentralEntradas(s.urlDistribuicaoDfeHomologacao || '')}">
+                            ${renderCampoEndpointResolvidoCfg({
+                                id: 'cfgUrlDfeHom',
+                                url: s.urlDistribuicaoDfeHomologacao,
+                                origem: s.origemEndpointDfe || 'UrlResolver'
+                            })}
                         </div>
                         <div class="col-md-6">
-                            <label class="central-cfg-label" for="cfgUrlConsultaProd">Consulta chave — Produção</label>
-                            <input type="url" class="form-control form-control-sm" id="cfgUrlConsultaProd"
-                                value="${escapeHtmlCentralEntradas(s.urlConsultaChaveProducao || '')}">
+                            <label class="central-cfg-label" for="cfgUrlConsultaProd">
+                                Consulta chave — Produção
+                                <i class="fas fa-info-circle ms-1 central-cfg-tip"
+                                   title="Endpoint resolvido automaticamente pela Plataforma Fiscal (Registry + UrlResolver)."></i>
+                            </label>
+                            ${renderCampoEndpointResolvidoCfg({
+                                id: 'cfgUrlConsultaProd',
+                                url: s.urlConsultaChaveProducao,
+                                origem: 'Registry → UrlResolver'
+                            })}
                         </div>
                         <div class="col-md-6">
-                            <label class="central-cfg-label" for="cfgUrlConsultaHom">Consulta chave — Homologação</label>
-                            <input type="url" class="form-control form-control-sm" id="cfgUrlConsultaHom"
-                                value="${escapeHtmlCentralEntradas(s.urlConsultaChaveHomologacao || '')}">
+                            <label class="central-cfg-label" for="cfgUrlConsultaHom">
+                                Consulta chave — Homologação
+                                <i class="fas fa-info-circle ms-1 central-cfg-tip"
+                                   title="Endpoint resolvido automaticamente pela Plataforma Fiscal (Registry + UrlResolver)."></i>
+                            </label>
+                            ${renderCampoEndpointResolvidoCfg({
+                                id: 'cfgUrlConsultaHom',
+                                url: s.urlConsultaChaveHomologacao,
+                                origem: 'Registry → UrlResolver'
+                            })}
                         </div>
                         <div class="col-md-6">
                             <label class="central-cfg-label" for="cfgUrlManifProd">
-                                Manifestação — Produção ${badgeCfgCentral('prep', 'prep')}
+                                Manifestação — Produção
+                                <i class="fas fa-info-circle ms-1 central-cfg-tip"
+                                   title="Os endpoints de Manifestação são resolvidos automaticamente pela Plataforma Fiscal (Registry + UrlResolver)."></i>
                             </label>
-                            <input type="url" class="form-control form-control-sm" id="cfgUrlManifProd" disabled
-                                value="${escapeHtmlCentralEntradas(s.urlManifestacaoProducao || '')}">
-                            <div class="central-cfg-disabled-note">Estrutura pronta — ativação futura</div>
+                            ${renderCampoEndpointResolvidoCfg({
+                                id: 'cfgUrlManifProd',
+                                url: s.urlManifestacaoProducao,
+                                origem: 'Registry → UrlResolver'
+                            })}
                         </div>
                         <div class="col-md-6">
                             <label class="central-cfg-label" for="cfgUrlManifHom">
-                                Manifestação — Homologação ${badgeCfgCentral('prep', 'prep')}
+                                Manifestação — Homologação
+                                <i class="fas fa-info-circle ms-1 central-cfg-tip"
+                                   title="Os endpoints de Manifestação são resolvidos automaticamente pela Plataforma Fiscal (Registry + UrlResolver)."></i>
                             </label>
-                            <input type="url" class="form-control form-control-sm" id="cfgUrlManifHom" disabled
-                                value="${escapeHtmlCentralEntradas(s.urlManifestacaoHomologacao || '')}">
+                            ${renderCampoEndpointResolvidoCfg({
+                                id: 'cfgUrlManifHom',
+                                url: s.urlManifestacaoHomologacao,
+                                origem: 'Registry → UrlResolver'
+                            })}
+                        </div>
+                        <div class="col-12">
+                            <div class="d-flex flex-wrap gap-2 align-items-center">
+                                <button type="button" class="btn btn-sm btn-outline-primary" id="centralCfgTestarResolucao">
+                                    <i class="fas fa-search me-1"></i> Testar Resolução
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="centralCfgCopiarUrlManif">
+                                    <i class="fas fa-copy me-1"></i> Copiar URL
+                                </button>
+                                <span id="centralCfgResolucaoFeedback" class="small text-muted"></span>
+                            </div>
+                            <div id="centralCfgResultResolucao" class="central-cfg-result mt-2"></div>
                         </div>
                     </div>
                 </div>
@@ -1324,13 +1434,176 @@ function renderAbaSefazCfg(painel) {
             <div class="col-lg-4">
                 <div class="central-cfg-card">
                     <div class="central-cfg-card__title"><i class="fas fa-plug me-1"></i> Teste</div>
-                    <p class="small text-muted mb-3">Valida comunicação com o endpoint DF-e do ambiente atual.</p>
+                    <p class="small text-muted mb-3">Valida comunicação com o endpoint DF-e do ambiente atual (SOAP).</p>
                     <button type="button" class="btn btn-outline-primary w-100" id="centralCfgTestarSefaz">
                         <i class="fas fa-satellite-dish me-1"></i> Testar comunicação
                     </button>
                     <div id="centralCfgResultSefaz" class="central-cfg-result"></div>
                 </div>
+                <div class="central-cfg-card mt-3">
+                    <div class="central-cfg-card__title"><i class="fas fa-layer-group me-1"></i> Plataforma Fiscal</div>
+                    <dl class="central-cfg-platform-dl mb-0">
+                        <div><dt>Registry</dt><dd>${pf.registry === false ? '—' : '✔ Operacional'}</dd></div>
+                        <div><dt>UrlResolver</dt><dd>${pf.urlResolver === false ? '—' : '✔ Operacional'}</dd></div>
+                        <div><dt>SoapTransport</dt><dd>${pf.soapTransport === false ? '—' : '✔ Operacional'}</dd></div>
+                        <div><dt>Runtime</dt><dd>✔ Operacional</dd></div>
+                        <div><dt>Ambiente</dt><dd>${escapeHtmlCentralEntradas(ambienteLabel)}</dd></div>
+                        <div><dt>Manifestação</dt><dd>${escapeHtmlCentralEntradas(pf.modo || s.politicaManifestacaoLabel || 'Manual')}</dd></div>
+                        <div><dt>Endpoint</dt><dd>${pf.endpointResolvido ? 'Resolvido' : badgeCfgCentral('Não resolvido', 'warn')}</dd></div>
+                    </dl>
+                    <div class="central-cfg-disabled-note mt-2 mb-0">Somente leitura — sem edição na Central.</div>
+                </div>
             </div>
+        </div>`;
+}
+
+function abrirConfigFiscalManifestacaoCentral() {
+    window.__CDS_CFG_FORCE_TAB = 'fiscal';
+    window.__CDS_CFG_FORCE_ANCHOR = 'manifestacao';
+    if (typeof loadPage === 'function') loadPage('configuracoes-avancadas');
+}
+
+async function carregarStatusManifestacaoCentralCfg() {
+    const el = document.getElementById('centralCfgManifStatusBody');
+    if (!el) return;
+    const painel = centralEntradasState.configuracoes || {};
+    const s = painel.sefaz || {};
+    const pf = painel.plataformaFiscal || {};
+    try {
+        const [homolog, eventos] = await Promise.all([
+            centralEntradasFetch('/homologacao/painel?limite=20').catch(() => null),
+            centralEntradasFetch('/eventos?limite=80').catch(() => ({ eventos: [] }))
+        ]);
+        const diag = homolog?.diagnosticoSefaz || {};
+        const lista = Array.isArray(eventos?.eventos) ? eventos.eventos : [];
+        const enviados = lista.filter((e) => e.tipo === 'CIENCIA_ENVIADA').length;
+        const aceitos = lista.filter((e) => e.tipo === 'MANIFESTACAO_ACEITA').length;
+        const rejeitados = lista.filter((e) => e.tipo === 'MANIFESTACAO_REJEITADA').length;
+        const ultimoEv = diag.ultimaManifestacao || lista.find((e) =>
+            ['CIENCIA_ENVIADA', 'MANIFESTACAO_ACEITA', 'MANIFESTACAO_REJEITADA'].includes(e.tipo)
+        );
+        const cooldown = homolog?.cooldown || diag.cooldown;
+        el.innerHTML = `
+            <dl class="central-cfg-platform-dl mb-0">
+                <div><dt>Modo atual</dt><dd>${badgePoliticaManifestacaoCfg(s.politicaManifestacao || pf.modoCodigo || 'MANUAL')}</dd></div>
+                <div><dt>Última manifestação</dt><dd>${escapeHtmlCentralEntradas(ultimoEv?.dataHora ? formatarDataHoraCentral(ultimoEv.dataHora) : (ultimoEv?.createdAt ? formatarDataHoraCentral(ultimoEv.createdAt) : '—'))}</dd></div>
+                <div><dt>Último evento enviado</dt><dd>${escapeHtmlCentralEntradas(ultimoEv?.tipo || '—')}</dd></div>
+                <div><dt>Último cStat</dt><dd>${escapeHtmlCentralEntradas(String(ultimoEv?.cStat ?? ultimoEv?.detalhe?.cStat ?? diag.ultimoCstatPersistido ?? '—'))}</dd></div>
+                <div><dt>Cooldown</dt><dd>${cooldown?.ativo ? `Ativo até ${escapeHtmlCentralEntradas(formatarDataHoraCentral(cooldown.proximaConsultaEm))}` : 'Inativo'}</dd></div>
+                <div><dt>Eventos enviados</dt><dd>${enviados}</dd></div>
+                <div><dt>Eventos aceitos</dt><dd>${aceitos}</dd></div>
+                <div><dt>Eventos rejeitados</dt><dd>${rejeitados}</dd></div>
+                <div><dt>Origem</dt><dd>Centro de Configurações → Fiscal</dd></div>
+            </dl>`;
+    } catch (err) {
+        el.innerHTML = `<span class="text-danger">${escapeHtmlCentralEntradas(err.message || 'Falha ao carregar status')}</span>`;
+    }
+}
+
+async function testarResolucaoEndpointCentralCfg() {
+    const result = document.getElementById('centralCfgResultResolucao');
+    const feedback = document.getElementById('centralCfgResolucaoFeedback');
+    if (result) result.innerHTML = '<span class="text-muted small"><i class="fas fa-spinner fa-spin me-1"></i> Resolvendo via Registry → UrlResolver (sem SOAP)…</span>';
+    if (feedback) feedback.textContent = '';
+    const t0 = performance.now();
+    try {
+        const painel = await centralEntradasFetch('/configuracao');
+        const tempoMs = Math.round(performance.now() - t0);
+        centralEntradasState.configuracoes = painel;
+        const amb = Number(painel.ambiente?.codigo) === 1 ? 1 : 2;
+        const sefaz = painel.sefaz || {};
+        const urlManif = amb === 1 ? sefaz.urlManifestacaoProducao : sefaz.urlManifestacaoHomologacao;
+        const urlConsulta = amb === 1 ? sefaz.urlConsultaChaveProducao : sefaz.urlConsultaChaveHomologacao;
+        const urlDfe = amb === 1 ? sefaz.urlDistribuicaoDfeProducao : sefaz.urlDistribuicaoDfeHomologacao;
+        const ok = Boolean(urlManif && urlConsulta && urlDfe);
+        if (result) {
+            result.innerHTML = `
+                <div class="alert alert-${ok ? 'success' : 'warning'} py-2 mb-0 small">
+                    <div><strong>Status:</strong> ${ok ? '✔ Endpoints resolvidos' : 'Resolução parcial / falha'}</div>
+                    <div><strong>Ambiente:</strong> ${amb === 1 ? 'Produção' : 'Homologação'}</div>
+                    <div><strong>DF-e:</strong> ${escapeHtmlCentralEntradas(urlDfe || '—')}</div>
+                    <div><strong>Consulta chave:</strong> ${escapeHtmlCentralEntradas(urlConsulta || '—')}</div>
+                    <div><strong>Manifestação:</strong> ${escapeHtmlCentralEntradas(urlManif || '—')}</div>
+                    <div><strong>Origem:</strong> Registry → UrlResolver → FiscalWebServices</div>
+                    <div><strong>Tempo:</strong> ${tempoMs} ms</div>
+                    <div><strong>Modelo:</strong> NFe</div>
+                    <div class="text-muted mt-1">Nenhum SOAP enviado · Nenhuma consulta SEFAZ</div>
+                </div>`;
+        }
+    } catch (err) {
+        if (result) {
+            result.innerHTML = `<div class="alert alert-danger py-2 mb-0 small">${escapeHtmlCentralEntradas(err.message)}</div>`;
+        }
+    }
+}
+
+async function copiarUrlManifestacaoCentralCfg() {
+    const painel = centralEntradasState.configuracoes || {};
+    const amb = Number(painel.ambiente?.codigo) === 1 ? 1 : 2;
+    const sefaz = painel.sefaz || {};
+    const url = amb === 1
+        ? (sefaz.urlManifestacaoProducao || sefaz.urlConsultaChaveProducao || sefaz.urlDistribuicaoDfeProducao)
+        : (sefaz.urlManifestacaoHomologacao || sefaz.urlConsultaChaveHomologacao || sefaz.urlDistribuicaoDfeHomologacao);
+    const feedback = document.getElementById('centralCfgResolucaoFeedback');
+    if (!url) {
+        if (feedback) feedback.textContent = 'Nenhuma URL resolvida para copiar';
+        if (typeof showNotification === 'function') showNotification('Nenhuma URL resolvida para copiar.', 'warning');
+        return;
+    }
+    try {
+        await navigator.clipboard.writeText(url);
+        if (feedback) feedback.textContent = '✔ URL copiada.';
+        if (typeof showNotification === 'function') showNotification('URL copiada.', 'success');
+    } catch {
+        const input = document.createElement('input');
+        input.value = url;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        input.remove();
+        if (feedback) feedback.textContent = '✔ URL copiada.';
+        if (typeof showNotification === 'function') showNotification('URL copiada.', 'success');
+    }
+}
+
+function wireBotoesConfigFiscalCentral() {
+    document.getElementById('btnCentralAbrirConfigFiscal')?.addEventListener('click', () => {
+        window.__CDS_CFG_FORCE_TAB = 'fiscal';
+        if (typeof loadPage === 'function') loadPage('configuracoes-avancadas');
+    });
+    document.getElementById('btnCentralAbrirConfigManifestacao')?.addEventListener('click', abrirConfigFiscalManifestacaoCentral);
+    document.getElementById('centralCfgTestarResolucao')?.addEventListener('click', () => {
+        void testarResolucaoEndpointCentralCfg();
+    });
+    document.getElementById('centralCfgCopiarUrlManif')?.addEventListener('click', () => {
+        void copiarUrlManifestacaoCentralCfg();
+    });
+    void carregarStatusManifestacaoCentralCfg();
+}
+
+function badgePoliticaManifestacaoCfg(politica) {
+    if (politica === 'AUTOMATICA_CIENCIA') {
+        return badgeCfgCentral('🟢 Manifestação Automática', 'ok');
+    }
+    if (politica === 'CONFIRMAR_OPERADOR') {
+        return badgeCfgCentral('🔵 Solicitar Confirmação', 'info');
+    }
+    return badgeCfgCentral('🟡 Manifestação Manual', 'warn');
+}
+
+function renderCampoEndpointResolvidoCfg({ id, url, origem }) {
+    const resolvido = Boolean(url && String(url).trim());
+    const valorExibido = resolvido ? String(url).trim() : 'Endpoint não resolvido';
+    return `
+        <input type="text" class="form-control form-control-sm ${resolvido ? '' : 'central-cfg-endpoint--unresolved'}"
+            id="${escapeHtmlCentralEntradas(id)}" readonly disabled
+            value="${escapeHtmlCentralEntradas(valorExibido)}"
+            title="${escapeHtmlCentralEntradas(resolvido ? valorExibido : 'Endpoint não resolvido pela Plataforma Fiscal')}">
+        <div class="central-cfg-endpoint-meta">
+            ${resolvido
+                ? `${badgeCfgCentral('Resolução dinâmica', 'ok')}
+                   <span class="central-cfg-endpoint-origem">Origem: ${escapeHtmlCentralEntradas(origem || 'Registry → UrlResolver')}</span>`
+                : badgeCfgCentral('Endpoint não resolvido', 'warn')}
         </div>`;
 }
 
@@ -1644,16 +1917,10 @@ function ativarAbaConfigCentral(tabId) {
 }
 
 function coletarPayloadConfigCentral() {
-    const ambienteRadio = document.querySelector('input[name="cfgAmbiente"]:checked');
+    // RC3.1 — ambiente/UF não são enviados; fonte oficial = Centro de Configurações
+    // RC4.3.1 — endpoints SOAP não são enviados; resolução = Plataforma Fiscal
     return {
-        ambiente: {
-            codigo: Number(ambienteRadio?.value) === 1 ? 1 : 2,
-            uf: document.getElementById('cfgUf')?.value?.trim() || 'SVRS',
-            codigoUf: document.getElementById('cfgCodigoUf')?.value?.trim() || '23'
-        },
         sefaz: {
-            urlConsultaChaveProducao: document.getElementById('cfgUrlConsultaProd')?.value?.trim() || '',
-            urlConsultaChaveHomologacao: document.getElementById('cfgUrlConsultaHom')?.value?.trim() || '',
             versaoServico: document.getElementById('cfgVersaoServico')?.value?.trim() || '1.01',
             timeoutMs: Number(document.getElementById('cfgTimeoutMs')?.value) || 90000,
             maxTentativas: Number(document.getElementById('cfgMaxTentativas')?.value) || 2,
@@ -1715,6 +1982,7 @@ async function carregarConfigCentral() {
         const painel = await centralEntradasFetch('/configuracao');
         centralEntradasState.configuracoes = painel;
         container.innerHTML = renderPainelConfigCentral(painel);
+        wireBotoesConfigFiscalCentral();
     } catch (error) {
         container.innerHTML = `<div class="alert alert-danger m-3">${escapeHtmlCentralEntradas(error.message)}</div>`;
     }
@@ -1730,6 +1998,7 @@ async function salvarConfigCentral() {
         centralEntradasState.configuracoes = painel;
         const container = document.getElementById('centralConfigForm');
         if (container) container.innerHTML = renderPainelConfigCentral(painel);
+        wireBotoesConfigFiscalCentral();
         showNotification('Configurações salvas. Serviço de sync reiniciado.', 'success');
         await carregarStatusServicoCentral();
     } catch (error) {
@@ -1749,6 +2018,7 @@ async function restaurarConfigCentral() {
         centralEntradasState.configuracoes = painel;
         const container = document.getElementById('centralConfigForm');
         if (container) container.innerHTML = renderPainelConfigCentral(painel);
+        wireBotoesConfigFiscalCentral();
         showNotification('Configuração padrão restaurada.', 'success');
     } catch (error) {
         showNotification('Erro ao restaurar: ' + error.message, 'danger');
@@ -2208,6 +2478,11 @@ function renderAcoesPipelineCentral(doc) {
     const aguardandoRevisao = doc.status === 'AGUARDANDO_REVISAO';
 
     let acoesHtml = '';
+    if (doc.status === 'AGUARDANDO_XML_COMPLETO') {
+        acoesHtml += `<button type="button" class="btn btn-outline-primary btn-sm w-100 mb-2" id="centralBtnSolicitarXmlCompleto" data-doc-id="${doc.id}" title="Enviar Ciência da Emissão e consultar o XML completo">
+            <i class="fas fa-file-import me-1"></i> Solicitar XML completo
+        </button>`;
+    }
     if (podeProcessar) {
         acoesHtml += `<button type="button" class="btn btn-primary btn-sm w-100 mb-2" id="centralBtnProcessar" data-doc-id="${doc.id}" title="Executar pipeline Parser → MIIP">
             <i class="fas fa-cogs me-1"></i> Processar documento
@@ -2499,10 +2774,12 @@ function renderAbaXmlCentral(doc) {
         `;
     }
 
+    const ehResumo = doc.tipoDocumento === 'RES_NFE'
+      || (doc.status === 'AGUARDANDO_XML_COMPLETO' && doc.tipoDocumento !== 'PROC_NFE' && doc.tipoDocumento !== 'NFE');
     return `
         <div class="d-flex justify-content-end mb-2">
-            <button type="button" class="btn btn-outline-secondary btn-sm" id="centralBtnExportarXmlPainel" data-doc-id="${doc.id}">
-                <i class="fas fa-download me-1"></i> Baixar XML
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="centralBtnExportarXmlPainel" data-doc-id="${doc.id}" data-download-kind="${ehResumo ? 'resumo' : 'completo'}">
+                <i class="fas fa-download me-1"></i> ${ehResumo ? 'Baixar Resumo' : 'Baixar XML Completo'}
             </button>
         </div>
         <pre class="central-entradas-xml-viewer">${escapeHtmlCentralEntradas(centralEntradasState.xmlAtual)}</pre>
@@ -2864,6 +3141,36 @@ async function processarDocumentoCentral(documentoId) {
     }
 }
 
+async function solicitarXmlCompletoCentral(documentoId) {
+    const confirmado = window.confirm(
+        'Enviar Ciência da Emissão (210210) à SEFAZ para solicitar o XML completo desta NF-e?'
+    );
+    if (!confirmado) return;
+
+    try {
+        const resultado = await centralEntradasFetch(`/${documentoId}/ciclo-dfe`, {
+            method: 'POST',
+            body: JSON.stringify({
+                confirmado: true,
+                usuario_id: obterUsuarioLogadoCentral()?.id
+            })
+        });
+        showNotification(
+            resultado.mensagem || (resultado.xmlCompleto
+                ? 'XML completo recebido.'
+                : 'Aguardando disponibilização do XML completo pela SEFAZ.'),
+            resultado.xmlCompleto ? 'success' : 'info'
+        );
+        await Promise.all([
+            carregarDashboardCentral(),
+            carregarDocumentosCentral()
+        ]);
+        await selecionarDocumentoCentral(documentoId);
+    } catch (error) {
+        showNotification('Erro ao solicitar XML completo: ' + error.message, 'danger');
+    }
+}
+
 async function abrirRevisaoMiipCentral(documentoId) {
     try {
         const payload = await centralEntradasFetch(`/${documentoId}/payload-compra`);
@@ -2954,13 +3261,21 @@ async function exportarXmlCentral(documentoId) {
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `NFe-${xmlDoc.chave || id}.xml`;
+        const tipo = xmlDoc.tipoDocumento;
+        const ehResumo = tipo === 'RES_NFE'
+          || xmlDoc.xmlCompleto === false
+          || (xmlDoc.status === 'AGUARDANDO_XML_COMPLETO' && tipo !== 'PROC_NFE' && tipo !== 'NFE');
+        if (tipo === 'RES_NFE' && xmlDoc.xmlCompleto === true) {
+            showNotification('Inconsistência de tipo: RES_NFE marcado como completo. Download bloqueado.', 'warning');
+            return;
+        }
+        link.download = `${ehResumo ? 'Resumo-NFe' : 'NFe'}-${xmlDoc.chave || id}.xml`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
 
-        showNotification('XML exportado com sucesso.', 'success');
+        showNotification(ehResumo ? 'Resumo exportado com sucesso.' : 'XML completo exportado com sucesso.', 'success');
     } catch (error) {
         showNotification('Erro ao exportar XML: ' + error.message, 'danger');
     }
@@ -3141,6 +3456,11 @@ function bindEventosCentralEntradas() {
     $(document).on('click.centralEntradas', '#centralBtnProcessar', function () {
         const id = Number($(this).data('doc-id'));
         if (id) processarDocumentoCentral(id);
+    });
+
+    $(document).on('click.centralEntradas', '#centralBtnSolicitarXmlCompleto', function () {
+        const id = Number($(this).data('doc-id'));
+        if (id) solicitarXmlCompletoCentral(id);
     });
 
     $(document).on('click.centralEntradas', '#centralBtnRevisarMiip', function () {
@@ -3428,7 +3748,7 @@ function loadCentralEntradas() {
                             <div class="central-cfg-header-title">
                                 <i class="fas fa-sliders-h me-2"></i> Configuração Enterprise
                             </div>
-                            <div class="central-cfg-header-sub">Ambiente, SEFAZ, certificado, sync e diagnóstico da Central</div>
+                            <div class="central-cfg-header-sub">Ambiente (somente leitura · fonte oficial), SEFAZ, certificado, sync e diagnóstico</div>
                         </div>
                         <button type="button" class="btn btn-sm btn-outline-light central-nav-view" data-view="inbox" title="Voltar à Central">
                             <i class="fas fa-arrow-left me-1"></i> Voltar
@@ -3457,6 +3777,12 @@ function loadCentralEntradas() {
                                 <option value="DOCUMENTO_RECEBIDO">Documento recebido</option>
                                 <option value="DOCUMENTO_ATUALIZADO">Documento atualizado</option>
                                 <option value="DOCUMENTO_PROCESSADO">Documento processado</option>
+                                <option value="CIENCIA_ENVIADA">Ciência enviada</option>
+                                <option value="MANIFESTACAO_ACEITA">Manifestação aceita</option>
+                                <option value="MANIFESTACAO_REJEITADA">Manifestação rejeitada</option>
+                                <option value="CONSULTA_DFE_POS_MANIFESTACAO">Nova consulta DF-e</option>
+                                <option value="PARSER_CONCLUIDO">Parser</option>
+                                <option value="MIIP_CONCLUIDO">MIIP</option>
                                 <option value="COMPRA_GRAVADA">Compra gravada</option>
                                 <option value="ERRO">Erro</option>
                             </select>
@@ -3474,6 +3800,23 @@ function loadCentralEntradas() {
                                 <tr><td colspan="6" class="text-center py-4 text-muted">Carregando...</td></tr>
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            </div>
+
+            <div id="centralEntradasViewCicloDfe" class="d-none mb-4">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-start flex-wrap gap-2">
+                        <div>
+                            <div class="fw-semibold"><i class="fas fa-project-diagram me-2"></i> Monitor de Ciclo DF-e</div>
+                            <div class="small text-muted">Homologação assistida · somente leitura · telemetria SEFAZ</div>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-light central-nav-view" data-view="inbox" title="Voltar à Central">
+                            <i class="fas fa-arrow-left me-1"></i> Voltar
+                        </button>
+                    </div>
+                    <div class="card-body" id="centralHomologacaoBody">
+                        <div class="text-center py-4 text-muted">Abrindo monitor…</div>
                     </div>
                 </div>
             </div>

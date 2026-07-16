@@ -36,6 +36,8 @@ class CentralProcessamentoService {
     this._historicoService = deps.historicoService
       ?? new CentralHistoricoService();
     /** @private */
+    this._eventosRepository = deps.eventosRepository || null;
+    /** @private */
     this._transitionService = deps.transitionService
       ?? new DocumentoTransitionService({
         documentosRepository: this._documentosRepository,
@@ -106,12 +108,36 @@ class CentralProcessamentoService {
       );
 
       etapaAtual = 'parse';
+      const inicioParser = Date.now();
       const parsed = await NFeParserService.parse(documento.xml);
       etapasConcluidas.push('parse');
+      await this._registrarEtapaObservabilidade({
+        documentoId,
+        tipo: 'PARSER_CONCLUIDO',
+        descricao: 'Parser NF-e concluído.',
+        duracaoMs: Date.now() - inicioParser,
+        usuarioId: opcoes.usuarioId
+      });
 
       etapaAtual = 'miip';
+      const inicioMiip = Date.now();
       const { miipImportacao, possuiPendencias, erroMiip } = await enriquecerParseComMiip(parsed);
       etapasConcluidas.push('miip');
+      await this._registrarEtapaObservabilidade({
+        documentoId,
+        tipo: 'MIIP_CONCLUIDO',
+        descricao: erroMiip
+          ? `MIIP concluído com indisponibilidade: ${erroMiip}`
+          : 'MIIP concluído.',
+        duracaoMs: Date.now() - inicioMiip,
+        usuarioId: opcoes.usuarioId,
+        sucesso: !erroMiip,
+        detalhe: {
+          operacaoId: miipImportacao?.operacaoId || null,
+          possuiPendencias: Boolean(possuiPendencias),
+          erro: erroMiip || null
+        }
+      });
 
       etapaAtual = 'persistir';
       const processadoEm = new Date().toISOString();
@@ -217,6 +243,40 @@ class CentralProcessamentoService {
         erros: [error.message]
       }).toJSON();
     }
+  }
+
+  /** @private */
+  async _registrarEtapaObservabilidade(dados) {
+    const { emitirEvento, ORIGENS } = require('../utils/centralEventosEmitter');
+    const CentralEventosRepository = require('../repositories/CentralEventosRepository');
+    const eventosRepo = this._eventosRepository
+      ?? new CentralEventosRepository();
+
+    const unico = await eventosRepo.inserirUnico({
+      tipo: dados.tipo,
+      origem: ORIGENS.SISTEMA,
+      descricao: dados.descricao,
+      resultado: dados.sucesso === false ? 'erro' : 'sucesso',
+      sucesso: dados.sucesso !== false,
+      documentoId: dados.documentoId,
+      duracaoMs: dados.duracaoMs,
+      detalhe: {
+        ...(dados.detalhe || {}),
+        usuarioId: dados.usuarioId ?? null
+      }
+    });
+
+    if (!unico.criado) {
+      return;
+    }
+
+    await this._historicoService.registrar({
+      documentoId: dados.documentoId,
+      statusAnterior: DocumentoFiscalStatus.EM_PROCESSAMENTO,
+      statusNovo: DocumentoFiscalStatus.EM_PROCESSAMENTO,
+      usuarioId: dados.usuarioId ?? null,
+      detalhe: dados.descricao
+    });
   }
 }
 

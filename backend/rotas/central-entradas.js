@@ -261,6 +261,7 @@ router.get('/eventos', async (req, res) => {
       tipo: req.query.tipo || null,
       origem: req.query.origem || null,
       busca: req.query.busca || null,
+      documentoId: req.query.documento_id || req.query.documentoId || null,
       dataInicio: req.query.data_inicio || null,
       dataFim: req.query.data_fim || null,
       sucesso: req.query.sucesso,
@@ -319,6 +320,50 @@ function statusHttpSync(resultado) {
   if (resultado.codigoErro === 'SEFAZ') return 503;
   return 200;
 }
+
+/** RC3.4 — Homologação assistida (somente leitura). */
+router.get('/homologacao/painel', async (req, res) => {
+  try {
+    const painel = await centralEntradasService.obterPainelHomologacao({
+      limite: req.query.limite != null ? Number(req.query.limite) : undefined
+    });
+    return res.json(painel);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/homologacao/metricas', async (req, res) => {
+  try {
+    const metricas = await centralEntradasService.obterMetricasHomologacao();
+    return res.json(metricas);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/homologacao/:id/inspecionar', async (req, res) => {
+  try {
+    const inspecao = await centralEntradasService.inspecionarDocumentoHomologacao(req.params.id);
+    return res.json(inspecao);
+  } catch (error) {
+    const code = error.statusCode || 500;
+    return res.status(code).json({ error: error.message });
+  }
+});
+
+router.get('/homologacao/:id/exportar', async (req, res) => {
+  try {
+    const formato = String(req.query.formato || 'json').toLowerCase() === 'txt' ? 'txt' : 'json';
+    const rel = await centralEntradasService.exportarRelatorioHomologacao(req.params.id, formato);
+    res.setHeader('Content-Type', rel.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${rel.filename}"`);
+    return res.send(rel.corpo);
+  } catch (error) {
+    const code = error.statusCode || 500;
+    return res.status(code).json({ error: error.message });
+  }
+});
 
 router.post('/sincronizar-ao-abrir', async (req, res) => {
   try {
@@ -440,6 +485,26 @@ router.post('/:id/processar', async (req, res) => {
     });
 
     const statusCode = resultado.sucesso ? 200 : 400;
+    return res.status(statusCode).json(resultado);
+  } catch (error) {
+    const code = error.statusCode || 500;
+    return res.status(code).json({ error: error.message, sucesso: false });
+  }
+});
+
+router.post('/:id/ciclo-dfe', async (req, res) => {
+  try {
+    const { usuario_id: usuarioId, confirmado } = req.body || {};
+    const resultado = await centralEntradasService.processarCicloDfeDocumento(
+      req.params.id,
+      {
+        usuarioId,
+        confirmado: confirmado === true
+      }
+    );
+    const statusCode = resultado.sucesso || resultado.aguardandoDisponibilizacao
+      ? 200
+      : (resultado.requerConfirmacao ? 409 : 422);
     return res.status(statusCode).json(resultado);
   } catch (error) {
     const code = error.statusCode || 500;

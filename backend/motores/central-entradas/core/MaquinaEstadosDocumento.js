@@ -9,6 +9,8 @@
  * - EM_PROCESSAMENTO → REVISADA: removido (nunca usado pelo pipeline; usa AGUARDANDO_REVISAO).
  * - REVISADA → EM_COMPRA: permitido para alinhar com registrarAberturaCompra.
  * - AGUARDANDO_XML_COMPLETO: não entra no pipeline Parser/MIIP até haver XML completo (→ SINCRONIZADA).
+ * - RC3.3.3: CIENCIA_PENDENTE / CIENCIA_ENVIADA / PROCESSADA são etapas observáveis (eventos),
+ *   não status de documento — ver core/CicloDfeEstadosMap.js.
  *
  * @module motores/central-entradas/core/MaquinaEstadosDocumento
  */

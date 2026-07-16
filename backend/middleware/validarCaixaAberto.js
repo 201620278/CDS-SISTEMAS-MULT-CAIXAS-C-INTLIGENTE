@@ -52,14 +52,39 @@ function validarCaixaAberto(req, res, next) {
       return res.status(400).json({ error: mensagem });
     }
 
-    req.caixaSessaoId = sessao.id;
-    req.caixaId = obterCaixaTurnoId(sessao);
-    req.caixaConfigId = sessao.caixa_id || null;
-    req.terminalId = terminalId || sessao.terminal_id || null;
-    req.operadorId = req.user?.id || sessao.operador_id || null;
-    req.caixaSessao = sessao;
+    const turnoId = obterCaixaTurnoId(sessao);
+    if (!turnoId) {
+      return res.status(400).json({ error: 'Sessão de caixa sem turno vinculado.' });
+    }
 
-    next();
+    db.get('SELECT id, status FROM caixa WHERE id = ?', [turnoId], (caixaErr, caixa) => {
+      if (caixaErr) {
+        console.error('Erro ao verificar turno de caixa:', caixaErr);
+        return res.status(500).json({ error: 'Erro ao verificar sessão de caixa.' });
+      }
+
+      if (!caixa || caixa.status !== 'aberto') {
+        db.run(
+          `UPDATE caixa_sessoes
+           SET status = 'fechado',
+               fechado_em = COALESCE(fechado_em, DATETIME('now','localtime')),
+               observacoes = COALESCE(observacoes, 'Encerrada: turno já fechado')
+           WHERE id = ? AND status = 'aberto'`,
+          [sessao.id],
+          () => res.status(400).json({ error: 'Nenhum caixa aberto neste terminal.' })
+        );
+        return;
+      }
+
+      req.caixaSessaoId = sessao.id;
+      req.caixaId = turnoId;
+      req.caixaConfigId = sessao.caixa_id || null;
+      req.terminalId = terminalId || sessao.terminal_id || null;
+      req.operadorId = req.user?.id || sessao.operador_id || null;
+      req.caixaSessao = sessao;
+
+      next();
+    });
   });
 }
 

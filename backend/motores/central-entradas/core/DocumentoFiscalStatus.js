@@ -36,7 +36,7 @@ const LABELS_UI = Object.freeze({
   [DocumentoFiscalStatus.SINCRONIZADA]: 'Nova',
   [DocumentoFiscalStatus.EM_PROCESSAMENTO]: 'Processando',
   [DocumentoFiscalStatus.AGUARDANDO_REVISAO]: 'Revisar produtos',
-  [DocumentoFiscalStatus.AGUARDANDO_XML_COMPLETO]: 'Aguardando XML completo',
+  [DocumentoFiscalStatus.AGUARDANDO_XML_COMPLETO]: 'Aguardando XML Completo',
   [DocumentoFiscalStatus.REVISADA]: 'Revisada',
   [DocumentoFiscalStatus.PRONTA_PARA_COMPRA]: 'Pronta',
   [DocumentoFiscalStatus.EM_COMPRA]: 'Em compra',

@@ -1,7 +1,10 @@
 /**
- * CentralSyncExecucaoService — Execução de sincronização com mutex e telemetria.
+ * CentralSyncExecucaoService — Execução de sincronização com mutex único (RC3.3.3).
  *
- * RC3: eventos via centralEventosEmitter (contrato único).
+ * Proteção:
+ * - nunca duas DistDFe simultâneas no processo;
+ * - `forcar` ignora apenas cooldown/horário, NÃO o mutex;
+ * - ciclo-dfe / diagnóstico devem usar `comLockDistDfe`.
  *
  * @class CentralSyncExecucaoService
  */
@@ -9,30 +12,33 @@
 const CentralSincronizacaoService = require('./CentralSincronizacaoService');
 const CentralConfiguracaoService = require('./CentralConfiguracaoService');
 const CentralNotificacoesService = require('./CentralNotificacoesService');
+const CentralNsuRepository = require('../repositories/CentralNsuRepository');
+const CentralNsuService = require('./CentralNsuService');
 const { TIPOS_EVENTO, ORIGENS } = require('../config/centralEventosTipos');
 const { emitirEvento } = require('../utils/centralEventosEmitter');
 const { logCentral, logCentralErro } = require('../utils/centralLog');
+const { criarCorrelationId, logOperacaoCentral } = require('../utils/centralOperacaoLog');
 const SincronizacaoResultadoDTO = require('../contracts/SincronizacaoResultadoDTO');
 
 class CentralSyncExecucaoService {
   constructor(deps = {}) {
-    /** @private */
-    this._sincronizacao = deps.sincronizacaoService ?? new CentralSincronizacaoService();
-    /** @private — provider oficial RC5 */
+    this._nsuRepository = deps.nsuRepository ?? new CentralNsuRepository({ db: deps.db ?? null });
+    this._nsuService = deps.nsuService
+      ?? new CentralNsuService({ nsuRepository: this._nsuRepository });
+    this._sincronizacao = deps.sincronizacaoService ?? new CentralSincronizacaoService({
+      nsuRepository: this._nsuRepository,
+      nsuService: this._nsuService,
+      configuracaoService: deps.configuracaoService ?? deps.configService
+    });
     this._config = deps.configuracaoService
       ?? deps.configService
       ?? new CentralConfiguracaoService();
-    /** @private */
     this._notificacoes = deps.notificacoesService ?? new CentralNotificacoesService();
-    /** @private */
     this._emitirEvento = deps.emitirEvento || emitirEvento;
-    /** @private */
     this._executando = false;
-    /** @private */
+    this._lockDono = null;
     this._ultimaExecucao = null;
-    /** @private */
     this._proximaExecucao = null;
-    /** @private */
     this._ultimoResultado = null;
   }
 
@@ -47,10 +53,38 @@ class CentralSyncExecucaoService {
   obterEstado() {
     return {
       executando: this._executando,
+      lockDono: this._lockDono,
       ultimaExecucao: this._ultimaExecucao,
       proximaExecucao: this._proximaExecucao,
       ultimoResultado: this._ultimoResultado
     };
+  }
+
+  /**
+   * Mutex único para qualquer DistDFe (sync, ciclo-dfe, diagnóstico).
+   * @param {string} dono
+   * @param {Function} fn
+   * @returns {Promise<*>}
+   */
+  async comLockDistDfe(dono, fn) {
+    if (this._executando) {
+      return {
+        sucesso: false,
+        ignorado: true,
+        codigo: 'SYNC_EM_ANDAMENTO',
+        mensagem: `Sincronização já em andamento (${this._lockDono || 'desconhecido'})`,
+        erros: ['Sincronização já em andamento']
+      };
+    }
+
+    this._executando = true;
+    this._lockDono = dono || 'dist-dfe';
+    try {
+      return await fn();
+    } finally {
+      this._executando = false;
+      this._lockDono = null;
+    }
   }
 
   /**
@@ -62,14 +96,22 @@ class CentralSyncExecucaoService {
     const ignorarHorario = Boolean(opcoes.ignorarHorario);
     const forcar = Boolean(opcoes.forcar);
     const usuarioId = opcoes.usuarioId ?? null;
+    const correlationId = opcoes.correlationId || criarCorrelationId();
 
-    if (this._executando && !forcar) {
-      return {
-        sucesso: false,
-        ignorado: true,
-        mensagem: 'Sincronização já em andamento',
-        erros: ['Sincronização já em andamento']
-      };
+    if (!forcar && opcoes.ignorarCooldown !== true) {
+      const cooldown = await this._verificarCooldownDfe();
+      if (cooldown.ativo) {
+        return {
+          sucesso: true,
+          ignorado: true,
+          codigo: 'AGUARDAR_JANELA_DFE',
+          mensagem: 'Consulta DF-e adiada para respeitar a janela de 1 hora da NT 2014.002.',
+          proximaConsultaEm: cooldown.proximaConsultaEm,
+          ultNsu: cooldown.ultNsu,
+          maxNsu: cooldown.maxNsu,
+          correlationId
+        };
+      }
     }
 
     if (!ignorarHorario && origem === ORIGENS.BACKGROUND) {
@@ -79,100 +121,134 @@ class CentralSyncExecucaoService {
           sucesso: false,
           ignorado: true,
           mensagem: horario.motivo,
-          erros: [horario.motivo]
+          erros: [horario.motivo],
+          correlationId
         };
       }
     }
 
-    this._executando = true;
-    const inicio = Date.now();
-    this._ultimaExecucao = new Date().toISOString();
+    return this.comLockDistDfe(`sync:${origem}`, async () => {
+      const inicio = Date.now();
+      this._ultimaExecucao = new Date().toISOString();
 
-    logCentral('SYNC', { fase: 'inicio', origem, usuarioId });
-
-    await this._emitirEvento({
-      tipo: TIPOS_EVENTO.SYNC_INICIADA,
-      origem,
-      descricao: 'Sincronização SEFAZ iniciada',
-      resultado: 'em_andamento',
-      sucesso: null,
-      usuarioId
-    });
-
-    try {
-      const cfg = await this._config.obterResumo();
-      const maxIteracoes = Math.max(1, Math.min(200, opcoes.maxIteracoes ?? cfg.syncMaxDocumentos ?? 50));
-
-      const resultado = await this._sincronizacao.sincronizar({ maxIteracoes });
-
-      const duracaoMs = Date.now() - inicio;
-      this._ultimoResultado = resultado;
+      logOperacaoCentral({
+        correlationId,
+        operacao: 'SYNC_DFE',
+        origem,
+        resultado: 'INICIO',
+        area: 'SYNC'
+      });
 
       await this._emitirEvento({
-        tipo: resultado.sucesso ? TIPOS_EVENTO.SYNC_CONCLUIDA : TIPOS_EVENTO.SYNC_ERRO,
+        tipo: TIPOS_EVENTO.SYNC_INICIADA,
         origem,
-        descricao: resultado.mensagem || (resultado.sucesso ? 'Sincronização concluída' : 'Falha na sincronização'),
-        resultado: resultado.sucesso ? 'sucesso' : 'erro',
-        sucesso: resultado.sucesso,
-        notasNovas: resultado.notasNovas || 0,
-        notasDuplicadas: resultado.notasDuplicadas || 0,
-        duracaoMs,
+        descricao: 'Sincronização SEFAZ iniciada',
+        resultado: 'em_andamento',
+        sucesso: null,
         usuarioId,
-        detalhe: {
+        detalhe: { correlationId }
+      });
+
+      try {
+        const cfg = await this._config.obterResumo();
+        const maxIteracoes = Math.max(1, Math.min(200, opcoes.maxIteracoes ?? cfg.syncMaxDocumentos ?? 50));
+
+        const resultado = await this._sincronizacao.sincronizar({
+          maxIteracoes,
+          correlationId
+        });
+
+        const duracaoMs = Date.now() - inicio;
+        this._ultimoResultado = resultado;
+
+        await this._emitirEvento({
+          tipo: resultado.sucesso ? TIPOS_EVENTO.SYNC_CONCLUIDA : TIPOS_EVENTO.SYNC_ERRO,
+          origem,
+          descricao: resultado.mensagem || (resultado.sucesso ? 'Sincronização concluída' : 'Falha na sincronização'),
+          resultado: resultado.sucesso ? 'sucesso' : 'erro',
+          sucesso: resultado.sucesso,
           notasNovas: resultado.notasNovas || 0,
-          notasDuplicadas: resultado.notasDuplicadas || 0
-        }
-      });
+          notasDuplicadas: resultado.notasDuplicadas || 0,
+          duracaoMs,
+          usuarioId,
+          detalhe: {
+            correlationId,
+            notasNovas: resultado.notasNovas || 0,
+            notasDuplicadas: resultado.notasDuplicadas || 0,
+            cStat: resultado.cStat || null,
+            ultNsu: resultado.ultNsu || null,
+            maxNsu: resultado.maxNsu || null
+          }
+        });
 
-      const cfgNotif = await this._config.obterResumo();
-      await this._notificacoes.notificarSyncConcluida({
-        notasNovas: resultado.notasNovas || 0,
-        sucesso: resultado.sucesso,
-        mensagem: resultado.mensagem,
-        origem,
-        notificarNovas: cfgNotif.notificarNovasNotas
-      });
+        const cfgNotif = await this._config.obterResumo();
+        await this._notificacoes.notificarSyncConcluida({
+          notasNovas: resultado.notasNovas || 0,
+          sucesso: resultado.sucesso,
+          mensagem: resultado.mensagem,
+          origem,
+          notificarNovas: cfgNotif.notificarNovasNotas
+        });
 
-      logCentral('SYNC', {
-        fase: 'fim',
-        origem,
-        sucesso: resultado.sucesso,
-        notasNovas: resultado.notasNovas || 0,
-        duracaoMs
-      });
+        logOperacaoCentral({
+          correlationId,
+          operacao: 'SYNC_DFE',
+          nsu: resultado.ultNsu,
+          cStat: resultado.cStat,
+          tempoMs: duracaoMs,
+          resultado: resultado.sucesso ? 'OK' : 'ERRO',
+          origem,
+          area: 'SYNC'
+        });
 
-      return { ...resultado, duracaoMs, origem };
-    } catch (error) {
-      const duracaoMs = Date.now() - inicio;
-      const falha = SincronizacaoResultadoDTO.create({
-        sucesso: false,
-        erros: [error.message]
-      }).toJSON();
+        return { ...resultado, duracaoMs, origem, correlationId };
+      } catch (error) {
+        const duracaoMs = Date.now() - inicio;
+        const falha = SincronizacaoResultadoDTO.create({
+          sucesso: false,
+          erros: [error.message]
+        }).toJSON();
 
-      this._ultimoResultado = falha;
-      logCentralErro('SYNC', error, { origem, duracaoMs });
+        this._ultimoResultado = falha;
+        logCentralErro('SYNC', error, { origem, duracaoMs, correlationId });
 
-      await this._emitirEvento({
-        tipo: TIPOS_EVENTO.SYNC_ERRO,
-        origem,
-        descricao: error.message,
-        resultado: 'erro',
-        sucesso: false,
-        duracaoMs,
-        usuarioId,
-        detalhe: { erro: error.message }
-      });
+        await this._emitirEvento({
+          tipo: TIPOS_EVENTO.SYNC_ERRO,
+          origem,
+          descricao: error.message,
+          resultado: 'erro',
+          sucesso: false,
+          duracaoMs,
+          usuarioId,
+          detalhe: { erro: error.message, correlationId }
+        });
 
-      await this._notificacoes.notificarSyncConcluida({
-        sucesso: false,
-        mensagem: error.message,
-        origem,
-        notasNovas: 0
-      });
+        await this._notificacoes.notificarSyncConcluida({
+          sucesso: false,
+          mensagem: error.message,
+          origem,
+          notasNovas: 0
+        });
 
-      return { ...falha, duracaoMs, origem };
-    } finally {
-      this._executando = false;
+        return { ...falha, duracaoMs, origem, correlationId };
+      }
+    });
+  }
+
+  /** @private */
+  async _verificarCooldownDfe() {
+    try {
+      const contexto = await this._config.obterContextoOperacional();
+      if (!contexto.ok) return { ativo: false };
+
+      const ambiente = Number(contexto.contexto.ambiente) === 1 ? 1 : 2;
+      const controle = await this._nsuService.buscarPorCnpjAmbiente(
+        contexto.contexto.cnpj,
+        ambiente
+      );
+      return this._nsuService.avaliarCooldown(controle);
+    } catch {
+      return { ativo: false };
     }
   }
 }

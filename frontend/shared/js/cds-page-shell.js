@@ -24,7 +24,7 @@
     auditoria: { grupo: 'Administração', titulo: 'Auditoria', subtitulo: 'Trilha de eventos do sistema' },
     'laboratorio-equipamentos': { grupo: 'Administração', titulo: 'Laboratório de Equipamentos', subtitulo: 'Testes e diagnóstico de periféricos' },
     'central-diagnostico': { grupo: 'Administração', titulo: 'Saúde da Central', subtitulo: 'Diagnóstico técnico da Central de Entradas' },
-    'configuracoes-avancadas': { grupo: 'Administração', titulo: 'Configurações Avançadas', subtitulo: 'Parâmetros restritos (SUPER_ADMIN)' },
+    'configuracoes-avancadas': { grupo: 'Administração', titulo: 'Centro de Configurações', subtitulo: 'Configurações oficiais da plataforma (SUPER_ADMIN)' },
     equipamentos: { grupo: 'Administração', titulo: 'Equipamentos', subtitulo: 'Cadastro de balanças e periféricos' }
   };
 

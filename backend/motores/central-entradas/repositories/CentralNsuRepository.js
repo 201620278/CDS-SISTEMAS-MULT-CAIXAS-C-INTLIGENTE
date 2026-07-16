@@ -18,7 +18,9 @@ const MAPA_CAMPOS = {
   ambiente: 'ambiente',
   ultNsu: 'ult_nsu',
   maxNsu: 'max_nsu',
-  dataSincronizacao: 'data_sincronizacao'
+  dataSincronizacao: 'data_sincronizacao',
+  cooldownAte: 'cooldown_ate',
+  ultimoCstat: 'ultimo_cstat'
 };
 
 class CentralNsuRepository extends IRepository {
@@ -70,6 +72,8 @@ class CentralNsuRepository extends IRepository {
       ultNsu: row.ult_nsu,
       maxNsu: row.max_nsu,
       dataSincronizacao: row.data_sincronizacao,
+      cooldownAte: row.cooldown_ate || null,
+      ultimoCstat: row.ultimo_cstat || null,
       updatedAt: row.updated_at
     };
   }
@@ -222,11 +226,73 @@ class CentralNsuRepository extends IRepository {
    * @returns {Promise<Object|null>}
    */
   async atualizarSincronizacao(id, dados) {
-    return this.atualizar(id, {
-      ultNsu: dados.ultNsu ?? dados.ult_nsu,
-      maxNsu: dados.maxNsu ?? dados.max_nsu,
-      dataSincronizacao: dados.dataSincronizacao ?? new Date().toISOString()
-    });
+    return this.atualizarSincronizacaoSegura(id, dados);
+  }
+
+  /**
+   * Atualização segura RC3.3.3 — monotônica e capaz de preservar NSU.
+   *
+   * @param {number|string} id
+   * @param {Object} dados
+   * @returns {Promise<Object|null>}
+   */
+  async atualizarSincronizacaoSegura(id, dados = {}) {
+    const sql = this._obterSql();
+    await sql.whenReady();
+
+    const dataSync = dados.dataSincronizacao ?? new Date().toISOString();
+    const ultimoCstat = dados.ultimoCstat !== undefined ? dados.ultimoCstat : undefined;
+    const cooldownAte = dados.cooldownAte !== undefined ? dados.cooldownAte : undefined;
+
+    if (dados.preservarNsu) {
+      const sets = ["data_sincronizacao = ?", "updated_at = datetime('now')"];
+      const params = [dataSync];
+      if (ultimoCstat !== undefined) {
+        sets.push('ultimo_cstat = ?');
+        params.push(ultimoCstat);
+      }
+      if (cooldownAte !== undefined) {
+        sets.push('cooldown_ate = ?');
+        params.push(cooldownAte);
+      }
+      params.push(id);
+      await sql.run(
+        `UPDATE ${CentralNsuRepository.TABELA} SET ${sets.join(', ')} WHERE id = ?`,
+        params
+      );
+      return this.buscarPorId(id);
+    }
+
+    const ultNsu = dados.ultNsu ?? dados.ult_nsu;
+    const maxNsu = dados.maxNsu ?? dados.max_nsu;
+    if (ultNsu == null || maxNsu == null) {
+      return this.buscarPorId(id);
+    }
+
+    // Comparação lexicográfica funciona para NSU zero-padded (15 dígitos).
+    const sets = [
+      'ult_nsu = CASE WHEN ? >= ult_nsu THEN ? ELSE ult_nsu END',
+      'max_nsu = CASE WHEN ? >= ult_nsu THEN ? ELSE max_nsu END',
+      'data_sincronizacao = ?',
+      "updated_at = datetime('now')"
+    ];
+    const params = [ultNsu, ultNsu, ultNsu, maxNsu, dataSync];
+
+    if (ultimoCstat !== undefined) {
+      sets.push('ultimo_cstat = ?');
+      params.push(ultimoCstat);
+    }
+    if (cooldownAte !== undefined) {
+      sets.push('cooldown_ate = ?');
+      params.push(cooldownAte);
+    }
+
+    params.push(id);
+    await sql.run(
+      `UPDATE ${CentralNsuRepository.TABELA} SET ${sets.join(', ')} WHERE id = ?`,
+      params
+    );
+    return this.buscarPorId(id);
   }
 
   /**

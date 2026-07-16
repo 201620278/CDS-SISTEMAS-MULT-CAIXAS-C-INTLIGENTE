@@ -1218,212 +1218,20 @@ function loadConfiguracoesAvancadas() {
 
 function renderConfiguracoesAvancadas(config) {
     window.configuracaoAvancadaServidor = config || {};
+
+    if (typeof renderCentroConfiguracoesCDS === 'function') {
+        renderCentroConfiguracoesCDS(config || {});
+        return;
+    }
+
+    // Fallback legado (script cds-centro-configuracoes.js ausente)
     const tipo = String(config.tipoImplantacao || 'ERP_SEM_FISCAL').toUpperCase();
-    const modo = String(config.modoOperacao || 'LOCAL').toUpperCase();
-    const modoConfirmacaoFiscal = String(config.modo_confirmacao_fiscal || 'TEF').toUpperCase();
-    const ipServidor = config.ipServidor || '';
-    const porta = Number(config.porta) > 0 ? Number(config.porta) : 3001;
-    const clienteServidorDisponivel = tipo === 'ERP_MULTICAIXA';
-
-    const html = `
-        <div class="card">
-            <div class="card-header text-center">
-                <h5 class="mb-0"><i class="fas fa-tools"></i> CONFIGURAÇÕES AVANÇADAS</h5>
-            </div>
-            <div class="card-body">
-                <div class="config-cards-grid mb-4">
-                    <div class="config-card" id="btnConfiguracaoTEF">
-                        <i class="fas fa-credit-card"></i>
-                        <h3>Integração TEF e PinPad</h3>
-                        <p>Configuração de adquirentes, APIs e PinPads.</p>
-                    </div>
-                    <div class="config-card" id="btnConfiguracaoRede" role="button" tabindex="0">
-                        <i class="fas fa-network-wired"></i>
-                        <h3>Configuração de Rede</h3>
-                        <p>Modo local, cliente/servidor e retorno ao servidor local.</p>
-                    </div>
-                </div>
-
-                <form id="formConfigAvancadas" onsubmit="return false;">
-                    <h6 class="fw-bold text-uppercase">Tipo de Implantação</h6>
-                    <div class="mb-3">
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="tipoImplantacao" id="tipoSemFiscal" value="ERP_SEM_FISCAL" ${tipo === 'ERP_SEM_FISCAL' ? 'checked' : ''}>
-                            <label class="form-check-label" for="tipoSemFiscal">ERP Sem Fiscal</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="tipoImplantacao" id="tipoFiscal" value="ERP_FISCAL" ${tipo === 'ERP_FISCAL' ? 'checked' : ''}>
-                            <label class="form-check-label" for="tipoFiscal">ERP Fiscal</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="tipoImplantacao" id="tipoMulticaixa" value="ERP_MULTICAIXA" ${tipo === 'ERP_MULTICAIXA' ? 'checked' : ''}>
-                            <label class="form-check-label" for="tipoMulticaixa">ERP Multi-Caixa</label>
-                        </div>
-                    </div>
-
-                    <hr>
-
-                    <h6 class="fw-bold text-uppercase">Configuração de Rede</h6>
-                    <div id="bannerEstacaoClienteRemoto"></div>
-                    <p class="text-muted small mb-2">Modo de Operação</p>
-                    <div class="mb-3">
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="modoOperacao" id="modoLocal" value="LOCAL" ${modo === 'LOCAL' ? 'checked' : ''}>
-                            <label class="form-check-label" for="modoLocal">Banco Local</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="modoOperacao" id="modoClienteServidor" value="CLIENTE_SERVIDOR" ${modo === 'CLIENTE_SERVIDOR' ? 'checked' : ''} ${clienteServidorDisponivel ? '' : 'disabled'}>
-                            <label class="form-check-label ${clienteServidorDisponivel ? '' : 'text-muted'}" for="modoClienteServidor">Cliente/Servidor</label>
-                        </div>
-                        <small class="text-muted d-block">Cliente/Servidor disponível apenas para ERP Multi-Caixa.</small>
-                    </div>
-
-                    <div id="containerIpServidor" class="mb-3">
-                        <label for="cfgIpServidor" class="form-label fw-bold">IP do Servidor</label>
-                        <input type="text" class="form-control" id="cfgIpServidor" value="${escapeHtml(ipServidor)}" placeholder="Ex.: 192.168.0.100">
-                    </div>
-                    <div class="mb-3">
-                        <label for="cfgPorta" class="form-label fw-bold">Porta</label>
-                        <input type="number" class="form-control" id="cfgPorta" value="${escapeHtml(String(porta))}" min="1" max="65535">
-                    </div>
-
-                    <div id="containerVoltarServidorLocal" class="alert alert-warning mb-3" style="display:none;">
-                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
-                            <div>
-                                <strong id="tituloModoRedeEstacaoInline">Estação em modo cliente</strong>
-                                <div class="small mb-0">
-                                    <span id="descricaoModoRedeEstacaoInline">Use o botão para voltar ao backend local deste computador.</span>
-                                    <span class="d-block mt-1">Servidor remoto: <span id="lblServidorRemotoEstacao">-</span></span>
-                                </div>
-                            </div>
-                            <button type="button" class="btn btn-primary btn-sm" id="btnVoltarServidorLocal" onclick="voltarServidorLocalEstacao()" disabled>
-                                <i class="fas fa-home"></i> Voltar ao servidor local
-                            </button>
-                        </div>
-                    </div>
-                    <p class="text-muted small">
-                        Para conectar terminais remotos ou voltar ao servidor local, use também o painel
-                        <button type="button" class="btn btn-link btn-sm p-0 align-baseline" onclick="abrirModalConfiguracaoRede()">Configuração de Rede</button>.
-                    </p>
-
-                    <hr>
-
-                    <h6 class="fw-bold text-uppercase">Confirmação Fiscal</h6>
-                    <p class="text-muted small mb-2">Define como o PDV confirma o recebimento fiscal antes da NFC-e.</p>
-                    <div class="mb-3">
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="modoConfirmacaoFiscal" id="confirmacaoFiscalTef" value="TEF" ${modoConfirmacaoFiscal === 'TEF' ? 'checked' : ''}>
-                            <label class="form-check-label" for="confirmacaoFiscalTef">TEF</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="modoConfirmacaoFiscal" id="confirmacaoFiscalManual" value="MANUAL" ${modoConfirmacaoFiscal === 'MANUAL' ? 'checked' : ''}>
-                            <label class="form-check-label" for="confirmacaoFiscalManual">Manual</label>
-                        </div>
-                    </div>
-
-                    <hr>
-
-                    <h6 class="fw-bold text-uppercase"><i class="fas fa-qrcode"></i> Pix Automático</h6>
-                    <div class="mb-4">
-                        <div class="form-check form-switch mb-3">
-                            <input
-                                class="form-check-input"
-                                type="checkbox"
-                                id="togglePixAutomatico"
-                                onchange="alterarPixAutomatico()"
-                            >
-                            <label class="form-check-label fw-bold" for="togglePixAutomatico">
-                                Ativar automação bancária Pix
-                            </label>
-                        </div>
-                        <small class="text-muted d-block mb-3">
-                            Quando ativado, o sistema gera QR Code Pix automático e confirma o pagamento sozinho.
-                        </small>
-                        <div id="containerBotaoPixAutomatico" style="display:none;">
-                            <button type="button" class="btn btn-success btn-sm" onclick="abrirModalPixAutomatico()">
-                                <i class="fas fa-qrcode"></i> Configurar Pix Automático
-                            </button>
-                        </div>
-                    </div>
-
-                    <hr>
-
-                    <div id="secaoConfigFiscalAvancadas">
-                        <h6 class="fw-bold text-uppercase"><i class="fas fa-receipt"></i> Configuração Fiscal</h6>
-                        <p class="text-muted small" id="msgConfigFiscalIndisponivel" style="display:none;">
-                            Selecione ERP Fiscal ou ERP Multi-Caixa para configurar os parâmetros fiscais.
-                        </p>
-                        <div id="fiscal-config-form-area-avancadas">
-                            <div class="text-center py-4 text-muted">
-                                <i class="fas fa-spinner fa-spin me-2"></i> Carregando configuração fiscal...
-                            </div>
-                        </div>
-                    </div>
-
-                    <hr>
-
-                    <div id="secaoPadraoFiscalEmpresa">
-                        <h6 class="fw-bold text-uppercase"><i class="fas fa-file-invoice"></i> Padrão Fiscal da Empresa</h6>
-                        <p class="text-muted small mb-3">
-                            Defina os valores padrão para novos produtos, conforme orientação do contador.
-                            Alterações aqui não afetam produtos já cadastrados.
-                        </p>
-                        <div class="row g-3">
-                            <div class="col-md-3">
-                                <label for="padraoCfop" class="form-label fw-bold">CFOP</label>
-                                <input type="text" class="form-control" id="padraoCfop" value="${escapeHtml(config.cfop_padrao || '')}" placeholder="Ex.: 5405">
-                            </div>
-                            <div class="col-md-3">
-                                <label for="padraoCsosn" class="form-label fw-bold">CSOSN</label>
-                                <input type="text" class="form-control" id="padraoCsosn" value="${escapeHtml(config.csosn_padrao || '')}" placeholder="Ex.: 500">
-                            </div>
-                            <div class="col-md-3">
-                                <label for="padraoOrigem" class="form-label fw-bold">Origem</label>
-                                <input type="text" class="form-control" id="padraoOrigem" value="${escapeHtml(config.origem_padrao || '')}" placeholder="Ex.: 0">
-                            </div>
-                            <div class="col-md-3">
-                                <label for="padraoCest" class="form-label fw-bold">CEST</label>
-                                <input type="text" class="form-control" id="padraoCest" value="${escapeHtml(config.cest_padrao || '')}" placeholder="Ex.: 0300100">
-                            </div>
-                        </div>
-                        <div class="mt-3">
-                            <button type="button" class="btn btn-success btn-sm" onclick="salvarPadraoFiscalEmpresa()">
-                                <i class="fas fa-save"></i> Salvar
-                            </button>
-                        </div>
-                    </div>
-
-                    <hr>
-
-                    <div class="d-flex flex-wrap gap-2">
-                        <button type="button" class="btn btn-primary" onclick="salvarConfiguracoesAvancadas()">
-                            <i class="fas fa-save"></i> Salvar Configurações
-                        </button>
-                        <button type="button" class="btn btn-secondary" onclick="loadPage('pdv')">
-                            <i class="fas fa-times"></i> Fechar
-                        </button>
-                    </div>
-                </form>
-            </div>
+    $('#page-content').html(`
+        <div class="alert alert-warning">
+            Centro de Configurações indisponível (script não carregado). Recarregue a página.
+            <div class="small mt-1">Tipo implantação: ${tipo}</div>
         </div>
-    `;
-
-    $('#page-content').html(html);
-    configurarFormConfigAvancadas();
-    aplicarEstadoFormConfigAvancadas();
-    carregarStatusPixAutomatico();
-
-    document
-        .getElementById('btnConfiguracaoTEF')
-        ?.addEventListener('click', () => {
-            abrirConfiguracaoTEF();
-        });
-
-    document
-        .getElementById('btnConfiguracaoRede')
-        ?.addEventListener('click', () => {
-            abrirModalConfiguracaoRede();
-        });
+    `);
 }
 
 function tipoImplantacaoPermiteConfigFiscal(tipo) {
@@ -1603,6 +1411,9 @@ async function salvarConfiguracoesAvancadas() {
         renderConfiguracoesAvancadas(data.config || {});
         manterTelaConfiguracoesAvancadas();
         carregarStatusPixAutomatico();
+        if (typeof atualizarPainelExecutivoCentroCfg === 'function') {
+            atualizarPainelExecutivoCentroCfg();
+        }
     } catch (err) {
         console.error(err);
         showNotification(err.message || 'Erro ao salvar configurações.', 'danger');

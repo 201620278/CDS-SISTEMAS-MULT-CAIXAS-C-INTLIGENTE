@@ -325,6 +325,9 @@ async function autoRegistrarTerminal() {
                 terminalNome = String(terminal.nome || terminal.hostname || '').trim();
                 sincronizarTerminalGlobalsPdv();
                 console.log('Terminal PDV registrado:', terminal);
+                try {
+                    window.dispatchEvent(new CustomEvent('cds:terminal-registrado', { detail: { terminalId: terminalId } }));
+                } catch (e) { /* ignore */ }
                 if (typeof atualizarRotuloTerminalPdvSidebar === 'function') {
                     atualizarRotuloTerminalPdvSidebar();
                 }
@@ -1279,6 +1282,10 @@ function inicializarPDV() {
     iniciarRelogioPDV();
     bindEventosPDV();
     focarCampoCodigo();
+
+    if (window.PdvAppearancePanel && typeof PdvAppearancePanel.mountOnPdv === 'function') {
+        PdvAppearancePanel.mountOnPdv();
+    }
 
     // Verificar status do caixa a cada 30 segundos
     setInterval(verificarStatusCaixa, 30000);

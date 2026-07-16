@@ -161,7 +161,7 @@ async function main() {
       uf: UF_AN
     });
     assert.strictEqual(result.success, true);
-    assert.ok(result.definition.endpoint.includes('hom.nfe.fazenda.gov.br'));
+    assert.ok(result.definition.endpoint.includes('hom1.nfe.fazenda.gov.br'));
     assert.ok(result.warnings.some((w) => w.code === ResolverWarnings.VERSAO_PADRAO_UTILIZADA));
   });
 

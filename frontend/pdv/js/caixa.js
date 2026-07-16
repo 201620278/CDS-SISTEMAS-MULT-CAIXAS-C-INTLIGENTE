@@ -64,7 +64,12 @@ function getTerminalRequestQuery(params = {}) {
 
 function carregarCaixaAberto() {
   const carregar = () => {
-    $.get(`${API_URL}/caixa/aberto`, getTerminalRequestQuery(), function(resumo) {
+    $.ajax({
+      url: `${API_URL}/caixa/aberto`,
+      method: 'GET',
+      data: getTerminalRequestQuery(),
+      cache: false
+    }).done(function(resumo) {
       if (!resumo) {
         renderStatusCaixa(null);
         renderAbrirCaixa();
@@ -489,14 +494,23 @@ function fecharCaixa() {
     url: `${API_URL}/caixa/fechar`,
     method: 'POST',
     contentType: 'application/json',
+    cache: false,
     data: JSON.stringify(getTerminalRequestData({
       valor_informado: valorFechamento,
       observacao
     })),
     success: function(res) {
-      showNotification('Caixa fechado com sucesso.', 'success');
+      showNotification(res?.message || 'Caixa fechado com sucesso.', 'success');
+      // Força a tela de fechado imediatamente; o GET só confirma/atualiza.
+      renderStatusCaixa(null);
+      renderAbrirCaixa();
+      if (typeof caixaAberto !== 'undefined') {
+        caixaAberto = false;
+      }
+      if (typeof atualizarStatusCaixaPdv === 'function') {
+        atualizarStatusCaixaPdv();
+      }
       carregarCaixaAberto();
-      console.log('Resumo fechamento:', res.resumo);
     },
     error: function(xhr) {
       showNotification(xhr.responseJSON?.error || 'Erro ao fechar caixa.', 'danger');

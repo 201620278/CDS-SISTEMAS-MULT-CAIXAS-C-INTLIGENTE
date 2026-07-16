@@ -364,6 +364,32 @@ function aplicarAlteracoesPosCriacao() {
 
   aplicarAlteracaoSegura('central_entradas_nsu', `ALTER TABLE central_entradas_nsu ADD COLUMN max_nsu TEXT DEFAULT '000000000000000'`);
   aplicarAlteracaoSegura('central_entradas_nsu', `ALTER TABLE central_entradas_nsu ADD COLUMN data_sincronizacao DATETIME`);
+  aplicarAlteracaoSegura('central_entradas_nsu', `ALTER TABLE central_entradas_nsu ADD COLUMN cooldown_ate DATETIME`);
+  aplicarAlteracaoSegura('central_entradas_nsu', `ALTER TABLE central_entradas_nsu ADD COLUMN ultimo_cstat TEXT`);
+  aplicarAlteracaoSegura(
+    'central_entradas_eventos',
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_central_eventos_manif_aceita
+     ON central_entradas_eventos(documento_id)
+     WHERE tipo = 'MANIFESTACAO_ACEITA' AND documento_id IS NOT NULL`
+  );
+  aplicarAlteracaoSegura(
+    'central_entradas_eventos',
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_central_eventos_manif_claim
+     ON central_entradas_eventos(documento_id)
+     WHERE tipo = 'MANIFESTACAO_CLAIM' AND documento_id IS NOT NULL`
+  );
+  aplicarAlteracaoSegura(
+    'central_entradas_eventos',
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_central_eventos_parser_unico
+     ON central_entradas_eventos(documento_id)
+     WHERE tipo = 'PARSER_CONCLUIDO' AND documento_id IS NOT NULL`
+  );
+  aplicarAlteracaoSegura(
+    'central_entradas_eventos',
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_central_eventos_miip_unico
+     ON central_entradas_eventos(documento_id)
+     WHERE tipo = 'MIIP_CONCLUIDO' AND documento_id IS NOT NULL`
+  );
 }
 
 function criarTabelasMiip() {
@@ -1895,6 +1921,18 @@ function criarTabelas() {
     });
     db.run(`CREATE INDEX IF NOT EXISTS idx_central_entradas_eventos_created ON central_entradas_eventos(created_at)`, (err) => {
       if (err) console.error('Erro ao criar índice idx_central_entradas_eventos_created:', err);
+    });
+    db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_central_eventos_manif_aceita ON central_entradas_eventos(documento_id) WHERE tipo = 'MANIFESTACAO_ACEITA' AND documento_id IS NOT NULL`, (err) => {
+      if (err) console.error('Erro ao criar índice idx_central_eventos_manif_aceita:', err);
+    });
+    db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_central_eventos_manif_claim ON central_entradas_eventos(documento_id) WHERE tipo = 'MANIFESTACAO_CLAIM' AND documento_id IS NOT NULL`, (err) => {
+      if (err) console.error('Erro ao criar índice idx_central_eventos_manif_claim:', err);
+    });
+    db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_central_eventos_parser_unico ON central_entradas_eventos(documento_id) WHERE tipo = 'PARSER_CONCLUIDO' AND documento_id IS NOT NULL`, (err) => {
+      if (err) console.error('Erro ao criar índice idx_central_eventos_parser_unico:', err);
+    });
+    db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_central_eventos_miip_unico ON central_entradas_eventos(documento_id) WHERE tipo = 'MIIP_CONCLUIDO' AND documento_id IS NOT NULL`, (err) => {
+      if (err) console.error('Erro ao criar índice idx_central_eventos_miip_unico:', err);
     });
     db.run(`CREATE INDEX IF NOT EXISTS idx_central_entradas_notificacoes_lida ON central_entradas_notificacoes(lida)`, (err) => {
       if (err) console.error('Erro ao criar índice idx_central_entradas_notificacoes_lida:', err);

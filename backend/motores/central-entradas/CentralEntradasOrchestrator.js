@@ -9,7 +9,8 @@
 
 const centralEntradasFlags = require('./config/centralEntradasFlags');
 const { ORIGENS } = require('./config/centralEventosTipos');
-const { isValido } = require('./core/DocumentoFiscalStatus');
+const { isValido, DocumentoFiscalStatus } = require('./core/DocumentoFiscalStatus');
+const CentralNsuService = require('./services/CentralNsuService');
 const { listarPresets } = require('./utils/filtrosRapidosCentral');
 const { paraDetalheCompletoDTO } = require('./utils/centralEntradasMapper');
 const { gravarAuditoria } = require('../../services/auditoria');
@@ -37,6 +38,8 @@ const CentralNotificacoesService = require('./services/CentralNotificacoesServic
 const CentralUploadService = require('./services/CentralUploadService');
 const CentralSyncExecucaoService = require('./services/CentralSyncExecucaoService');
 const CentralDiagnosticoService = require('./services/CentralDiagnosticoService');
+const CentralManifestacaoDfeService = require('./services/CentralManifestacaoDfeService');
+const CentralHomologacaoService = require('./services/CentralHomologacaoService');
 
 const VERSAO_MODULO = '1.0.0-rc4';
 
@@ -79,7 +82,21 @@ class CentralEntradasOrchestrator {
 
     /** @private */
     this._sincronizacaoService = deps.sincronizacaoService
-      ?? new CentralSincronizacaoService({ documentosRepository });
+      ?? new CentralSincronizacaoService({
+        documentosRepository,
+        nsuRepository,
+        nsuService: deps.nsuService
+          ?? new CentralNsuService({ nsuRepository }),
+        configuracaoService: deps.configuracaoService
+      });
+
+    /** @private */
+    this._nsuService = deps.nsuService
+      ?? this._sincronizacaoService._nsuService
+      ?? new CentralNsuService({ nsuRepository });
+
+    /** @private */
+    this._syncExecucao = deps.syncExecucao ?? CentralSyncExecucaoService;
 
     /** @private */
     this._processamentoService = deps.processamentoService
@@ -144,7 +161,28 @@ class CentralEntradasOrchestrator {
     /** @private @deprecated RC5 — use _configuracaoService; mantido só se injetado em testes legados */
     this._configService = deps.configService ?? this._configuracaoService;
     /** @private */
+    this._manifestacaoDfeService = deps.manifestacaoDfeService
+      ?? new CentralManifestacaoDfeService({
+        db: deps.db ?? null,
+        documentosRepository,
+        historicoRepository,
+        configuracaoService: this._configuracaoService,
+        eventosRepository: deps.eventosRepository,
+        nsuRepository,
+        nsuService: this._nsuService,
+        syncExecucao: this._syncExecucao
+      });
+    /** @private */
     this._eventosService = deps.eventosService ?? new CentralEventosService();
+    /** @private */
+    this._homologacaoService = deps.homologacaoService ?? new CentralHomologacaoService({
+      db: deps.db ?? null,
+      documentosRepository,
+      nsuRepository,
+      nsuService: this._nsuService,
+      eventosRepository: deps.eventosRepository,
+      historicoRepository
+    });
     /** @private */
     this._notificacoesService = deps.notificacoesService ?? new CentralNotificacoesService();
     /** @private */
@@ -153,12 +191,10 @@ class CentralEntradasOrchestrator {
     });
 
     /** @private */
-    this._syncExecucao = deps.syncExecucao ?? CentralSyncExecucaoService;
-
-    /** @private */
     this._diagnosticoService = deps.diagnosticoService ?? new CentralDiagnosticoService({
       documentosRepository,
-      nsuRepository
+      nsuRepository,
+      syncExecucao: this._syncExecucao
     });
   }
 
@@ -296,8 +332,29 @@ class CentralEntradasOrchestrator {
       origem: opcoes.origem || ORIGENS.MANUAL,
       ignorarHorario: opcoes.ignorarHorario ?? true,
       forcar: opcoes.forcar,
-      maxIteracoes: opcoes.maxIteracoes
+      maxIteracoes: opcoes.maxIteracoes,
+      usuarioId: opcoes.usuarioId
     });
+
+    if (resultado.sucesso) {
+      const filaEsgotada = resultado.ultNsu
+        && resultado.maxNsu
+        && resultado.ultNsu === resultado.maxNsu;
+      const deveAguardar = resultado.codigo === 'AGUARDAR_JANELA_DFE'
+        || ['137', '656'].includes(String(resultado.cStat || ''))
+        || filaEsgotada;
+      const bloqueadoConsultaAte = resultado.proximaConsultaEm
+        || (deveAguardar
+          ? new Date(Date.now() + 60 * 60 * 1000).toISOString()
+          : null);
+
+      resultado.cicloDfe = await this._manifestacaoDfeService.processarCandidatos({
+        usuarioId: opcoes.usuarioId,
+        bloqueadoConsultaAte,
+        limite: opcoes.limiteManifestacao,
+        apenasManifestacao: true
+      });
+    }
 
     if (resultado.sucesso && !resultado.ignorado) {
       const processamentos = await this.processarDocumentosPendentes({
@@ -347,7 +404,16 @@ class CentralEntradasOrchestrator {
     return {
       id: documento.id,
       chave: documento.chave,
-      xml: documento.xml
+      xml: documento.xml,
+      status: documento.status,
+      tipoDocumento: documento.tipoDocumento,
+      xmlCompleto: ['PROC_NFE', 'NFE'].includes(documento.tipoDocumento),
+      downloadLabel: ['PROC_NFE', 'NFE'].includes(documento.tipoDocumento)
+        ? 'Baixar XML Completo'
+        : (documento.tipoDocumento === 'RES_NFE'
+          || documento.status === DocumentoFiscalStatus.AGUARDANDO_XML_COMPLETO
+          ? 'Baixar Resumo'
+          : 'Baixar XML')
     };
   }
 
@@ -367,6 +433,21 @@ class CentralEntradasOrchestrator {
 
   async processarDocumento(id, opcoes = {}) {
     return this._processamentoService.processar(id, opcoes);
+  }
+
+  async processarCicloDfeDocumento(id, opcoes = {}) {
+    const resultado = await this._manifestacaoDfeService.processarDocumento(id, {
+      ...opcoes,
+      confirmado: opcoes.confirmado === true
+    });
+
+    if (resultado.xmlCompleto) {
+      resultado.processamentosAutomaticos = await this.processarDocumentosPendentes({
+        usuarioId: opcoes.usuarioId,
+        limite: 5
+      });
+    }
+    return resultado;
   }
 
   async concluirRevisao(id, dados = {}) {
@@ -612,6 +693,23 @@ class CentralEntradasOrchestrator {
 
   limparCacheDiagnostico() {
     return this._diagnosticoService.limparCache();
+  }
+
+  /** RC3.4 — Homologação assistida (somente leitura / observabilidade). */
+  obterPainelHomologacao(opcoes = {}) {
+    return this._homologacaoService.obterPainel(opcoes);
+  }
+
+  inspecionarDocumentoHomologacao(documentoId) {
+    return this._homologacaoService.inspecionarDocumento(documentoId);
+  }
+
+  obterMetricasHomologacao() {
+    return this._homologacaoService.obterMetricas();
+  }
+
+  exportarRelatorioHomologacao(documentoId, formato = 'json') {
+    return this._homologacaoService.exportarRelatorio(documentoId, formato);
   }
 }
 

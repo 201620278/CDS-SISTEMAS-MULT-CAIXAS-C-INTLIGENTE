@@ -9,13 +9,17 @@ const CentralConfigRepository = require('./CentralConfigRepository');
 
 /**
  * Defaults oficiais da Central (operação).
+ *
+ * RC3.1 — Ambiente SEFAZ e UF emitente NÃO vivem aqui.
+ * Fonte oficial: Configurações Avançadas → getFiscalConfig() → fiscal_ambiente / fiscal_uf_*.
+ *
  * Endpoints SOAP DF-e NÃO vivem aqui — exclusivos do UrlResolver (Plataforma Fiscal).
  * Chaves sefaz_url_dfe_* permanecem vazias/legado de schema (não usadas no SOAP).
+ *
+ * Chaves legadas central_ambiente / central_uf / central_codigo_uf (se existirem no DB)
+ * são ignoradas pelo CentralConfiguracaoService e não são mais semeadas.
  */
 const DEFAULTS = Object.freeze([
-  ['central_ambiente', '2', 'number', 'Ambiente operacional da Central (1=Produção, 2=Homologação)'],
-  ['central_uf', 'SVRS', 'string', 'UF/autorizador operacional'],
-  ['central_codigo_uf', '23', 'string', 'Código IBGE da UF autor'],
   ['sefaz_url_dfe_producao', '', 'string', 'DEPRECATED — endpoint DF-e via UrlResolver (Plataforma Fiscal)'],
   ['sefaz_url_dfe_homologacao', '', 'string', 'DEPRECATED — endpoint DF-e via UrlResolver (Plataforma Fiscal)'],
   ['sefaz_url_consulta_chave_producao', '', 'string', 'URL Consulta por chave (preparação)'],
@@ -26,6 +30,7 @@ const DEFAULTS = Object.freeze([
   ['sefaz_timeout_ms', '90000', 'number', 'Timeout SOAP SEFAZ (ms)'],
   ['sefaz_max_tentativas', '2', 'number', 'Máximo de tentativas SOAP'],
   ['sefaz_intervalo_tentativas_ms', '3000', 'number', 'Intervalo entre tentativas (ms)'],
+  ['manifestacao_destinatario_politica', 'MANUAL', 'string', 'Política: MANUAL, AUTOMATICA_CIENCIA ou CONFIRMAR_OPERADOR'],
   ['sync_reprocessamento_automatico', 'true', 'boolean', 'Reprocessar pendências após sync'],
   ['http_timeout_ms', '90000', 'number', 'Timeout HTTP avançado (ms)'],
   ['http_retry', '2', 'number', 'Retries HTTP avançados'],
@@ -33,6 +38,13 @@ const DEFAULTS = Object.freeze([
   ['proxy_url', '', 'string', 'URL do proxy (estrutura)'],
   ['log_detalhado', 'false', 'boolean', 'Log detalhado da Central'],
   ['modo_debug', 'false', 'boolean', 'Modo debug da Central']
+]);
+
+/** Chaves legadas — não semear; serviço ignora leitura/gravação. */
+const CHAVES_FISCAIS_LEGADAS = Object.freeze([
+  'central_ambiente',
+  'central_uf',
+  'central_codigo_uf'
 ]);
 
 class CentralConfiguracaoRepository extends CentralConfigRepository {
@@ -62,6 +74,13 @@ class CentralConfiguracaoRepository extends CentralConfigRepository {
    */
   static get DEFAULTS() {
     return DEFAULTS;
+  }
+
+  /**
+   * @returns {ReadonlyArray<string>}
+   */
+  static get CHAVES_FISCAIS_LEGADAS() {
+    return CHAVES_FISCAIS_LEGADAS;
   }
 }
 

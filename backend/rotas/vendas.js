@@ -16,14 +16,15 @@ const {
   getFiltroItensFiscal
 } = require('../services/reportFiscalHelpers');
 const VendaFinanceiroService = require('../services/vendas/VendaFinanceiroService');
+const VendaApplicationService = require('../services/vendas/VendaApplicationService');
 const VendaPagamentoService = require('../services/vendas/VendaPagamentoService');
 const VendaDevolucaoService = require('../services/vendas/VendaDevolucaoService');
 const VendaCancelamentoService = require('../services/vendas/VendaCancelamentoService');
 
 const { agoraLocalBrasil } = VendaFinanceiroService;
+const { criarVenda } = VendaApplicationService;
 const {
   preCalcularDistribuicao,
-  criarVenda,
   consultarPagamentoNaoFiscal,
   registrarPagamentoNaoFiscal
 } = VendaPagamentoService;

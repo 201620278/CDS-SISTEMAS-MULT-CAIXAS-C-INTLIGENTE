@@ -9,6 +9,8 @@
 const SincronizacaoResultadoDTO = require('../contracts/SincronizacaoResultadoDTO');
 const CentralDocumentosRepository = require('../repositories/CentralDocumentosRepository');
 const CentralConfiguracaoService = require('./CentralConfiguracaoService');
+const CentralNsuRepository = require('../repositories/CentralNsuRepository');
+const CentralNsuService = require('./CentralNsuService');
 const {
   sincronizarDistribuicaoDFe,
   consultarNotaPorChave
@@ -24,6 +26,12 @@ class CentralSincronizacaoService {
     this._documentosRepository = deps.documentosRepository ?? new CentralDocumentosRepository();
     /** @private */
     this._configuracao = deps.configuracaoService ?? new CentralConfiguracaoService();
+    /** @private */
+    this._nsuRepository = deps.nsuRepository
+      ?? new CentralNsuRepository({ db: deps.db ?? null });
+    /** @private */
+    this._nsuService = deps.nsuService
+      ?? new CentralNsuService({ nsuRepository: this._nsuRepository });
   }
 
   /**
@@ -47,11 +55,14 @@ class CentralSincronizacaoService {
 
       const resultado = await sincronizarDistribuicaoDFe({
         maxIteracoes: opcoes.maxIteracoes ?? ctxResult.contexto.syncMaxDocumentos,
-        contextoCentral: ctxResult.contexto
+        contextoCentral: ctxResult.contexto,
+        nsuRepository: this._nsuRepository,
+        nsuService: this._nsuService,
+        correlationId: opcoes.correlationId || null
       });
 
       return SincronizacaoResultadoDTO.create({
-        sucesso: true,
+        sucesso: resultado.sucesso !== false,
         notasNovas: resultado.notasNovas,
         notasDuplicadas: resultado.notasDuplicadas,
         ignorados: resultado.ignorados,
@@ -61,7 +72,7 @@ class CentralSincronizacaoService {
         cStat: resultado.cStat,
         mensagem: resultado.mensagem,
         ultimaSincronizacao: resultado.ultimaSincronizacao,
-        erros: []
+        erros: resultado.sucesso === false ? [resultado.mensagem].filter(Boolean) : []
       }).toJSON();
     } catch (error) {
       const mensagem = error.message || String(error);

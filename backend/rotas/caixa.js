@@ -240,6 +240,22 @@ function calcularResumoCaixa(caixa, options = {}, callback) {
 
 const { exigirPermissaoOuSenhaAdmin } = require('../middleware/exigirPermissaoOuSenhaAdmin');
 
+function encerrarSessaoOrfa(sessao, motivo, callback) {
+  if (!sessao || !sessao.id) return callback && callback(null);
+  db.run(
+    `UPDATE caixa_sessoes
+     SET status = 'fechado',
+         fechado_em = COALESCE(fechado_em, DATETIME('now','localtime')),
+         observacoes = COALESCE(observacoes, ?)
+     WHERE id = ? AND status = 'aberto'`,
+    [motivo || 'Sessão órfã encerrada automaticamente', sessao.id],
+    (err) => {
+      if (err) console.error('Erro ao encerrar sessão órfã:', err.message);
+      if (callback) callback(err || null);
+    }
+  );
+}
+
 router.get('/aberto', (req, res) => {
   const terminalId = obterTerminalId(req);
 
@@ -252,7 +268,17 @@ router.get('/aberto', (req, res) => {
     if (sessao) {
       buscarCaixaTurnoDaSessao(sessao, (cErr, caixa) => {
         if (cErr) return res.status(500).json({ error: cErr.message });
-        if (!caixa) return res.json(null);
+
+        // Turno já fechado / inexistente com sessão ainda "aberto" = inconsistência.
+        // Encerra a órfã e não mantém a UI em "caixa aberto".
+        if (!caixa || caixa.status !== 'aberto') {
+          return encerrarSessaoOrfa(
+            sessao,
+            'Encerrada automaticamente: turno de caixa já estava fechado',
+            () => res.json(null)
+          );
+        }
+
         calcularResumoCaixa(caixa, { sessaoId: sessao.id }, (calcErr, resumo) => {
           if (calcErr) return res.status(500).json({ error: calcErr.message });
           resumo.sessao = sessao;
@@ -262,15 +288,9 @@ router.get('/aberto', (req, res) => {
       return;
     }
 
-    obterCaixaAberto(terminalId, (err, caixa) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (!caixa) return res.json(null);
-
-      calcularResumoCaixa(caixa, {}, (calcErr, resumo) => {
-        if (calcErr) return res.status(500).json({ error: calcErr.message });
-        res.json(resumo);
-      });
-    });
+    // Sem sessão aberta: não reabrir a tela por turno órfão legado.
+    // Só considera aberto se existir sessão consistente (caminho acima).
+    return res.json(null);
   });
 });
 
@@ -318,74 +338,97 @@ router.get('/saldo-inicial-sugerido', (req, res) => {
 });
 
 function executarAberturaCaixa(req, res, { valorInicial, terminalId, caixaConfigId }) {
-  obterSessaoAberta(terminalId, (sessErr, sessaoAberta) => {
-    if (sessErr) return res.status(500).json({ error: sessErr.message });
-    if (sessaoAberta) {
-      return res.status(400).json({ error: 'Já existe um caixa aberto neste terminal.' });
-    }
+  db.serialize(() => {
+    db.run('BEGIN IMMEDIATE', (beginErr) => {
+      if (beginErr) return res.status(500).json({ error: beginErr.message });
 
-    const caixaData = {
-      data: hoje(),
-      valor_inicial: valorInicial,
-      status: 'aberto',
-      aberto_em: agoraLocalBrasil(),
-      operador_abertura_id: req.user?.id || null,
-      terminal_id: terminalId || null
-    };
-
-    db.insertSafe('caixa', caixaData, function(insertErr, info) {
-      if (insertErr) return res.status(500).json({ error: insertErr.message });
-
-      const caixaTurnoId = info && info.lastID ? info.lastID : this && this.lastID ? this.lastID : null;
-      const sessaoCaixaConfigId = isMultiCaixaAtivo() ? caixaConfigId : caixaTurnoId;
-
-      db.run(`
-        INSERT INTO caixa_sessoes (
-          caixa_id, caixa_turno_id, terminal_id, operador_id, valor_abertura, aberto_em, status
-        ) VALUES (?, ?, ?, ?, ?, DATETIME('now','localtime'), 'aberto')
-      `, [sessaoCaixaConfigId, caixaTurnoId, terminalId || null, req.user?.id || null, valorInicial], function(sessInsertErr) {
-        if (sessInsertErr) {
-          db.run('DELETE FROM caixa WHERE id = ?', [caixaTurnoId]);
-          return res.status(500).json({ error: sessInsertErr.message });
+      obterSessaoAberta(terminalId, (sessErr, sessaoAberta) => {
+        if (sessErr) {
+          db.run('ROLLBACK');
+          return res.status(500).json({ error: sessErr.message });
+        }
+        if (sessaoAberta) {
+          db.run('ROLLBACK');
+          return res.status(400).json({ error: 'Já existe um caixa aberto neste terminal.' });
         }
 
-        const sessaoId = this.lastID;
+        const caixaData = {
+          data: hoje(),
+          valor_inicial: valorInicial,
+          status: 'aberto',
+          aberto_em: agoraLocalBrasil(),
+          operador_abertura_id: req.user?.id || null,
+          terminal_id: terminalId || null
+        };
 
-        db.run(`
-          INSERT INTO caixa_movimentacoes (
-            caixa_id,
-            sessao_id,
-            tipo,
-            valor,
-            motivo,
-            usuario_id,
-            terminal_id
-          ) VALUES (?, ?, 'abertura', ?, 'Abertura de caixa', ?, ?)
-        `, [caixaTurnoId, sessaoId, valorInicial, req.user?.id || null, terminalId || null], (movErr) => {
-          if (movErr) return res.status(500).json({ error: movErr.message });
+        db.insertSafe('caixa', caixaData, function(insertErr, info) {
+          if (insertErr) {
+            db.run('ROLLBACK');
+            return res.status(500).json({ error: insertErr.message });
+          }
 
-          gravarAuditoria({
-            usuario_id: req.user?.id || null,
-            usuario_nome: req.user?.nome || req.user?.username || null,
-            modulo: 'caixa',
-            acao: 'abrir_caixa',
-            referencia_tipo: 'caixa_sessao',
-            referencia_id: sessaoId,
-            detalhes: {
-              valor_inicial: valorInicial,
-              caixa_turno_id: caixaTurnoId,
-              caixa_config_id: sessaoCaixaConfigId,
-              terminal_id: terminalId || null
-            },
-            ip_requisicao: req.ip || null
-          }).catch((auditErr) => console.error('Erro ao gravar auditoria de abertura de caixa:', auditErr));
+          const caixaTurnoId = info && info.lastID ? info.lastID : this && this.lastID ? this.lastID : null;
+          const sessaoCaixaConfigId = isMultiCaixaAtivo() ? caixaConfigId : caixaTurnoId;
 
-          res.json({
-            message: 'Caixa aberto com sucesso.',
-            caixa_id: caixaTurnoId,
-            caixa_config_id: sessaoCaixaConfigId,
-            sessao_id: sessaoId,
-            terminal_id: terminalId || null
+          db.run(`
+            INSERT INTO caixa_sessoes (
+              caixa_id, caixa_turno_id, terminal_id, operador_id, valor_abertura, aberto_em, status
+            ) VALUES (?, ?, ?, ?, ?, DATETIME('now','localtime'), 'aberto')
+          `, [sessaoCaixaConfigId, caixaTurnoId, terminalId || null, req.user?.id || null, valorInicial], function(sessInsertErr) {
+            if (sessInsertErr) {
+              db.run('ROLLBACK');
+              return res.status(500).json({ error: sessInsertErr.message });
+            }
+
+            const sessaoId = this.lastID;
+
+            db.run(`
+              INSERT INTO caixa_movimentacoes (
+                caixa_id,
+                sessao_id,
+                tipo,
+                valor,
+                motivo,
+                usuario_id,
+                terminal_id
+              ) VALUES (?, ?, 'abertura', ?, 'Abertura de caixa', ?, ?)
+            `, [caixaTurnoId, sessaoId, valorInicial, req.user?.id || null, terminalId || null], (movErr) => {
+              if (movErr) {
+                db.run('ROLLBACK');
+                return res.status(500).json({ error: movErr.message });
+              }
+
+              db.run('COMMIT', (commitErr) => {
+                if (commitErr) {
+                  db.run('ROLLBACK');
+                  return res.status(500).json({ error: commitErr.message });
+                }
+
+                gravarAuditoria({
+                  usuario_id: req.user?.id || null,
+                  usuario_nome: req.user?.nome || req.user?.username || null,
+                  modulo: 'caixa',
+                  acao: 'abrir_caixa',
+                  referencia_tipo: 'caixa_sessao',
+                  referencia_id: sessaoId,
+                  detalhes: {
+                    valor_inicial: valorInicial,
+                    caixa_turno_id: caixaTurnoId,
+                    caixa_config_id: sessaoCaixaConfigId,
+                    terminal_id: terminalId || null
+                  },
+                  ip_requisicao: req.ip || null
+                }).catch((auditErr) => console.error('Erro ao gravar auditoria de abertura de caixa:', auditErr));
+
+                res.json({
+                  message: 'Caixa aberto com sucesso.',
+                  caixa_id: caixaTurnoId,
+                  caixa_config_id: sessaoCaixaConfigId,
+                  sessao_id: sessaoId,
+                  terminal_id: terminalId || null
+                });
+              });
+            });
           });
         });
       });
@@ -716,9 +759,31 @@ router.post('/fechar', verificarToken, validarCaixaAberto, (req, res) => {
                     return res.status(500).json({ error: insertErr.message });
                   }
 
-                  // Atualizar sessão para fechado
-                  db.run(`UPDATE caixa_sessoes SET status = 'fechado', fechado_em = DATETIME('now','localtime'), valor_fechamento = ? WHERE id = ?`, [valorInformado, sessao.id], (sessUpdErr) => {
-                    if (sessUpdErr) console.error('Erro ao atualizar sessao:', sessUpdErr);
+                  // Fecha a sessão atual e quaisquer órfãs do mesmo turno/terminal
+                  // (evita toast de sucesso com a tela ainda em "aberto").
+                  const paramsSessao = [valorInformado, sessao.id, caixa.id];
+                  let sqlSessoes = `
+                    UPDATE caixa_sessoes
+                    SET status = 'fechado',
+                        fechado_em = DATETIME('now','localtime'),
+                        valor_fechamento = ?
+                    WHERE status = 'aberto'
+                      AND (id = ? OR caixa_turno_id = ?)
+                  `;
+                  if (terminalId) {
+                    sqlSessoes += ' AND (terminal_id = ? OR terminal_id IS NULL)';
+                    paramsSessao.push(terminalId);
+                  }
+
+                  db.run(sqlSessoes, paramsSessao, function(sessUpdErr) {
+                    if (sessUpdErr) {
+                      db.run('ROLLBACK');
+                      return res.status(500).json({ error: sessUpdErr.message });
+                    }
+                    if (this.changes < 1) {
+                      db.run('ROLLBACK');
+                      return res.status(500).json({ error: 'Não foi possível encerrar a sessão de caixa.' });
+                    }
 
                     // Registrar auditoria
                     db.run(`
@@ -743,7 +808,8 @@ router.post('/fechar', verificarToken, validarCaixaAberto, (req, res) => {
                         diferenca,
                         operador: operadorNome,
                         observacao,
-                        sessao_id: sessao.id
+                        sessao_id: sessao.id,
+                        sessoes_encerradas: this.changes
                       }),
                       req.ip || null
                     ], (auditErr) => {

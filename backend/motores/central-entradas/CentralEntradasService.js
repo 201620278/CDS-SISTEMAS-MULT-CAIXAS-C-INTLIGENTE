@@ -82,6 +82,10 @@ class CentralEntradasService {
     return this._orchestrator.processarDocumento(id, opcoes);
   }
 
+  processarCicloDfeDocumento(id, opcoes = {}) {
+    return this._orchestrator.processarCicloDfeDocumento(id, opcoes);
+  }
+
   concluirRevisao(id, dados = {}) {
     return this._orchestrator.concluirRevisao(id, dados);
   }
@@ -184,6 +188,22 @@ class CentralEntradasService {
 
   processarDocumentosPendentes(opcoes = {}) {
     return this._orchestrator.processarDocumentosPendentes(opcoes);
+  }
+
+  obterPainelHomologacao(opcoes = {}) {
+    return this._orchestrator.obterPainelHomologacao(opcoes);
+  }
+
+  inspecionarDocumentoHomologacao(documentoId) {
+    return this._orchestrator.inspecionarDocumentoHomologacao(documentoId);
+  }
+
+  obterMetricasHomologacao() {
+    return this._orchestrator.obterMetricasHomologacao();
+  }
+
+  exportarRelatorioHomologacao(documentoId, formato = 'json') {
+    return this._orchestrator.exportarRelatorioHomologacao(documentoId, formato);
   }
 }
 

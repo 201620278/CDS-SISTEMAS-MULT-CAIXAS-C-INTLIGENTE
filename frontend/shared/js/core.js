@@ -683,12 +683,16 @@ function formatCpfCnpjInput(input) {
 
 function showNotification(mensagem, tipo = 'success') {
     const container = document.getElementById('notification-container');
-    if (!container) return;
+    if (!container) {
+        console.warn('[CDS] notification-container ausente:', mensagem);
+        return;
+    }
 
+    const tom = ({ error: 'danger', erro: 'danger', ok: 'success', info: 'info', warning: 'warning', warn: 'warning', danger: 'danger', success: 'success' })[tipo] || tipo || 'success';
     const id = `notif-${Date.now()}`;
     const alert = document.createElement('div');
     alert.id = id;
-    alert.className = `alert alert-${tipo} alert-dismissible fade show`;
+    alert.className = `alert alert-${tom} alert-dismissible fade show`;
     alert.style.pointerEvents = 'auto';
     alert.innerHTML = `
         ${mensagem}
@@ -697,6 +701,11 @@ function showNotification(mensagem, tipo = 'success') {
 
     container.appendChild(alert);
     setTimeout(() => fecharNotificacao(id), 3000);
+}
+
+/** Alias oficial RC4.3.1 — feedback unificado (substitui alert/toast ad-hoc). */
+function mostrarToastCentral(mensagem, tipo = 'info') {
+    showNotification(mensagem, tipo);
 }
 
 function fecharNotificacao(id) {
