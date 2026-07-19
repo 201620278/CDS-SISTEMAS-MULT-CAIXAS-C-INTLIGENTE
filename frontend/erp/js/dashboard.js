@@ -429,6 +429,9 @@ async function carregarModoDashboardFiscalPadrao(apiUrl) {
 }
 
 async function carregarDashboard(inicio = null, fim = null) {
+    const root = document.getElementById('page-content');
+    if (root) root.dataset.dashboardLoading = '1';
+
     try {
         const apiUrl = (typeof API_URL === 'string' && API_URL.trim() !== '')
             ? API_URL
@@ -440,8 +443,6 @@ async function carregarDashboard(inicio = null, fim = null) {
         const dataFim = fim || dataHojeDashboard();
 
         const modoFiscalAtivo = modoDashboardFiscalAtivo();
-
-        console.log('Dashboard carregado.');
 
         const response = await fetch(`${apiUrl}/dashboard/resumo?inicio=${dataInicio}&fim=${dataFim}&modo_fiscal=${modoFiscalAtivo ? '1' : '0'}`, {
             headers: {
@@ -458,11 +459,16 @@ async function carregarDashboard(inicio = null, fim = null) {
         preencherDashboard(data);
 
         // Carregar dados de vencimentos usando o novo endpoint de lotes
-        carregarVencimentosDashboard(apiUrl);
-
+        await carregarVencimentosDashboard(apiUrl);
+        console.log('Dashboard carregado.');
     } catch (error) {
         console.error('Erro dashboard:', error);
         mostrarErroDashboard(error.message || 'Erro ao carregar dashboard.');
+    } finally {
+        if (root) {
+            root.dataset.dashboardLoading = '0';
+            root.classList.remove('is-loading');
+        }
     }
 }
 

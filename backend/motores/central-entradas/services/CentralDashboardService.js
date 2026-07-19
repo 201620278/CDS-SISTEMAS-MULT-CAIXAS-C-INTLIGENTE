@@ -64,7 +64,28 @@ class CentralDashboardService {
           cnpj: ultimoNsu.cnpj,
           ambiente: ultimoNsu.ambiente
         }
-        : null
+        : null,
+      xmlWait: (() => {
+        try {
+          return require('./CentralXmlWaitScheduler').obterTelemetria();
+        } catch {
+          return null;
+        }
+      })(),
+      sefazOperacional: (() => {
+        try {
+          const gate = require('./CentralSefazOperationalGate');
+          const xmlWait = require('./CentralXmlWaitScheduler');
+          const tel = xmlWait.obterTelemetria?.() || {};
+          return gate.obterPainelOperacional({
+            documentosAguardando: tel.documentosAguardando || 0,
+            proximaConsultaPrevista: tel.proximaConsultaPrevista || null,
+            quantidadeTentativas: tel.numeroTentativas || null
+          });
+        } catch {
+          return null;
+        }
+      })()
     }).toJSON();
   }
 }

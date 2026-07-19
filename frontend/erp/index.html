@@ -18,6 +18,7 @@
     <link rel="stylesheet" href="/css/central-homologacao.css">
     <link rel="stylesheet" href="/css/dashboard-command.css">
     <link rel="stylesheet" href="/css/cds-centro-configuracoes.css">
+    <link rel="stylesheet" href="/shared/design-system/cds-ui-foundation.css">
 </head>
 <body>
     <div class="container-fluid">
@@ -45,6 +46,11 @@
                                 <li class="nav-item">
                                     <a class="nav-link text-white active" href="#" data-page="dashboard" title="Dashboard">
                                         <i class="fas fa-chart-line" aria-hidden="true"></i><span>Dashboard</span>
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a class="nav-link text-white" href="#" data-page="monitoring" title="Central de Monitoramento">
+                                        <i class="fas fa-chart-pie" aria-hidden="true"></i><span>Central de Monitoramento</span>
                                     </a>
                                 </li>
                             </ul>
@@ -241,6 +247,11 @@
     <script src="/shared/js/cds-page-shell.js"></script>
     <script src="/shared/js/core.js"></script>
     <script src="/shared/js/modoFiscalHelpers.js"></script>
+    <script src="/shared/services/AdaptiveLabelRegistry.js"></script>
+    <script src="/shared/services/AdaptiveLabelContext.js"></script>
+    <script src="/shared/services/AdaptiveLabelService.js"></script>
+    <script src="/shared/services/AdaptiveLabelProvider.js"></script>
+    <script src="/shared/design-system/cds-ui-foundation.bundle.js"></script>
     <script src="/shared/js/fiscalImpressao.js"></script>
     <script src="/shared/js/vendasHistoricoUi.js"></script>
     <script src="/erp/js/dashboard-command.js"></script>
@@ -265,6 +276,7 @@
     <script src="/shared/js/configuracaoRede.js"></script>
     <script src="/erp/js/configuracoes.js"></script>
     <script src="/erp/js/cds-centro-configuracoes.js"></script>
+    <script src="/erp/js/cds-monitoring-engine.js"></script>
     <script src="/erp/js/usuarios.js"></script>
     <script src="/erp/js/equipamentos.js"></script>
     <script src="/erp/js/laboratorio-equipamentos.js"></script>

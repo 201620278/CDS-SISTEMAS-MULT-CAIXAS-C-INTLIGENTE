@@ -15,6 +15,7 @@ const {
   EnvironmentType,
   ResolutionSource,
   UF_SVRS,
+  UF_AN,
   ENABLED_OPERATIONS,
   getManifestacaoEventoCode
 } = require('../../backend/services/fiscal/core');
@@ -77,23 +78,39 @@ async function main() {
     assert.strictEqual(transport.isEnabled(OperationType.AUTORIZACAO), true);
   });
 
-  await test('Registry resolve as 4 manifestações', async () => {
+  await test('Registry resolve as 4 manifestações (AN)', async () => {
     const platform = new FiscalWebServices();
     for (const operacao of OPERACOES_MANIFESTACAO) {
       const result = platform.resolve({
         modelo: ModelType.NFE,
         operacao,
         ambiente: EnvironmentType.HOMOLOGACAO,
-        uf: UF_SVRS,
+        uf: UF_AN,
         versao: '1.00'
       });
       assert.strictEqual(result.success, true, operacao);
-      assert.ok(result.definition.endpoint.includes('recepcaoevento'));
+      assert.ok(result.definition.endpoint.includes('NFeRecepcaoEvento4'));
+      assert.ok(result.definition.endpoint.includes('nfe.fazenda.gov.br'));
+      assert.strictEqual(result.definition.uf, UF_AN);
       assert.strictEqual(result.definition.namespace, NS_EVENTO);
     }
   });
 
-  await test('montarEnvelopeManifestacao contém tpEvento', async () => {
+  await test('UrlResolver força AN mesmo se uf=SVRS for passado', async () => {
+    const platform = new FiscalWebServices();
+    const result = platform.resolve({
+      modelo: ModelType.NFE,
+      operacao: OperationType.MANIFESTACAO_CIENCIA,
+      ambiente: EnvironmentType.PRODUCAO,
+      uf: UF_SVRS,
+      versao: '1.00'
+    });
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.definition.uf, UF_AN);
+    assert.ok(result.definition.endpoint.includes('www.nfe.fazenda.gov.br'));
+  });
+
+  await test('montarEnvelopeManifestacao contém tpEvento e cOrgao 91 sem nfeCabecMsg', async () => {
     const xml = montarEnvelopeManifestacao({
       operacao: OperationType.MANIFESTACAO_CONFIRMACAO,
       chave: '35260112345678000199550010000000011000000001',
@@ -101,7 +118,19 @@ async function main() {
     });
     assert.ok(xml.includes('210200'));
     assert.ok(xml.includes('Confirmacao da Operacao'));
+    assert.ok(xml.includes('<cOrgao>91</cOrgao>'));
+    assert.ok(!xml.includes('nfeCabecMsg'));
+    assert.ok(!xml.includes('soap12:Header'));
     assert.strictEqual(getManifestacaoEventoCode(OperationType.MANIFESTACAO_CIENCIA), '210210');
+  });
+
+  await test('getManifestacaoUrl vem do Registry AN', async () => {
+    const urlHom = getManifestacaoUrl(2);
+    const urlProd = getManifestacaoUrl(1);
+    assert.ok(urlHom.includes('hom1.nfe.fazenda.gov.br'));
+    assert.ok(urlHom.includes('NFeRecepcaoEvento4'));
+    assert.ok(urlProd.includes('www.nfe.fazenda.gov.br'));
+    assert.ok(!urlHom.includes('svrs'));
   });
 
   await test('sucesso Plataforma via httpClient', async () => {

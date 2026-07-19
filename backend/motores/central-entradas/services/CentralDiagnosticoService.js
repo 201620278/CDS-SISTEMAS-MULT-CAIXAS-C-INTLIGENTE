@@ -71,7 +71,8 @@ class CentralDiagnosticoService {
       performance,
       logs,
       healthCheck,
-      sistema
+      sistema,
+      comunicacao
     ] = await Promise.all([
       this._obterStatusGeral(),
       this._obterSefaz(),
@@ -84,11 +85,12 @@ class CentralDiagnosticoService {
       this._obterPerformance(),
       this._obterLogs(),
       this.executarHealthCheck({ silencioso: true }),
-      this._obterSistema()
+      this._obterSistema(),
+      this._obterComunicacaoSoap()
     ]);
 
     const painel = {
-      versaoPainel: '1.0.0-rc4',
+      versaoPainel: '1.0.0-rc6.6',
       geradoEm: new Date().toISOString(),
       statusGeral,
       sefaz,
@@ -101,7 +103,8 @@ class CentralDiagnosticoService {
       performance,
       logs,
       healthCheck,
-      sistema
+      sistema,
+      comunicacao
     };
 
     this._cache.set(cacheKey, painel);
@@ -187,6 +190,28 @@ class CentralDiagnosticoService {
       return { sucesso: false, tempoMs: 0, mensagem: ctxResult.mensagem };
     }
 
+    // RC7.4.2 — probe DistDFe também passa pelo Gate operacional.
+    try {
+      const gate = require('./CentralSefazOperationalGate');
+      const auth = await gate.autorizarConsultaDistDfe({
+        correlationId: `diag-${Date.now()}`,
+        motivo: 'diagnostico_testar_sefaz'
+      });
+      if (!auth.permitido) {
+        return {
+          sucesso: false,
+          tempoMs: Date.now() - inicio,
+          mensagem: auth.mensagem,
+          codigo: auth.codigo,
+          cStat: auth.cStat,
+          bloqueadoPeloGate: true,
+          tempoRestanteLabel: auth.tempoRestanteLabel || null,
+          proximaConsultaEm: auth.proximaConsultaEm || null,
+          sefazOperacional: gate.obterPainelOperacional()
+        };
+      }
+    } catch { /* segue probe se gate indisponível */ }
+
     const ctx = ctxResult.contexto;
     const ambiente = ctx.ambiente;
     const codigoUf = ctx.codigoUf;
@@ -242,6 +267,20 @@ class CentralDiagnosticoService {
         || meta.cStat === '138'
         || meta.cStat === '137';
 
+      try {
+        if (meta.cStat) {
+          await require('./CentralSefazOperationalGate').processarRespostaSefaz(
+            { cStat: meta.cStat, mensagem: meta.xMotivo, ultNsu },
+            { correlationId: `diag-${Date.now()}`, nsu: ultNsu }
+          );
+        }
+      } catch { /* ignore */ }
+
+      let sefazOperacional = null;
+      try {
+        sefazOperacional = require('./CentralSefazOperationalGate').obterPainelOperacional();
+      } catch { /* ignore */ }
+
       return {
         sucesso,
         tempoMs,
@@ -250,7 +289,8 @@ class CentralDiagnosticoService {
         xMotivo: this._sanitizarTexto(meta.xMotivo || runtimeResult.error),
         ultNsuConsultado: ultNsu,
         fonte: runtimeResult.fallbackUtilizado ? 'fiscal-platform-fallback' : 'fiscal-platform',
-        endpoint: runtimeResult.endpoint || null
+        endpoint: runtimeResult.endpoint || null,
+        sefazOperacional
       };
     } catch (error) {
       return {
@@ -565,7 +605,8 @@ class CentralDiagnosticoService {
       scheduler: {
         status: statusBg.syncAutomaticaHabilitada ? 'Ativo' : 'Inativo',
         tempoMs: null,
-        ultimaExecucao: statusBg.proximaExecucao
+        ultimaExecucao: statusBg.proximaExecucao,
+        xmlWait: statusBg.xmlWait || null
       },
       timer: {
         status: statusBg.servicoAtivo ? 'Ativo' : 'Inativo',
@@ -587,6 +628,15 @@ class CentralDiagnosticoService {
         tempoMs: null,
         ultimaExecucao: null
       },
+      sefazOperacional: (() => {
+        try {
+          return require('./CentralSefazOperationalGate').obterPainelOperacional({
+            documentosAguardando: statusBg.xmlWait?.telemetria?.documentosAguardando || 0
+          });
+        } catch {
+          return null;
+        }
+      })(),
       repositories: repositorios
     };
   }
@@ -816,6 +866,32 @@ class CentralDiagnosticoService {
     }
     if (evento.tipo === TIPOS_EVENTO.CONFIG_ALTERADA) return 'WARN';
     return 'INFO';
+  }
+
+  /**
+   * Painel de comunicação SOAP SEFAZ (RC6.6) — somente leitura.
+   * @private
+   */
+  async _obterComunicacaoSoap() {
+    try {
+      const { fiscalSoapTelemetry } = require('../../../services/fiscal/core/FiscalSoapTelemetry');
+      return fiscalSoapTelemetry.obterPainelComunicacao();
+    } catch (err) {
+      return {
+        versao: 'RC6.6',
+        geradoEm: new Date().toISOString(),
+        erro: err.message,
+        ultimaComunicacao: null,
+        ultimoEndpoint: null,
+        ultimoCStat: null,
+        tempoMedioMs: 0,
+        tempoMaximoMs: 0,
+        retries: 0,
+        quantidadeDocumentos: 0,
+        totais: { total: 0, sucesso: 0, falha: 0, timeout: 0, httpErro: 0 },
+        historicoRecente: []
+      };
+    }
   }
 
   /** @private */

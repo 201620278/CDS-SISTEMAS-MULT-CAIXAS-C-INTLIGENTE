@@ -57,10 +57,22 @@ function getManifestacaoEventoCode(operationType) {
   return ManifestacaoEventoCode[operationType] || null;
 }
 
+/**
+ * Manifestação do Destinatário (guarda-chuva ou subtipos).
+ * @param {string} operationType
+ * @returns {boolean}
+ */
+function isManifestacaoOperation(operationType) {
+  if (!operationType) return false;
+  if (operationType === OperationType.MANIFESTACAO) return true;
+  return Object.prototype.hasOwnProperty.call(ManifestacaoEventoCode, operationType);
+}
+
 module.exports = {
   OperationType,
   ManifestacaoEventoCode,
   isOperationType,
   listOperationTypes,
-  getManifestacaoEventoCode
+  getManifestacaoEventoCode,
+  isManifestacaoOperation
 };

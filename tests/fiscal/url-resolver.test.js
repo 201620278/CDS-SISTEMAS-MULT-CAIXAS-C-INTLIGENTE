@@ -165,6 +165,21 @@ async function main() {
     assert.ok(result.warnings.some((w) => w.code === ResolverWarnings.VERSAO_PADRAO_UTILIZADA));
   });
 
+  await test('Manifestação sempre resolve AN (mesmo com uf SVRS)', async () => {
+    const resolver = new UrlResolver(RegistryBuilder.buildOfficial());
+    const result = resolver.resolve({
+      modelo: ModelType.NFE,
+      operacao: OperationType.MANIFESTACAO_CIENCIA,
+      ambiente: EnvironmentType.PRODUCAO,
+      uf: UF_SVRS,
+      versao: '1.00'
+    });
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.context.uf, UF_AN);
+    assert.strictEqual(result.definition.uf, UF_AN);
+    assert.ok(result.definition.endpoint.includes('www.nfe.fazenda.gov.br/NFeRecepcaoEvento4'));
+  });
+
   await test('resolução inexistente retorna success=false', async () => {
     const resolver = new UrlResolver(RegistryBuilder.buildOfficial());
     const result = resolver.resolve({

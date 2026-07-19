@@ -22,6 +22,8 @@ const { ResolverMetrics } = require('./ResolverMetrics');
 const { ResolverWarnings, createWarning } = require('./ResolverWarnings');
 const { ResolverException } = require('./ResolverException');
 const { createWebServiceDefinition } = require('./WebServiceDefinition');
+const { isManifestacaoOperation } = require('./OperationType');
+const { UF_AN } = require('./RegistryBuilder');
 
 class UrlResolver {
   /**
@@ -70,6 +72,20 @@ class UrlResolver {
   }
 
   /**
+   * Manifestação do Destinatário sempre resolve no Ambiente Nacional (NT 2020.001 §6.3).
+   * @param {object} input
+   * @returns {object}
+   * @private
+   */
+  _normalizeInput(input) {
+    const raw = input && typeof input === 'object' ? { ...input } : {};
+    if (isManifestacaoOperation(raw.operacao)) {
+      raw.uf = UF_AN;
+    }
+    return raw;
+  }
+
+  /**
    * Resolve o contrato completo do Web Service.
    *
    * @param {object} input
@@ -97,7 +113,7 @@ class UrlResolver {
 
     let context;
     try {
-      context = ResolverContext.create(input || {});
+      context = ResolverContext.create(this._normalizeInput(input || {}));
     } catch (error) {
       const result = ResolutionResult.failure({
         executionTime: elapsedMs(),

@@ -98,6 +98,28 @@ class CentralSyncExecucaoService {
     const usuarioId = opcoes.usuarioId ?? null;
     const correlationId = opcoes.correlationId || criarCorrelationId();
 
+    // RC7.4.2 — Gate operacional único (656/593). forcar NÃO bypassa.
+    if (opcoes.ignorarBloqueio656 !== true) {
+      try {
+        const gate = require('./CentralSefazOperationalGate');
+        const auth = await gate.autorizarConsultaDistDfe({
+          correlationId,
+          origem,
+          forcar: forcar,
+          forcarAdminConfirmado: opcoes.forcarAdminConfirmado === true,
+          confirmacaoAdmin: opcoes.confirmacaoAdmin === true,
+          motivo: 'Aguardando liberação da SEFAZ'
+        });
+        if (!auth.permitido) {
+          return {
+            ...auth,
+            origem,
+            correlationId
+          };
+        }
+      } catch { /* ignore */ }
+    }
+
     if (!forcar && opcoes.ignorarCooldown !== true) {
       const cooldown = await this._verificarCooldownDfe();
       if (cooldown.ativo) {
@@ -160,6 +182,24 @@ class CentralSyncExecucaoService {
 
         const duracaoMs = Date.now() - inicio;
         this._ultimoResultado = resultado;
+
+        if (String(resultado.cStat) === '656' || String(resultado.cStat) === '593') {
+          try {
+            await require('./CentralSefazOperationalGate').processarRespostaSefaz(resultado, {
+              correlationId,
+              nsu: resultado.ultNsu || null
+            });
+            resultado.gateProcessado = true;
+          } catch { /* ignore */ }
+        } else if (resultado.cStat) {
+          try {
+            await require('./CentralSefazOperationalGate').processarRespostaSefaz(resultado, {
+              correlationId,
+              nsu: resultado.ultNsu || null
+            });
+            resultado.gateProcessado = true;
+          } catch { /* ignore */ }
+        }
 
         await this._emitirEvento({
           tipo: resultado.sucesso ? TIPOS_EVENTO.SYNC_CONCLUIDA : TIPOS_EVENTO.SYNC_ERRO,

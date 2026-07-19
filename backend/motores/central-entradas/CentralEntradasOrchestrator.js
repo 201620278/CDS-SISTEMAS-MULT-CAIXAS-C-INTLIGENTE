@@ -284,7 +284,25 @@ class CentralEntradasOrchestrator {
     if (!documento) return null;
 
     const historico = await this._historicoService.listarPorDocumento(id);
-    return paraDetalheCompletoDTO(documento, historico);
+    const detalhe = paraDetalheCompletoDTO(documento, historico);
+
+    // RC7.4.2 — informações operacionais do Gate + Scheduler.
+    try {
+      const xmlWait = require('./services/CentralXmlWaitScheduler');
+      const gate = require('./services/CentralSefazOperationalGate');
+      const estado = xmlWait.obterEstadoDocumento(id);
+      if (estado && detalhe.documento) {
+        detalhe.documento.xmlWait = estado;
+      }
+      detalhe.xmlWaitTelemetria = xmlWait.obterTelemetria();
+      detalhe.sefazOperacional = gate.obterPainelOperacional({
+        documentosAguardando: detalhe.xmlWaitTelemetria?.documentosAguardando || 0,
+        proximaConsultaPrevista: detalhe.xmlWaitTelemetria?.proximaConsultaPrevista || null,
+        quantidadeTentativas: detalhe.xmlWaitTelemetria?.numeroTentativas || null
+      });
+    } catch { /* ignore */ }
+
+    return detalhe;
   }
 
   async obterHistorico(documentoId) {
@@ -436,10 +454,46 @@ class CentralEntradasOrchestrator {
   }
 
   async processarCicloDfeDocumento(id, opcoes = {}) {
+    // RC7.4.2 — Gate operacional único (Solicitar XML / ciclo DF-e).
+    if (opcoes.ignorarBloqueio656 !== true) {
+      try {
+        const gate = require('./services/CentralSefazOperationalGate');
+        const auth = await gate.autorizarConsultaDistDfe({
+          correlationId: opcoes.correlationId,
+          documentoId: id,
+          forcar: opcoes.forcarConsulta === true,
+          forcarAdminConfirmado: opcoes.forcarAdminConfirmado === true,
+          confirmacaoAdmin: opcoes.confirmacaoAdmin === true,
+          motivo: 'Aguardando liberação da SEFAZ'
+        });
+        if (!auth.permitido) {
+          return {
+            documentoId: Number(id),
+            ...auth,
+            xmlCompleto: false,
+            aguardandoDisponibilizacao: true,
+            gateProcessado: true
+          };
+        }
+      } catch { /* ignore */ }
+    }
+
     const resultado = await this._manifestacaoDfeService.processarDocumento(id, {
       ...opcoes,
       confirmado: opcoes.confirmado === true
     });
+
+    if (resultado?.cStat) {
+      try {
+        await require('./services/CentralSefazOperationalGate').processarRespostaSefaz(resultado, {
+          correlationId: opcoes.correlationId || resultado?.detalhe?.correlationId,
+          documentoId: id,
+          chave: resultado?.documento?.chave,
+          nsu: resultado?.ultNsu
+        });
+        resultado.gateProcessado = true;
+      } catch { /* ignore */ }
+    }
 
     if (resultado.xmlCompleto) {
       resultado.processamentosAutomaticos = await this.processarDocumentosPendentes({

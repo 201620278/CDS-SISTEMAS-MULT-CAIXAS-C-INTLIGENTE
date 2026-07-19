@@ -166,8 +166,11 @@ async function main() {
     assert.strictEqual(painel.sefaz.origemEndpointDfe, 'UrlResolver');
     assert.strictEqual(painel.sefaz.endpointsEditaveis, false);
     assert.strictEqual(painel.sefaz.manifestacaoAtiva, false);
-    assert.ok(painel.sefaz.urlManifestacaoProducao.includes('nfe.svrs.rs.gov.br'));
-    assert.ok(painel.sefaz.urlManifestacaoHomologacao.includes('nfe-homologacao.svrs.rs.gov.br'));
+    assert.ok(painel.sefaz.urlManifestacaoProducao.includes('www.nfe.fazenda.gov.br'));
+    assert.ok(painel.sefaz.urlManifestacaoProducao.includes('NFeRecepcaoEvento4'));
+    assert.ok(painel.sefaz.urlManifestacaoHomologacao.includes('hom1.nfe.fazenda.gov.br'));
+    assert.ok(painel.sefaz.urlManifestacaoHomologacao.includes('NFeRecepcaoEvento4'));
+    assert.ok(!painel.sefaz.urlManifestacaoProducao.includes('svrs'));
     assert.strictEqual(painel.sefaz.origemEndpointManifestacao, 'UrlResolver');
     assert.strictEqual(painel.sefaz.endpointManifestacaoResolvido, true);
     assert.strictEqual(painel.sefaz.politicaManifestacao, 'MANUAL');

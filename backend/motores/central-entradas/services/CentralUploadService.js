@@ -118,6 +118,21 @@ class CentralUploadService {
       origem: ORIGEM_UPLOAD
     });
 
+    // RC7.4.2 — upload cancela wait, backoff, bloqueio 656 e erro 593.
+    try {
+      const xmlWait = require('./CentralXmlWaitScheduler');
+      if (persistido.documento?.id) {
+        xmlWait.cancelar(persistido.documento.id, 'upload');
+      } else if (metadados.chave) {
+        xmlWait.cancelarPorChave(metadados.chave, 'upload');
+      }
+      xmlWait.limparBloqueio656('upload');
+      xmlWait.limparErro593('upload');
+      try {
+        require('./CentralSefazOperationalGate').limparBloqueiosPorUpload();
+      } catch { /* ignore */ }
+    } catch { /* ignore */ }
+
     if (persistido.ignorado) {
       return this._itemErro(
         nome,

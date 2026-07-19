@@ -1,7 +1,7 @@
 /**
  * Constrói o catálogo oficial de Web Services fiscais do CDS.
  *
- * Escopo atual (Sprint F2 / RC1.1): CE via SVRS + Ambiente Nacional (DF-e).
+ * Escopo atual (Sprint F2 / RC1.1 / RC6.9): CE via SVRS + Ambiente Nacional (DF-e + Manifestação).
  * Catálogo consumido pelos runtimes via FiscalWebServices / UrlResolver.
  *
  * @module services/fiscal/core/RegistryBuilder
@@ -65,8 +65,14 @@ const ENDPOINTS = Object.freeze({
     [EnvironmentType.HOMOLOGACAO]: 'https://nfe-homologacao.svrs.rs.gov.br/ws/NfeAutorizacao/NFeAutorizacao4.asmx'
   },
   NFE_EVENTO: {
+    // Mantido para cancelamento/eventos de UF via SVRS (não usar em Manifestação).
     [EnvironmentType.PRODUCAO]: 'https://nfe.svrs.rs.gov.br/ws/recepcaoevento/recepcaoevento4.asmx',
     [EnvironmentType.HOMOLOGACAO]: 'https://nfe-homologacao.svrs.rs.gov.br/ws/recepcaoevento/recepcaoevento4.asmx'
+  },
+  // Manifestação do Destinatário — Portal Nacional / NT 2020.001 §6.3 (Ambiente Nacional).
+  AN_RECEPCAO_EVENTO: {
+    [EnvironmentType.PRODUCAO]: 'https://www.nfe.fazenda.gov.br/NFeRecepcaoEvento4/NFeRecepcaoEvento4.asmx',
+    [EnvironmentType.HOMOLOGACAO]: 'https://hom1.nfe.fazenda.gov.br/NFeRecepcaoEvento4/NFeRecepcaoEvento4.asmx'
   },
   DFE: {
     // Portal Nacional NF-e (AN) — www/hom desativados (404); oficiais: www1 / hom1 (aviso RFB 23/05/2022)
@@ -241,13 +247,13 @@ function listOfficialDefinitions() {
         modelo: ModelType.NFE,
         operacao: item.operacao,
         ambiente,
-        uf: UF_SVRS,
-        endpoint: ENDPOINTS.NFE_EVENTO[ambiente],
+        uf: UF_AN,
+        endpoint: ENDPOINTS.AN_RECEPCAO_EVENTO[ambiente],
         soapAction: ACTION.EVENTO,
         namespace: NS.EVENTO,
         versao: '1.00',
-        descricao: `Manifestação — ${item.label} (${ambiente}) — SVRS`,
-        observacoes: `Runtime F7 via manifestacaoRuntime (tpEvento ${item.evento}).`
+        descricao: `Manifestação — ${item.label} (${ambiente}) — Ambiente Nacional`,
+        observacoes: `RC6.9 / NT 2020.001 §6.3 — RecepcaoEvento AN (tpEvento ${item.evento}).`
       }));
     }
   }

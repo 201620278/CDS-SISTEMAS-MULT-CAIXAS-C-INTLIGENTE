@@ -26,6 +26,7 @@ const PERMISSOES_PAGINAS = {
     'laboratorio-equipamentos': 'configuracoes',
     licenca: 'configuracoes',
     dashboard: 'relatorios',
+    monitoring: 'relatorios',
     usuarios: 'usuarios',
     relatorios: 'relatorios',
     auditoria: 'auditoria',

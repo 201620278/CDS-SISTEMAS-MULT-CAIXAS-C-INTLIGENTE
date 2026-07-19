@@ -25,6 +25,7 @@ const {
   extrairDocumentosZip,
   retornoDistSucesso
 } = require('./dfeRetornoParser');
+const { fiscalSoapTelemetry } = require('./core/FiscalSoapTelemetry');
 
 const MAX_ITERACOES_SYNC = 50;
 
@@ -85,14 +86,15 @@ function montarXmlConsChave({ ambiente, codigoUf, cnpj, chave }) {
 
 /**
  * Envia consulta DF-e via Plataforma Fiscal (F6) com fallback legado.
+ * Retorna body + metadados de telemetria (RC6.6) sem alterar o SOAP.
  *
  * @param {string} xmlConsulta
  * @param {Object} config
  * @param {number} ambiente
  * @param {Object} [deps]
- * @returns {Promise<string>}
+ * @returns {Promise<{ body: string, requestId: string|null, correlationId: string|null, tempoResolverMs: number, tempoXmlMs: number, tempoTransporteMs: number, tempoTotalMs: number, endpoint: string|null, fallbackUtilizado: boolean, httpStatus: number|null }>}
  */
-async function enviarConsultaDfe(xmlConsulta, config, ambiente, deps = {}) {
+async function executarEnvioConsultaDfe(xmlConsulta, config, ambiente, deps = {}) {
   const runtimeSend = deps.enviarDistribuicaoDfe || enviarDistribuicaoDfe;
   const resultado = await runtimeSend({
     xmlConsulta,
@@ -101,14 +103,94 @@ async function enviarConsultaDfe(xmlConsulta, config, ambiente, deps = {}) {
     certificadoPath: config.certificadoPath,
     certificadoSenha: config.certificadoSenha,
     versao: '1.01',
-    legadoHttpClient: deps.legadoHttpClient || null
+    legadoHttpClient: deps.legadoHttpClient || null,
+    correlationId: deps.correlationId || null
   });
 
+  const requestId = resultado.telemetryRequestId || null;
+
   if (!resultado.success || resultado.body == null) {
+    if (requestId) {
+      fiscalSoapTelemetry.finalizar(requestId, {
+        sucesso: false,
+        resultado: 'ERRO',
+        tempoResolverMs: resultado.tempoResolverMs,
+        tempoXmlMs: resultado.tempoXmlMs,
+        tempoTransporteMs: resultado.tempoTransporteMs,
+        tempoTotalMs: resultado.tempoTotalMs,
+        fallbackUtilizado: resultado.fallbackUtilizado,
+        endpoint: resultado.endpoint
+      });
+    }
     throw new Error(resultado.error || 'Falha na Distribuição DF-e (plataforma/legado).');
   }
 
-  return resultado.body;
+  return {
+    body: resultado.body,
+    requestId,
+    correlationId: resultado.correlationId || null,
+    tempoResolverMs: resultado.tempoResolverMs,
+    tempoXmlMs: resultado.tempoXmlMs,
+    tempoTransporteMs: resultado.tempoTransporteMs,
+    tempoTotalMs: resultado.tempoTotalMs,
+    endpoint: resultado.endpoint || null,
+    fallbackUtilizado: Boolean(resultado.fallbackUtilizado),
+    httpStatus: resultado.statusCode != null ? resultado.statusCode : null
+  };
+}
+
+/**
+ * Compatibilidade: retorna apenas o XML de retorno.
+ *
+ * @param {string} xmlConsulta
+ * @param {Object} config
+ * @param {number} ambiente
+ * @param {Object} [deps]
+ * @returns {Promise<string>}
+ */
+async function enviarConsultaDfe(xmlConsulta, config, ambiente, deps = {}) {
+  const envio = await executarEnvioConsultaDfe(xmlConsulta, config, ambiente, deps);
+  if (envio.requestId) {
+    fiscalSoapTelemetry.finalizar(envio.requestId, {
+      sucesso: true,
+      xmlRetorno: envio.body,
+      tempoResolverMs: envio.tempoResolverMs,
+      tempoXmlMs: envio.tempoXmlMs,
+      tempoTransporteMs: envio.tempoTransporteMs,
+      tempoTotalMs: envio.tempoTotalMs,
+      fallbackUtilizado: envio.fallbackUtilizado,
+      endpoint: envio.endpoint,
+      resultado: 'OK'
+    });
+  }
+  return envio.body;
+}
+
+/**
+ * Finaliza telemetria SOAP após parse/persistência (observe-only).
+ * @param {object|null} envio
+ * @param {object} [extra]
+ */
+function finalizarTelemetriaEnvio(envio, extra = {}) {
+  if (!envio || !envio.requestId) return;
+  fiscalSoapTelemetry.finalizar(envio.requestId, {
+    sucesso: extra.sucesso !== false,
+    xmlRetorno: envio.body,
+    persistidos: extra.persistidos,
+    duplicados: extra.duplicados,
+    descartados: extra.descartados,
+    cStat: extra.cStat,
+    xMotivo: extra.xMotivo,
+    ultNSU: extra.ultNSU,
+    maxNSU: extra.maxNSU,
+    tempoResolverMs: envio.tempoResolverMs,
+    tempoXmlMs: envio.tempoXmlMs,
+    tempoTransporteMs: envio.tempoTransporteMs,
+    tempoTotalMs: envio.tempoTotalMs,
+    fallbackUtilizado: envio.fallbackUtilizado,
+    endpoint: envio.endpoint,
+    resultado: extra.resultado || (extra.sucesso === false ? 'ERRO' : 'OK')
+  });
 }
 
 /**
@@ -194,63 +276,106 @@ async function sincronizarDistribuicaoDFe(deps = {}) {
       ultNsu: ultNsuAtual
     });
 
-    const xmlRetorno = await enviarConsultaDfe(xmlConsulta, config, ambiente, deps);
-    ultimoRetorno = extrairMetadadosRetorno(xmlRetorno);
+    const envio = await executarEnvioConsultaDfe(xmlConsulta, config, ambiente, deps);
+    let ultimoRetornoIter = null;
+    try {
+      ultimoRetornoIter = extrairMetadadosRetorno(envio.body);
+      ultimoRetorno = ultimoRetornoIter;
 
-    if (!retornoDistSucesso(ultimoRetorno.cStat)) {
-      throw new Error(
-        ultimoRetorno.xMotivo
-          || `SEFAZ retornou cStat ${ultimoRetorno.cStat || 'desconhecido'}`
-      );
-    }
+      if (!retornoDistSucesso(ultimoRetorno.cStat)) {
+        finalizarTelemetriaEnvio(envio, {
+          sucesso: false,
+          cStat: ultimoRetorno.cStat,
+          xMotivo: ultimoRetorno.xMotivo,
+          ultNSU: ultimoRetorno.ultNSU,
+          maxNSU: ultimoRetorno.maxNSU,
+          resultado: 'ERRO'
+        });
+        throw new Error(
+          ultimoRetorno.xMotivo
+            || `SEFAZ retornou cStat ${ultimoRetorno.cStat || 'desconhecido'}`
+        );
+      }
 
-    // cStat 656: não persiste documentos nem altera NSU — apenas cooldown.
-    if (String(ultimoRetorno.cStat) === '656') {
+      // cStat 656: não persiste documentos nem altera NSU — apenas cooldown.
+      if (String(ultimoRetorno.cStat) === '656') {
+        const aplicado = await nsuService.aplicarRetornoDistDfe({
+          controle: controleNsu,
+          cStat: '656',
+          xmlRetorno: envio.body,
+          correlationId
+        });
+        controleNsu = aplicado.controle;
+        ultNsuAtual = normalizarNsu(aplicado.ultNsu);
+        maxNsuAtual = normalizarNsu(aplicado.maxNsu);
+        finalizarTelemetriaEnvio(envio, {
+          sucesso: false,
+          cStat: '656',
+          xMotivo: ultimoRetorno.xMotivo,
+          ultNSU: ultimoRetorno.ultNSU,
+          maxNSU: ultimoRetorno.maxNSU,
+          persistidos: 0,
+          duplicados: 0,
+          descartados: 0,
+          resultado: 'CONSUMO_INDEVIDO'
+        });
+        return {
+          sucesso: false,
+          codigo: 'CONSUMO_INDEVIDO',
+          notasNovas: notasNovasTotal,
+          notasDuplicadas: notasDuplicadasTotal,
+          ignorados: ignoradosTotal,
+          ultNsu: ultNsuAtual,
+          maxNsu: maxNsuAtual,
+          iteracoes,
+          cStat: '656',
+          proximaConsultaEm: aplicado.proximaConsultaEm,
+          mensagem: ultimoRetorno.xMotivo
+            || 'Consumo indevido (cStat 656) — NSU preservado; nova consulta após 1 hora.',
+          ultimaSincronizacao: controleNsu.dataSincronizacao || controleNsu.updatedAt
+        };
+      }
+
+      const persistidos = await persistirDocumentosRetorno(envio.body, persistencia, 'dfe');
+      notasNovasTotal += persistidos.notasNovas;
+      notasDuplicadasTotal += persistidos.notasDuplicadas;
+      ignoradosTotal += persistidos.ignorados;
+
+      finalizarTelemetriaEnvio(envio, {
+        sucesso: true,
+        cStat: ultimoRetorno.cStat,
+        xMotivo: ultimoRetorno.xMotivo,
+        ultNSU: ultimoRetorno.ultNSU,
+        maxNSU: ultimoRetorno.maxNSU,
+        persistidos: persistidos.notasNovas,
+        duplicados: persistidos.notasDuplicadas,
+        descartados: persistidos.ignorados,
+        resultado: 'OK'
+      });
+
       const aplicado = await nsuService.aplicarRetornoDistDfe({
         controle: controleNsu,
-        cStat: '656',
-        xmlRetorno,
+        cStat: ultimoRetorno.cStat,
+        xmlRetorno: envio.body,
+        ultNsu: ultimoRetorno.ultNSU,
+        maxNsu: ultimoRetorno.maxNSU,
         correlationId
       });
       controleNsu = aplicado.controle;
       ultNsuAtual = normalizarNsu(aplicado.ultNsu);
       maxNsuAtual = normalizarNsu(aplicado.maxNsu);
-      return {
+
+      if (!nsuMenorQue(ultNsuAtual, maxNsuAtual)) {
+        break;
+      }
+    } catch (erro) {
+      finalizarTelemetriaEnvio(envio, {
         sucesso: false,
-        codigo: 'CONSUMO_INDEVIDO',
-        notasNovas: notasNovasTotal,
-        notasDuplicadas: notasDuplicadasTotal,
-        ignorados: ignoradosTotal,
-        ultNsu: ultNsuAtual,
-        maxNsu: maxNsuAtual,
-        iteracoes,
-        cStat: '656',
-        proximaConsultaEm: aplicado.proximaConsultaEm,
-        mensagem: ultimoRetorno.xMotivo
-          || 'Consumo indevido (cStat 656) — NSU preservado; nova consulta após 1 hora.',
-        ultimaSincronizacao: controleNsu.dataSincronizacao || controleNsu.updatedAt
-      };
-    }
-
-    const persistidos = await persistirDocumentosRetorno(xmlRetorno, persistencia, 'dfe');
-    notasNovasTotal += persistidos.notasNovas;
-    notasDuplicadasTotal += persistidos.notasDuplicadas;
-    ignoradosTotal += persistidos.ignorados;
-
-    const aplicado = await nsuService.aplicarRetornoDistDfe({
-      controle: controleNsu,
-      cStat: ultimoRetorno.cStat,
-      xmlRetorno,
-      ultNsu: ultimoRetorno.ultNSU,
-      maxNsu: ultimoRetorno.maxNSU,
-      correlationId
-    });
-    controleNsu = aplicado.controle;
-    ultNsuAtual = normalizarNsu(aplicado.ultNsu);
-    maxNsuAtual = normalizarNsu(aplicado.maxNsu);
-
-    if (!nsuMenorQue(ultNsuAtual, maxNsuAtual)) {
-      break;
+        cStat: ultimoRetornoIter?.cStat,
+        xMotivo: ultimoRetornoIter?.xMotivo || erro.message,
+        resultado: 'ERRO'
+      });
+      throw erro;
     }
   }
 
@@ -331,24 +456,49 @@ async function consultarNotaPorChave(chave, deps = {}) {
     chave: chaveLimpa
   });
 
-  const xmlRetorno = await enviarConsultaDfe(xmlConsulta, config, ambiente, deps);
-  const metadados = extrairMetadadosRetorno(xmlRetorno);
+  const envio = await executarEnvioConsultaDfe(xmlConsulta, config, ambiente, deps);
+  try {
+    const metadados = extrairMetadadosRetorno(envio.body);
 
-  if (!retornoDistSucesso(metadados.cStat) && metadados.cStat !== '138') {
-    throw new Error(metadados.xMotivo || `SEFAZ retornou cStat ${metadados.cStat}`);
+    if (!retornoDistSucesso(metadados.cStat) && metadados.cStat !== '138') {
+      finalizarTelemetriaEnvio(envio, {
+        sucesso: false,
+        cStat: metadados.cStat,
+        xMotivo: metadados.xMotivo,
+        resultado: 'ERRO'
+      });
+      throw new Error(metadados.xMotivo || `SEFAZ retornou cStat ${metadados.cStat}`);
+    }
+
+    const persistidos = await persistirDocumentosRetorno(envio.body, persistencia, 'consulta_chave');
+
+    finalizarTelemetriaEnvio(envio, {
+      sucesso: true,
+      cStat: metadados.cStat,
+      xMotivo: metadados.xMotivo,
+      persistidos: persistidos.notasNovas,
+      duplicados: persistidos.notasDuplicadas,
+      descartados: persistidos.ignorados,
+      resultado: 'OK'
+    });
+
+    return {
+      sucesso: true,
+      chave: chaveLimpa,
+      cStat: metadados.cStat,
+      mensagem: metadados.xMotivo,
+      notasNovas: persistidos.notasNovas,
+      notasDuplicadas: persistidos.notasDuplicadas,
+      ignorados: persistidos.ignorados
+    };
+  } catch (erro) {
+    finalizarTelemetriaEnvio(envio, {
+      sucesso: false,
+      xMotivo: erro.message,
+      resultado: 'ERRO'
+    });
+    throw erro;
   }
-
-  const persistidos = await persistirDocumentosRetorno(xmlRetorno, persistencia, 'consulta_chave');
-
-  return {
-    sucesso: true,
-    chave: chaveLimpa,
-    cStat: metadados.cStat,
-    mensagem: metadados.xMotivo,
-    notasNovas: persistidos.notasNovas,
-    notasDuplicadas: persistidos.notasDuplicadas,
-    ignorados: persistidos.ignorados
-  };
 }
 
 /**

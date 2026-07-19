@@ -34,6 +34,7 @@ const centralEntradasState = {
     indicadores: null,
     ultimoDashboardContadores: null,
     operacional: null,
+    sefazOperacional: null,
     alertas: null,
     pendencias: null,
     atencao: null,
@@ -53,7 +54,12 @@ const centralEntradasState = {
     uploadEmAndamento: false,
     eventosRodape: [],
     notificacoesNaoLidas: 0,
-    buscaDebounceTimer: null
+    buscaDebounceTimer: null,
+    tickerLiveUx: null,
+    tickerSoftDoc: null,
+    softRefreshEmAndamento: false,
+    statusServico: null,
+    loadingFase: 'preparando'
 };
 
 const CENTRAL_STATUS_META = {
@@ -61,13 +67,13 @@ const CENTRAL_STATUS_META = {
     SINCRONIZADA: { cor: '#0d6efd', bg: 'rgba(13,110,253,.10)', icone: 'fa-inbox', badge: 'bg-primary', descricao: 'Nova nota encontrada' },
     EM_PROCESSAMENTO: { cor: '#f59e0b', bg: 'rgba(245,158,11,.12)', icone: 'fa-cog', badge: 'bg-warning text-dark', descricao: 'Pipeline em execução' },
     AGUARDANDO_REVISAO: { cor: '#fd7e14', bg: 'rgba(253,126,20,.12)', icone: 'fa-user-check', badge: 'central-badge-orange', descricao: 'Produtos aguardando revisão' },
-    AGUARDANDO_XML_COMPLETO: { cor: '#64748b', bg: 'rgba(100,116,139,.12)', icone: 'fa-file-import', badge: 'bg-secondary', descricao: 'Aguardando XML completo' },
+    AGUARDANDO_XML_COMPLETO: { cor: '#64748b', bg: 'rgba(100,116,139,.12)', icone: 'fa-file-import', badge: 'bg-secondary', descricao: 'Aguardando a disponibilização do XML completo pela SEFAZ.' },
     REVISADA: { cor: '#0dcaf0', bg: 'rgba(13,202,240,.12)', icone: 'fa-clipboard-check', badge: 'bg-info', descricao: 'Revisão concluída' },
     PRONTA_PARA_COMPRA: { cor: '#198754', bg: 'rgba(25,135,84,.12)', icone: 'fa-check-circle', badge: 'bg-success', descricao: 'Pronta para lançamento' },
     EM_COMPRA: { cor: '#6610f2', bg: 'rgba(102,16,242,.12)', icone: 'fa-shopping-cart', badge: 'bg-info', descricao: 'Aberta na tela de Compras' },
     GRAVADA: { cor: '#6c757d', bg: 'rgba(108,117,125,.12)', icone: 'fa-archive', badge: 'bg-secondary', descricao: 'Compra concluída' },
     DESCARTADA: { cor: '#212529', bg: 'rgba(33,37,41,.10)', icone: 'fa-trash-alt', badge: 'bg-dark', descricao: 'Documento descartado' },
-    ERRO: { cor: '#dc3545', bg: 'rgba(220,53,69,.12)', icone: 'fa-exclamation-triangle', badge: 'bg-danger', descricao: 'Falha no processamento' },
+    ERRO: { cor: '#dc3545', bg: 'rgba(220,53,69,.12)', icone: 'fa-exclamation-triangle', badge: 'bg-danger', descricao: 'Consulta temporariamente indisponível.' },
     DUPLICADA: { cor: '#dc3545', bg: 'rgba(220,53,69,.12)', icone: 'fa-copy', badge: 'bg-danger', descricao: 'Nota já lançada no sistema' }
 };
 
@@ -103,9 +109,37 @@ function formatarDataCentral(data) {
 
 function formatarDataHoraCentral(data) {
     if (!data) return '—';
-    const date = new Date(data);
-    if (Number.isNaN(date.getTime())) return String(data);
+    const texto = String(data).trim();
+    const soData = texto.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (soData) return `${soData[3]}/${soData[2]}/${soData[1]}`;
+    const date = new Date(texto);
+    if (Number.isNaN(date.getTime())) return texto;
     return date.toLocaleString('pt-BR');
+}
+
+/**
+ * Data de exibição do documento: prioriza dataEmissao, depois dhRecbto.
+ * Nunca usa created_at como data principal.
+ * @param {Object} doc
+ * @returns {{ data: string, hora: string, fonte?: string }}
+ */
+function obterDataExibicaoDocumentoCentral(doc) {
+    const UX = centralUx();
+    if (typeof UX.resolverDataDocumentoCentral === 'function') {
+        const r = UX.resolverDataDocumentoCentral(doc);
+        if (r?.data && r.data !== '—') return r;
+    }
+    const emissao = doc?.dataEmissao || doc?.data_emissao;
+    if (emissao) {
+        return UX.formatarDataHoraSeparadoCentral?.(emissao)
+            || { data: formatarDataCentral(emissao), hora: '', fonte: 'dataEmissao' };
+    }
+    const dh = doc?.dhRecbto || doc?.dh_recbto || doc?.dataRecebimento;
+    if (dh) {
+        return UX.formatarDataHoraSeparadoCentral?.(dh)
+            || { data: formatarDataCentral(dh), hora: '', fonte: 'dhRecbto' };
+    }
+    return { data: '—', hora: '', fonte: null };
 }
 
 function tempoDesdeCentral(data) {
@@ -428,6 +462,26 @@ const CENTRAL_UX1_FILTROS = [
     { codigo: '', label: 'Todos' }
 ];
 
+function renderSefazOperacionalChipCentral(painel) {
+    if (!painel || !painel.estadoOperacional) return '';
+    const est = painel.estadoOperacional;
+    const titulo = [
+        `Estado: ${est.label || est.codigo || '—'}`,
+        painel.ultimoCStat ? `Último cStat: ${painel.ultimoCStat}` : null,
+        painel.ultimaConsulta ? `Última consulta: ${formatarDataHoraCentral(painel.ultimaConsulta)}` : null,
+        painel.proximaConsulta ? `Próxima: ${formatarDataHoraCentral(painel.proximaConsulta)}` : null,
+        painel.tempoRestante ? `Restante: ${painel.tempoRestante}` : null,
+        painel.economiaSOAP != null ? `Economia SOAP: ${painel.economiaSOAP}` : null
+    ].filter(Boolean).join(' · ');
+    return `<span class="central-ux1-sync-info" title="${escapeHtmlCentralEntradas(titulo)}" style="margin-left:.35rem">
+        <span aria-hidden="true">${escapeHtmlCentralEntradas(est.indicador || '🟢')}</span>
+        SEFAZ: ${escapeHtmlCentralEntradas(est.label || 'Normal')}
+        ${painel.tempoRestante && (est.codigo === 'BLOQUEIO_656' || est.codigo === 'BLOCKED')
+            ? ` · ${escapeHtmlCentralEntradas(painel.tempoRestante)}`
+            : ''}
+    </span>`;
+}
+
 function renderCabecalhoUx1Central() {
     const container = document.getElementById('centralUx1Header');
     if (!container) return;
@@ -458,6 +512,7 @@ function renderCabecalhoUx1Central() {
                         Última sync: ${ultima ? escapeHtmlCentralEntradas(formatarDataHoraCentral(ultima)) : '—'}
                         ${tempoSync && !centralEntradasState.sincronizando ? ` · ${escapeHtmlCentralEntradas(tempoSync)}` : ''}
                     </span>
+                    ${renderSefazOperacionalChipCentral(centralEntradasState.sefazOperacional)}
                 </div>
             </div>
             <div class="central-ux1-header-acoes">
@@ -1140,7 +1195,9 @@ function renderPainelServicoCentral() {
 async function carregarStatusServicoCentral() {
     try {
         centralEntradasState.servicoStatus = await centralEntradasFetch('/servico/status');
+        centralEntradasState.statusServico = centralEntradasState.servicoStatus;
         renderPainelServicoCentral();
+        renderPainelSaudeSefazUxCentral();
     } catch { /* ignore */ }
 }
 
@@ -1751,8 +1808,35 @@ function renderAbaSincronizacaoCfg(painel) {
 
 function renderAbaDiagnosticoCfg(painel) {
     const d = painel.diagnostico || {};
+    const op = d.sefazOperacional || centralEntradasState.sefazOperacional || {};
+    const est = op.estadoOperacional || {};
+    const errOp = op.errosOperacionaisSefaz || {};
+    const errInt = op.errosInternosCds || {};
     return `
         <div class="row g-3">
+            <div class="col-12">
+                <div class="central-cfg-card">
+                    <div class="central-cfg-card__title"><i class="fas fa-satellite-dish me-1"></i> SEFAZ OPERACIONAL</div>
+                    <div class="row g-2">
+                        <div class="col-md-4"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Estado</div><div class="central-cfg-stat__value">${escapeHtmlCentralEntradas((est.indicador || '🟢') + ' ' + (est.label || 'Normal'))}</div></div></div>
+                        <div class="col-md-4"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Último cStat</div><div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(op.ultimoCStat || '—')}</div></div></div>
+                        <div class="col-md-4"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Tempo restante</div><div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(op.tempoRestante || '—')}</div></div></div>
+                        <div class="col-md-4"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Última consulta</div><div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(formatarDataHoraCentral(op.ultimaConsulta) || '—')}</div></div></div>
+                        <div class="col-md-4"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Próxima consulta</div><div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(formatarDataHoraCentral(op.proximaConsulta) || '—')}</div></div></div>
+                        <div class="col-md-4"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Backoff atual</div><div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(op.backoffAtual || op.backoffAtualLabel || '—')}</div></div></div>
+                        <div class="col-md-4"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Consultas realizadas</div><div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(String(op.consultasSOAP ?? op.consultasRealizadas ?? '—'))}</div></div></div>
+                        <div class="col-md-4"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Consultas evitadas</div><div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(String(op.consultasEvitadas ?? '—'))}</div></div></div>
+                        <div class="col-md-4"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Economia SOAP</div><div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(String(op.economiaSOAP ?? '—'))}</div></div></div>
+                        <div class="col-md-4"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Tempo médio</div><div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(op.tempoMedio || '—')}</div></div></div>
+                        <div class="col-md-4"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Tempo bloqueado</div><div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(op.tempoBloqueado || '—')}</div></div></div>
+                        <div class="col-md-4"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Contador 656</div><div class="central-cfg-stat__value">${escapeHtmlCentralEntradas(String(op.contador656 ?? '—'))}</div></div></div>
+                    </div>
+                    <div class="row g-2 mt-2">
+                        <div class="col-md-6"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Erros operacionais SEFAZ</div><div class="central-cfg-stat__value small">137: ${escapeHtmlCentralEntradas(String(errOp['137'] ?? 0))} · 138: ${escapeHtmlCentralEntradas(String(errOp['138'] ?? 0))} · 656: ${escapeHtmlCentralEntradas(String(errOp['656'] ?? 0))} · 593: ${escapeHtmlCentralEntradas(String(errOp['593'] ?? 0))}</div></div></div>
+                        <div class="col-md-6"><div class="central-cfg-stat"><div class="central-cfg-stat__label">Erros internos CDS</div><div class="central-cfg-stat__value small">Timeout: ${escapeHtmlCentralEntradas(String(errInt.TIMEOUT ?? 0))} · SOAP: ${escapeHtmlCentralEntradas(String(errInt.SOAP_EXCEPTION ?? 0))} · XML: ${escapeHtmlCentralEntradas(String(errInt.ERRO_XML ?? 0))}</div></div></div>
+                    </div>
+                </div>
+            </div>
             <div class="col-lg-5">
                 <div class="central-cfg-card">
                     <div class="central-cfg-card__title"><i class="fas fa-stethoscope me-1"></i> Ações rápidas</div>
@@ -2160,6 +2244,8 @@ async function pollNotificacoesCentral() {
 function iniciarAutomacaoCentral() {
     if (centralEntradasState.tickerServico) clearInterval(centralEntradasState.tickerServico);
     if (centralEntradasState.tickerNotificacoes) clearInterval(centralEntradasState.tickerNotificacoes);
+    if (centralEntradasState.tickerLiveUx) clearInterval(centralEntradasState.tickerLiveUx);
+    if (centralEntradasState.tickerSoftDoc) clearInterval(centralEntradasState.tickerSoftDoc);
 
     carregarStatusServicoCentral();
     pollNotificacoesCentral();
@@ -2185,6 +2271,25 @@ function iniciarAutomacaoCentral() {
             centralEntradasState.tickerNotificacoes = null;
         }
     }, 45000);
+
+    // RC7.5 — countdown / tempo aguardando (sem reload da tabela)
+    centralEntradasState.tickerLiveUx = setInterval(() => {
+        if (!document.getElementById('centralUx1Header')) {
+            clearInterval(centralEntradasState.tickerLiveUx);
+            centralEntradasState.tickerLiveUx = null;
+            return;
+        }
+        tickLiveUxCentral();
+    }, 1000);
+
+    centralEntradasState.tickerSoftDoc = setInterval(() => {
+        if (!document.getElementById('centralUx1Header')) {
+            clearInterval(centralEntradasState.tickerSoftDoc);
+            centralEntradasState.tickerSoftDoc = null;
+            return;
+        }
+        softRefreshDocumentoSelecionadoCentral();
+    }, 20000);
 }
 
 function iniciarTickerSincronizacao() {
@@ -2258,7 +2363,7 @@ function renderGridCentralEntradas() {
             const miipBadge = doc.miipDisponivel
                 ? '<span class="central-ux1-badge-miip" title="Processado pelo MIIP"><i class="fas fa-brain"></i> MIIP</span>'
                 : '';
-            const dt = UX.formatarDataHoraSeparadoCentral?.(doc.createdAt || doc.dataEmissao) || { data: formatarDataCentral(doc.dataEmissao), hora: '' };
+            const dt = obterDataExibicaoDocumentoCentral(doc);
 
             return `
                 <div class="central-ux1-doc-card ${selecionado} central-entradas-row"
@@ -2314,7 +2419,7 @@ function renderGridCentralEntradas() {
                         <div class="fw-semibold">${escapeHtmlCentralEntradas(numero)}</div>
                         <small class="text-muted"><i class="fas ${iconeOrigemCentral(doc.origem)} me-1"></i>${escapeHtmlCentralEntradas(labelOrigemCentral(doc.origem))}</small>
                     </td>
-                    <td>${escapeHtmlCentralEntradas(formatarDataCentral(doc.dataEmissao))}</td>
+                    <td>${escapeHtmlCentralEntradas(obterDataExibicaoDocumentoCentral(doc).data)}</td>
                     <td class="fw-semibold">${escapeHtmlCentralEntradas(formatarMoedaCentral(doc.valorTotal))}</td>
                     <td>${renderScoreBadgeCentral(doc.scoreGeral, doc.scoreCor)}</td>
                     <td>
@@ -2501,6 +2606,8 @@ function renderAbaResumoCentral(doc) {
     const UX = centralUx();
     const meta = metaStatusCentral(doc.status);
     const detalhe = centralEntradasState.detalheAtual;
+    const wait = doc.xmlWait || detalhe?.documento?.xmlWait || null;
+    const sefaz = detalhe?.sefazOperacional || centralEntradasState.sefazOperacional || {};
     const exec = UX.extrairDadosExecutivoCentral?.(
         doc,
         centralEntradasState.parseAtual,
@@ -2512,22 +2619,42 @@ function renderAbaResumoCentral(doc) {
         ? `<div class="text-center mb-3">${UX.renderGaugeScoreCentral(doc.scoreGeral, doc.scoreCor, { tamanho: 108 })}</div>`
         : '';
 
-    const msgAguardandoXml = doc.status === 'AGUARDANDO_XML_COMPLETO'
-        ? `<div class="alert alert-secondary border-0 small mb-3 central-entradas-anim-in" role="status">
-                <i class="fas fa-file-import me-1" aria-hidden="true"></i>
-                <strong>Resumo da NF-e recebido.</strong><br>
-                Aguardando o XML completo para continuar o processamento.
-           </div>`
+    const modelo = UX.montarEtapasOperacionaisCentral?.(doc, detalhe?.historico, wait) || null;
+    const barraHtml = modelo && UX.renderBarraProgressoOperacionalCentral
+        ? UX.renderBarraProgressoOperacionalCentral(modelo)
         : '';
+    const timelineOpHtml = modelo && UX.renderTimelineOperacionalCentral
+        ? `<div class="mb-3"><label class="central-entradas-label">Linha do tempo operacional</label>${UX.renderTimelineOperacionalCentral(modelo)}</div>`
+        : '';
+    const cardXmlHtml = UX.renderCardXmlWaitOperacionalCentral?.(doc, wait, {
+        ultimoCStat: sefaz.ultimoCStat,
+        backoffLabel: sefaz.backoffAtual || sefaz.backoffAtualLabel
+    }) || '';
+    const chipHtml = UX.renderChipEtapaCentral?.(UX.resolverChipEtapaCentral?.(doc, wait)) || '';
+    const techHtml = UX.renderInfoTecnicasRecolhivelCentral?.({
+        doc,
+        wait,
+        sefaz,
+        statusBg: centralEntradasState.statusServico || {}
+    }) || '';
 
     const descricaoResumo = doc.status === 'AGUARDANDO_XML_COMPLETO'
-        ? (doc.statusDetalhe || doc.status_detalhe || 'Resumo da NF-e recebido. Aguardando o XML completo para continuar o processamento.')
-        : meta.descricao;
+        ? (UX.mensagemAmigavelCentral?.('AGUARDANDO_XML_COMPLETO')
+            || 'Aguardando a disponibilização do XML completo pela SEFAZ.')
+        : (doc.status === 'ERRO'
+            ? (UX.mensagemAmigavelCentral?.('ERRO') || meta.descricao)
+            : meta.descricao);
 
     return `
         ${gaugeHtml}
 
-        ${msgAguardandoXml}
+        <div class="mb-2 d-flex flex-wrap gap-2 align-items-center">${chipHtml}</div>
+
+        ${cardXmlHtml}
+
+        ${barraHtml ? `<div class="mb-3">${barraHtml}</div>` : ''}
+
+        ${timelineOpHtml}
 
         <div class="central-entradas-resumo-executivo mb-3 central-entradas-anim-in"
              style="border-left-color:${meta.cor}; background:${meta.bg}">
@@ -2537,6 +2664,8 @@ function renderAbaResumoCentral(doc) {
             </div>
             <div class="small text-muted">${escapeHtmlCentralEntradas(descricaoResumo)}</div>
         </div>
+
+        ${techHtml}
 
         <div class="central-entradas-painel-executivo mb-3">
             <label class="central-entradas-label">Painel executivo</label>
@@ -2633,7 +2762,7 @@ function renderAbaResumoCentral(doc) {
             </div>
             <div class="col-6">
                 <label class="central-entradas-label">Emissão</label>
-                <div>${escapeHtmlCentralEntradas(formatarDataCentral(doc.dataEmissao))}</div>
+                <div>${escapeHtmlCentralEntradas(obterDataExibicaoDocumentoCentral(doc).data)}</div>
             </div>
         </div>
 
@@ -2693,8 +2822,82 @@ function renderAbaItensCentral() {
 function renderAbaTimelineCentral(detalhe) {
     const UX = centralUx();
     const doc = detalhe.documento;
-    return UX.renderPipelineTimelineUx1?.(doc, detalhe.historico)
+    const wait = doc?.xmlWait || null;
+    const modelo = UX.montarEtapasOperacionaisCentral?.(doc, detalhe.historico, wait);
+    const op = modelo && UX.renderTimelineOperacionalCentral
+        ? `<div class="mb-3">${UX.renderBarraProgressoOperacionalCentral?.(modelo) || ''}${UX.renderTimelineOperacionalCentral(modelo)}</div>`
+        : '';
+    const legado = UX.renderPipelineTimelineUx1?.(doc, detalhe.historico)
         || renderTimelineCentral(detalhe.historico);
+    return op + legado;
+}
+
+function renderPainelSaudeSefazUxCentral() {
+    const wrap = document.getElementById('centralRc75SaudeWrap');
+    if (!wrap) return;
+    const UX = centralUx();
+    if (!UX.renderPainelSaudeSefazCentral) {
+        wrap.innerHTML = '';
+        return;
+    }
+    wrap.innerHTML = UX.renderPainelSaudeSefazCentral(
+        centralEntradasState.sefazOperacional || {},
+        centralEntradasState.servicoStatus || centralEntradasState.statusServico || {}
+    );
+}
+
+/** RC7.5 — atualiza countdown/tempo sem redesenhar tabela. */
+function tickLiveUxCentral() {
+    const UX = centralUx();
+    if (!UX.atualizarLiveRegionsCentral) return;
+    const painel = document.getElementById('centralEntradasPainelLateral');
+    const saude = document.getElementById('centralRc75SaudeWrap');
+    if (painel) UX.atualizarLiveRegionsCentral(painel);
+    if (saude) UX.atualizarLiveRegionsCentral(saude);
+}
+
+/** Soft refresh só do documento selecionado (AGUARDANDO_XML). */
+async function softRefreshDocumentoSelecionadoCentral() {
+    const id = centralEntradasState.documentoSelecionadoId;
+    if (!id || !document.getElementById('centralUx1Header')) return;
+    const doc = centralEntradasState.detalheAtual?.documento;
+    if (!doc || doc.status !== 'AGUARDANDO_XML_COMPLETO') return;
+    if (centralEntradasState.softRefreshEmAndamento) return;
+    centralEntradasState.softRefreshEmAndamento = true;
+    try {
+        const detalhe = await centralEntradasFetch(`/${id}`);
+        if (centralEntradasState.documentoSelecionadoId !== id) return;
+        centralEntradasState.detalheAtual = {
+            ...centralEntradasState.detalheAtual,
+            ...detalhe,
+            documento: {
+                ...(centralEntradasState.detalheAtual?.documento || {}),
+                ...(detalhe.documento || {})
+            }
+        };
+        if (detalhe.sefazOperacional) {
+            centralEntradasState.sefazOperacional = detalhe.sefazOperacional;
+            renderPainelSaudeSefazUxCentral();
+        }
+        // Atualização parcial: só aba resumo / timeline se ativas
+        if (['resumo', 'timeline'].includes(centralEntradasState.abaAtiva)) {
+            const corpo = document.getElementById('centralEntradasAbaConteudo')
+                || document.querySelector('.central-ux1-painel-body');
+            if (corpo && centralEntradasState.detalheAtual) {
+                // Re-render apenas o painel lateral (documento único), sem grid.
+                renderPainelLateralCentral(centralEntradasState.detalheAtual);
+            }
+        } else {
+            // Atualiza só o card XML live se existir no DOM
+            const card = document.getElementById('centralRc75XmlCard');
+            if (card && centralEntradasState.detalheAtual) {
+                renderPainelLateralCentral(centralEntradasState.detalheAtual);
+            }
+        }
+    } catch { /* ignore soft refresh */ }
+    finally {
+        centralEntradasState.softRefreshEmAndamento = false;
+    }
 }
 
 function renderAbaMiipCentral(doc) {
@@ -2879,7 +3082,7 @@ function renderPainelLateralCentral(detalhe) {
                 </div>
                 <div class="central-ux1-painel-resumo-chips">
                     <span class="central-ux1-chip" title="Valor total"><i class="fas fa-coins me-1"></i>${escapeHtmlCentralEntradas(formatarMoedaCentral(doc.valorTotal))}</span>
-                    <span class="central-ux1-chip" title="Data emissão"><i class="far fa-calendar me-1"></i>${escapeHtmlCentralEntradas(formatarDataCentral(doc.dataEmissao))}</span>
+                    <span class="central-ux1-chip" title="Data emissão"><i class="far fa-calendar me-1"></i>${escapeHtmlCentralEntradas(obterDataExibicaoDocumentoCentral(doc).data)}</span>
                     <span class="central-ux1-chip" title="Itens"><i class="fas fa-list me-1"></i>${escapeHtmlCentralEntradas(exec.qtdItens || '—')} itens</span>
                     <span class="central-ux1-chip" title="Peso"><i class="fas fa-weight-hanging me-1"></i>${escapeHtmlCentralEntradas(exec.peso || '—')}</span>
                     <span class="central-ux1-chip" title="Volumes"><i class="fas fa-cubes me-1"></i>${escapeHtmlCentralEntradas(exec.volumes || '—')}</span>
@@ -2936,8 +3139,12 @@ async function carregarDashboardCentral() {
         centralEntradasState.indicadores = dashboard.indicadores || null;
         centralEntradasState.ultimaSincronizacao = dashboard.ultimaSincronizacao || dashboard.sincronizacao?.dataSincronizacao || null;
         centralEntradasState.sincronizacaoNsu = dashboard.sincronizacao || null;
+        centralEntradasState.sefazOperacional = dashboard.sefazOperacional
+            || dashboard.xmlWait?.painelOperacional
+            || null;
 
         renderCabecalhoUx1Central();
+        renderPainelSaudeSefazUxCentral();
 
         if (cardsContainer) {
             cardsContainer.className = 'central-ux1-kpis';
@@ -2965,7 +3172,8 @@ async function carregarDashboardCentral() {
         if (cardsContainer) {
             cardsContainer.innerHTML = '<div class="col-12 text-danger small">Erro ao carregar dashboard.</div>';
         }
-        throw error;
+        console.warn('[Central Entradas] Dashboard:', error.message);
+        // RC7.3.1 — não relança: permite que a lista de documentos conclua o Promise.all.
     } finally {
         centralEntradasState.carregandoDashboard = false;
     }
@@ -3288,9 +3496,20 @@ async function exportarXmlCentral(documentoId) {
 async function carregarDocumentosCentral(opcoes = {}) {
     if (centralEntradasState.carregando) return;
     centralEntradasState.carregando = true;
-    renderGridCentralEntradas();
+    centralEntradasState.loadingFase = 'preparando';
+    const lista = document.getElementById('centralEntradasLista');
+    const UX = centralUx();
+    if (lista && UX.renderLoadingEtapasCentral) {
+        lista.innerHTML = UX.renderLoadingEtapasCentral('preparando');
+    } else {
+        renderGridCentralEntradas();
+    }
 
     try {
+        centralEntradasState.loadingFase = 'recebendo';
+        if (lista && UX.renderLoadingEtapasCentral) {
+            lista.innerHTML = UX.renderLoadingEtapasCentral('recebendo');
+        }
         if (opcoes.pagina) centralEntradasState.pagina = opcoes.pagina;
         if (opcoes.ordenarPor) centralEntradasState.ordenarPor = opcoes.ordenarPor;
         if (opcoes.ordenarDirecao) centralEntradasState.ordenarDirecao = opcoes.ordenarDirecao;
@@ -3311,17 +3530,25 @@ async function carregarDocumentosCentral(opcoes = {}) {
             }
         });
 
+        centralEntradasState.loadingFase = 'atualizando';
         const resultado = await centralEntradasFetch(`/?${params.toString()}`);
         centralEntradasState.documentos = resultado.documentos || [];
         centralEntradasState.total = resultado.paginacao?.total || 0;
         centralEntradasState.totalPaginas = resultado.paginacao?.totalPaginas || 1;
         centralEntradasState.pagina = resultado.paginacao?.pagina || 1;
-
-        renderGridCentralEntradas();
+        centralEntradasState.loadingFase = 'concluido';
     } catch (error) {
-        showNotification('Erro ao carregar documentos: ' + error.message, 'danger');
+        showNotification('Não foi possível carregar os documentos. Tente novamente.', 'danger');
+        if (lista) {
+            lista.innerHTML = `<div class="alert alert-warning border-0 small m-2" role="alert">
+                <i class="fas fa-exclamation-circle me-1"></i>
+                Não foi possível carregar a lista. ${escapeHtmlCentralEntradas(error.message || '')}
+            </div>`;
+        }
     } finally {
+        // RC7.3.1 / RC7.5 — sempre desliga loading e redesenha (evita skeleton infinito).
         centralEntradasState.carregando = false;
+        renderGridCentralEntradas();
     }
 }
 
@@ -3740,6 +3967,7 @@ function loadCentralEntradas() {
     const html = `
         <div class="central-ux1-page">
             <div id="centralUx1Header"></div>
+            <div id="centralRc75SaudeWrap" class="mb-3"></div>
 
             <div id="centralEntradasViewConfig" class="d-none mb-4">
                 <div class="card central-cfg-panel">
@@ -3968,5 +4196,14 @@ function loadCentralEntradas() {
         })
         .catch((error) => {
             showNotification('Erro ao inicializar Central: ' + error.message, 'danger');
+        })
+        .finally(() => {
+            // RC7.3.1 — garante fim de qualquer skeleton residual.
+            centralEntradasState.carregando = false;
+            centralEntradasState.carregandoDashboard = false;
+            if (document.getElementById('centralEntradasLista')
+                || document.getElementById('centralEntradasTbody')) {
+                renderGridCentralEntradas();
+            }
         });
 }

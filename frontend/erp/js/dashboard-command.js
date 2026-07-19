@@ -455,6 +455,7 @@
     const receber = data.contas_receber || {};
     const pagar = data.contas_pagar || {};
     const temAlertaCritico = alertas.some((a) => a.priority === 'danger');
+    const temAlertaWarn = alertas.some((a) => a.priority === 'warn');
     const fiscalOk = fiscalPermitido();
 
     DashboardOperationCard(
@@ -484,7 +485,7 @@
     DashboardOperationCard(
       'ccOpCentral',
       fiscalOk ? 'Documentos e XML de entrada' : 'Módulo não habilitado',
-      fiscalOk ? (temAlertaCritico ? 'warn' : 'ok') : 'muted'
+      fiscalOk ? (temAlertaCritico || temAlertaWarn ? 'warn' : 'ok') : 'muted'
     );
 
     return { temAlertaCritico, temAlertaWarn };

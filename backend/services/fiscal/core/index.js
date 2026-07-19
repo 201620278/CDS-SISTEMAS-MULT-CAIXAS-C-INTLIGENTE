@@ -60,7 +60,8 @@ const {
   ManifestacaoEventoCode,
   isOperationType,
   listOperationTypes,
-  getManifestacaoEventoCode
+  getManifestacaoEventoCode,
+  isManifestacaoOperation
 } = require('./OperationType');
 const { ModelType, ModelCode, isModelType, listModelTypes, getModelCode } = require('./ModelType');
 const {
@@ -71,6 +72,14 @@ const {
   fromAmbienteCode,
   toAmbienteCode
 } = require('./EnvironmentType');
+const {
+  FiscalSoapTelemetry,
+  fiscalSoapTelemetry,
+  sanitizarSoapXml,
+  contarDocZipPorTipo,
+  extrairMetadadosLeve
+} = require('./FiscalSoapTelemetry');
+const { FiscalSoapTelemetryEvents } = require('./FiscalSoapTelemetryEvents');
 
 module.exports = {
   FiscalWebServices,
@@ -134,6 +143,7 @@ module.exports = {
   isOperationType,
   listOperationTypes,
   getManifestacaoEventoCode,
+  isManifestacaoOperation,
   ModelType,
   ModelCode,
   isModelType,
@@ -144,5 +154,11 @@ module.exports = {
   isEnvironmentType,
   listEnvironmentTypes,
   fromAmbienteCode,
-  toAmbienteCode
+  toAmbienteCode,
+  FiscalSoapTelemetry,
+  fiscalSoapTelemetry,
+  FiscalSoapTelemetryEvents,
+  sanitizarSoapXml,
+  contarDocZipPorTipo,
+  extrairMetadadosLeve
 };

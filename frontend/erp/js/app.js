@@ -29,6 +29,10 @@ function loadPage(page) {
             return carregarPaginaHtml('dashboard.html', function () {
                 if (typeof initDashboard === 'function') initDashboard();
             });
+        case 'monitoring':
+            return typeof loadMonitoringEngine === 'function'
+                ? loadMonitoringEngine()
+                : $('#page-content').html('<div class="alert alert-danger">Erro ao carregar Central de Monitoramento.</div>');
         case 'produtos':
             return typeof loadProdutos === 'function'
                 ? loadProdutos()

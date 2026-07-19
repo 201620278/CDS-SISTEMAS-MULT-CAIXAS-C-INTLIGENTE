@@ -170,6 +170,28 @@ function renderLogsCentral(logs) {
     </div>`;
 }
 
+function renderComunicacaoSoapCentral(com) {
+  const c = com || {};
+  const u = c.ultimaComunicacao || {};
+  return renderGridItensCentral([
+    { label: 'Última comunicação', valor: u.timestampFim || u.timestampInicio
+      ? new Date(u.timestampFim || u.timestampInicio).toLocaleString('pt-BR')
+      : '—' },
+    { label: 'Último endpoint', valor: c.ultimoEndpoint || u.endpoint || '—' },
+    { label: 'Último cStat', valor: c.ultimoCStat || u.cStat || '—' },
+    { label: 'Último HTTP', valor: c.ultimoHttpStatus ?? u.httpStatus ?? '—' },
+    { label: 'Tempo médio', valor: formatarMsCentral(c.tempoMedioMs) },
+    { label: 'Tempo máximo', valor: formatarMsCentral(c.tempoMaximoMs) },
+    { label: 'Tempo médio SOAP', valor: formatarMsCentral(c.tempoMedioSoapMs) },
+    { label: 'Retries', valor: c.retries ?? 0 },
+    { label: 'Documentos (telemetria)', valor: c.quantidadeDocumentos ?? 0 },
+    { label: 'Totais OK / Falha / Timeout', valor: `${c.totais?.sucesso ?? 0} / ${c.totais?.falha ?? 0} / ${c.totais?.timeout ?? 0}` },
+    { label: 'CorrelationId', valor: u.correlationId || '—' },
+    { label: 'RequestId', valor: u.requestId || '—' },
+    { label: 'Resultado', valor: u.resultado || '—' }
+  ]);
+}
+
 function renderPainelDiagnosticoCentral(dados) {
   const s = dados.statusGeral || {};
   const sefaz = dados.sefaz || {};
@@ -214,6 +236,7 @@ function renderPainelDiagnosticoCentral(dados) {
         { label: 'Código rejeição', valor: sefaz.codigoRejeicao || '—' },
         { label: 'Mensagem rejeição', valor: sefaz.mensagemRejeicao || '—' }
       ]), 'fa-cloud')}
+      ${renderSecaoCentral('Comunicação SOAP (RC6.6)', renderComunicacaoSoapCentral(dados.comunicacao), 'fa-exchange-alt')}
       ${renderSecaoCentral('Certificado Digital', renderGridItensCentral([
         { label: 'Nome', valor: cert.nome || '—' },
         { label: 'CNPJ', valor: cert.cnpj || '—' },

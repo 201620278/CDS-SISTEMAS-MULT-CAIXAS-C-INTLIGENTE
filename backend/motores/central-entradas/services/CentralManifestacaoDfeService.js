@@ -94,8 +94,7 @@ function formatarDhEventoBrasil(data = new Date()) {
 
 function ajustarEventoManifestacaoDestinatario(eventoXml, params = {}) {
   let evento = String(eventoXml || '');
-  // Manifestação do destinatário usa cOrgao=91 (Ambiente Nacional).
-  // O header SOAP (nfeCabecMsg/cUF) permanece com a UF do emitente.
+  // Manifestação do destinatário: cOrgao=91 (Ambiente Nacional) — NT 2020.001 P08.
   evento = evento.replace(
     /(<cOrgao>)[^<]*(<\/cOrgao>)/i,
     `$1${params.cOrgao || '91'}$2`
@@ -114,6 +113,7 @@ function prepararEnvelopeAssinado(params, deps = {}) {
   const assinar = deps.assinarEvento || assinarEvento;
   const envelope = montarEnvelope({
     ...params,
+    cOrgao: params.cOrgao || '91',
     dhEvento: params.dhEvento || formatarDhEventoBrasil()
   });
   const evento = String(envelope).match(
@@ -382,7 +382,7 @@ class CentralManifestacaoDfeService {
     try {
       const envelope = this._prepararEnvelopeAssinado({
         tpAmb: Number(contexto.ambiente) === 1 ? 1 : 2,
-        cUF: contexto.codigoUf,
+        cOrgao: '91',
         cnpj: contexto.cnpj,
         chave: documento.chave,
         operacao: OperationType.MANIFESTACAO_CIENCIA,
@@ -392,9 +392,6 @@ class CentralManifestacaoDfeService {
       const runtime = await this._enviarManifestacao({
         operacao: OperationType.MANIFESTACAO_CIENCIA,
         ambiente: contexto.ambiente,
-        // Registry oficial de manifestação está publicado no autorizador SVRS.
-        uf: 'SVRS',
-        cUF: contexto.codigoUf,
         cnpj: contexto.cnpj,
         chave: documento.chave,
         certificadoPath: contexto.certificadoPath,

@@ -20,7 +20,7 @@ const {
 } = require('./core/OperationType');
 const { EnvironmentType, fromAmbienteCode } = require('./core/EnvironmentType');
 const { ResolutionSource } = require('./core/ResolutionSource');
-const { UF_SVRS } = require('./core/RegistryBuilder');
+const { UF_AN } = require('./core/RegistryBuilder');
 const { logFiscalRuntime } = require('./core/FiscalRuntimeLog');
 const { buildRuntimeResult } = require('./core/FiscalRuntimeResult');
 const {
@@ -57,8 +57,8 @@ function createManifestacaoRuntime(options = {}) {
    * @param {string} input.operacao MANIFESTACAO_*
    * @param {string} [input.chave]
    * @param {number|string} [input.ambiente]
-   * @param {string} [input.uf='SVRS']
-   * @param {string} [input.cUF='23']
+   * @param {string} [input.uf] Ignorado — Manifestação sempre resolve em AN (RC6.9)
+   * @param {string} [input.cUF] Apenas legado de assinatura; cOrgao do evento é 91
    * @param {string} [input.cnpj]
    * @param {string} [input.certificadoPath]
    * @param {string} [input.certificadoSenha]
@@ -74,8 +74,8 @@ function createManifestacaoRuntime(options = {}) {
     const operacao = normalizarOperacao(input.operacao);
     const ambiente = normalizeAmbiente(input.ambiente);
     const ambienteCode = ambiente === EnvironmentType.PRODUCAO ? 1 : 2;
-    const uf = String(input.uf || UF_SVRS).toUpperCase();
-    const cUF = String(input.cUF || '23').replace(/\D/g, '').padStart(2, '0');
+    // RC6.9 — Manifestação do Destinatário: autorizador oficial = Ambiente Nacional.
+    const uf = UF_AN;
     const warnings = [];
     const logOp = operacao || 'MANIFESTACAO';
 
@@ -105,7 +105,7 @@ function createManifestacaoRuntime(options = {}) {
     const xmlStarted = process.hrtime.bigint();
     const envelope = input.envelope || montarEnvelopeManifestacao({
       tpAmb: ambienteCode,
-      cUF,
+      cOrgao: '91',
       cnpj: input.cnpj || '00000000000000',
       chave: input.chave || '0'.repeat(44),
       operacao,
@@ -119,7 +119,7 @@ function createManifestacaoRuntime(options = {}) {
       modelo: ModelType.NFE,
       operacao,
       ambiente,
-      uf,
+      uf: UF_AN,
       versao: '1.00'
     });
     const tempoResolverMs = Number(process.hrtime.bigint() - resolverStarted) / 1e6;
@@ -225,7 +225,6 @@ function createManifestacaoRuntime(options = {}) {
       envelope,
       operacao,
       ambiente: ambienteCode,
-      cUF,
       cnpj: input.cnpj,
       chave: input.chave,
       certificadoPath: input.certificadoPath,

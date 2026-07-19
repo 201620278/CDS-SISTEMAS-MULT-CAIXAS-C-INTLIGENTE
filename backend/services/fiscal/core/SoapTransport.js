@@ -20,6 +20,7 @@ const { TransportResponse } = require('./TransportResponse');
 const { TransportException } = require('./TransportException');
 const { isTransportEnabledFor, ENABLED_OPERATIONS } = require('./TransportEnablement');
 const { OperationType } = require('./OperationType');
+const { fiscalSoapTelemetry } = require('./FiscalSoapTelemetry');
 
 const DEFAULT_MAX_RETRIES = 2;
 const PLATFORM_USER_AGENT = 'CDGESTAO-FISCAL-PLATFORM/RC1';
@@ -167,6 +168,7 @@ class SoapTransport {
         attempts: 1
       });
       this.metrics.record(response);
+      this._observeTelemetry(normalized, response);
       return response;
     }
 
@@ -188,10 +190,38 @@ class SoapTransport {
         ]
       });
       this.metrics.record(response);
+      this._observeTelemetry(normalized, response);
       return response;
     }
 
-    return this._sendEnabled(normalized, elapsedMs);
+    const response = await this._sendEnabled(normalized, elapsedMs);
+    this._observeTelemetry(normalized, response);
+    return response;
+  }
+
+  /**
+   * Telemetria RC6.6 — observe-only; nunca altera o TransportResponse.
+   * @private
+   */
+  _observeTelemetry(request, response) {
+    try {
+      const meta = {
+        ...(request?.context?.metadata || {}),
+        ...(request?.metadata || {})
+      };
+      fiscalSoapTelemetry.observarTransport(request, response, {
+        deferFinalize: meta.deferFinalize === true,
+        correlationId: meta.correlationId,
+        requestId: meta.requestId,
+        origem: meta.origem || 'Registry',
+        ambiente: meta.ambiente,
+        uf: meta.uf,
+        operacao: request?.operacao || meta.operacao,
+        modelo: request?.modelo || meta.modelo
+      });
+    } catch (err) {
+      console.warn('[FISCAL:TELEMETRIA] observe falhou (ignorado):', err.message);
+    }
   }
 
   planRetry(failedAttempt) {

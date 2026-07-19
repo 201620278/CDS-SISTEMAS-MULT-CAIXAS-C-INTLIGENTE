@@ -26,6 +26,7 @@ const {
   ACTION_DFE
 } = require('./distribuicaoDfeLegado');
 const { DistribuicaoDfeMetrics } = require('./distribuicaoDfeMetrics');
+const { fiscalSoapTelemetry } = require('./core/FiscalSoapTelemetry');
 
 const defaultMetrics = new DistribuicaoDfeMetrics();
 const OP = 'DISTRIBUICAO_DFE';
@@ -68,6 +69,15 @@ function createDistribuicaoDfeRuntime(options = {}) {
     const xmlConsulta = input.xmlConsulta;
     const warnings = [];
 
+    const { correlationId, requestId } = fiscalSoapTelemetry.iniciar({
+      correlationId: input.correlationId || null,
+      operacao: OperationType.DISTRIBUICAO_DFE,
+      modelo: ModelType.NFE,
+      ambiente,
+      uf: UF_AN,
+      origem: 'Registry'
+    });
+
     if (!xmlConsulta) {
       const fail = buildRuntimeResult({
         success: false,
@@ -86,7 +96,14 @@ function createDistribuicaoDfeRuntime(options = {}) {
         tempoPlataformaMs: 0,
         tempoLegadoMs: 0,
         tempoTotalMs: nowMs(),
-        retries: 0
+        retries: 0,
+        telemetryRequestId: requestId,
+        correlationId
+      });
+      fiscalSoapTelemetry.finalizar(requestId, {
+        sucesso: false,
+        resultado: 'ERRO',
+        tempoTotalMs: fail.tempoTotalMs
       });
       metrics.record(fail);
       return fail;
@@ -107,6 +124,14 @@ function createDistribuicaoDfeRuntime(options = {}) {
     const tempoResolverMs = Number(process.hrtime.bigint() - resolverStarted) / 1e6;
 
     const def = resolution.definition || null;
+    fiscalSoapTelemetry.atualizar(requestId, {
+      endpoint: def?.endpoint || null,
+      soapAction: def?.soapAction || ACTION_DFE,
+      tempoResolverMs,
+      tempoXmlMs,
+      origem: resolution.source || 'Registry'
+    });
+
     logFiscalRuntime(OP, {
       Ambiente: ambiente,
       UF: UF_AN,
@@ -118,7 +143,9 @@ function createDistribuicaoDfeRuntime(options = {}) {
       Versao: def?.versao || versao,
       SOAPAction: def?.soapAction || ACTION_DFE,
       'Tempo Resolver': tempoResolverMs,
-      'Tempo XML': tempoXmlMs
+      'Tempo XML': tempoXmlMs,
+      CorrelationId: correlationId,
+      RequestId: requestId
     });
 
     let tempoPlataformaMs = tempoResolverMs + tempoXmlMs;
@@ -135,7 +162,15 @@ function createDistribuicaoDfeRuntime(options = {}) {
         certificado: certificadoPath,
         senha: certificadoSenha,
         operacao: OperationType.DISTRIBUICAO_DFE,
-        modelo: ModelType.NFE
+        modelo: ModelType.NFE,
+        metadata: {
+          correlationId,
+          requestId,
+          deferFinalize: true,
+          origem: resolution.source || 'Registry',
+          ambiente,
+          uf: UF_AN
+        }
       });
 
       const transportStarted = process.hrtime.bigint();
@@ -144,6 +179,17 @@ function createDistribuicaoDfeRuntime(options = {}) {
       tempoSoapMs = tempoTransporteMs;
       tempoPlataformaMs = nowMs();
       retries = Math.max(0, (transportResponse.attempts || 1) - 1);
+
+      fiscalSoapTelemetry.atualizar(requestId, {
+        tempoTransporteMs,
+        tempoResolverMs,
+        tempoXmlMs,
+        retry: retries,
+        httpStatus: transportResponse.statusCode,
+        transportSuccess: transportResponse.success,
+        endpoint: def.endpoint,
+        soapAction: def.soapAction || ACTION_DFE
+      });
 
       logFiscalRuntime(OP, {
         'Tempo Transporte/SOAP': tempoTransporteMs,
@@ -176,7 +222,9 @@ function createDistribuicaoDfeRuntime(options = {}) {
           tempoLegadoMs: 0,
           tempoTotalMs: nowMs(),
           fallbackUtilizado: false,
-          retries
+          retries,
+          telemetryRequestId: requestId,
+          correlationId
         });
         logFiscalRuntime(OP, {
           Resultado: 'OK',
@@ -184,6 +232,7 @@ function createDistribuicaoDfeRuntime(options = {}) {
           Fallback: false
         });
         metrics.record(result);
+        // Finalização com cStat/persistência fica a cargo de distribuicaoDFe (defer).
         return result;
       }
 
@@ -216,6 +265,7 @@ function createDistribuicaoDfeRuntime(options = {}) {
       message: 'Fluxo legado (distribuicaoDfeLegado) executado após falha da plataforma.'
     });
 
+    const tempoTotalMs = nowMs();
     const result = buildRuntimeResult({
       success: Boolean(legado.success),
       source: ResolutionSource.FALLBACK,
@@ -238,9 +288,25 @@ function createDistribuicaoDfeRuntime(options = {}) {
       tempoSoapMs: Number(legado.tempoSoapMs) || 0,
       tempoPlataformaMs,
       tempoLegadoMs,
-      tempoTotalMs: nowMs(),
+      tempoTotalMs,
       fallbackUtilizado: true,
-      retries
+      retries,
+      telemetryRequestId: requestId,
+      correlationId
+    });
+
+    fiscalSoapTelemetry.atualizar(requestId, {
+      endpoint: result.endpoint,
+      soapAction: result.soapAction,
+      httpStatus: result.statusCode,
+      tempoResolverMs,
+      tempoXmlMs: result.tempoXmlMs,
+      tempoTransporteMs: result.tempoSoapMs || tempoTransporteMs,
+      tempoTotalMs,
+      fallbackUtilizado: true,
+      transportSuccess: Boolean(legado.success),
+      retry: retries,
+      erro: result.error
     });
 
     logFiscalRuntime(OP, {
@@ -251,6 +317,15 @@ function createDistribuicaoDfeRuntime(options = {}) {
       Resultado: result.success ? 'OK' : 'ERRO',
       Retry: retries
     });
+
+    if (!result.success) {
+      fiscalSoapTelemetry.finalizar(requestId, {
+        sucesso: false,
+        resultado: 'ERRO',
+        tempoTotalMs,
+        fallbackUtilizado: true
+      });
+    }
 
     metrics.record(result);
     return result;

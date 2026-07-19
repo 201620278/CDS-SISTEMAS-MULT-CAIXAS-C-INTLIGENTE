@@ -528,7 +528,7 @@ class CentralConfiguracaoService {
       const { ModelType } = require('../../../services/fiscal/core/ModelType');
       const { OperationType } = require('../../../services/fiscal/core/OperationType');
       const { fromAmbienteCode } = require('../../../services/fiscal/core/EnvironmentType');
-      const { UF_SVRS } = require('../../../services/fiscal/core/RegistryBuilder');
+      const { UF_AN } = require('../../../services/fiscal/core/RegistryBuilder');
 
       const ambiente = fromAmbienteCode(ambienteCode);
       if (!ambiente) return null;
@@ -537,7 +537,7 @@ class CentralConfiguracaoService {
         modelo: ModelType.NFE,
         operacao: OperationType.MANIFESTACAO_CIENCIA,
         ambiente,
-        uf: UF_SVRS,
+        uf: UF_AN,
         versao: '1.00'
       });
 
@@ -746,7 +746,14 @@ class CentralConfiguracaoService {
       versaoMiip: 'RC1',
       tempoMedioSyncMs: tempoMedio,
       ultimaSincronizacao: ultimaSync?.createdAt || null,
-      ultimoErro: ultimoErro?.descricao || null
+      ultimoErro: ultimoErro?.descricao || null,
+      sefazOperacional: (() => {
+        try {
+          return require('./CentralSefazOperationalGate').obterPainelOperacional();
+        } catch {
+          return null;
+        }
+      })()
     };
   }
 

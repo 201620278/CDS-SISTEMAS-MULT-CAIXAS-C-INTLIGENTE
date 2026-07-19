@@ -136,7 +136,7 @@ async function main() {
     assert.ok(retorno.endpoint.includes('NFeRetAutorizacao'));
   });
 
-  await test('Manifestação — 4 tipos × 2 ambientes', async () => {
+  await test('Manifestação — 4 tipos × 2 ambientes (AN)', async () => {
     const registry = RegistryBuilder.buildOfficial();
     const ops = [
       OperationType.MANIFESTACAO_CIENCIA,
@@ -150,11 +150,13 @@ async function main() {
           modelo: ModelType.NFE,
           operacao,
           ambiente,
-          uf: UF_SVRS
+          uf: UF_AN
         });
         assert.ok(def, `faltou ${operacao}/${ambiente}`);
-        assert.ok(def.endpoint.includes('recepcaoevento'));
-        assert.ok(def.observacoes.includes('manifestacaoRuntime'));
+        assert.ok(def.endpoint.includes('NFeRecepcaoEvento4'));
+        assert.ok(def.endpoint.includes('nfe.fazenda.gov.br'));
+        assert.strictEqual(def.uf, UF_AN);
+        assert.ok(def.observacoes.includes('AN') || def.descricao.includes('Ambiente Nacional'));
       }
     }
     assert.strictEqual(getManifestacaoEventoCode(OperationType.MANIFESTACAO_CONFIRMACAO), '210200');
