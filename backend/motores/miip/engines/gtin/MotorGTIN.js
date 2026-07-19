@@ -89,11 +89,21 @@ class MotorGTIN extends IMotorIdentificacao {
    * @returns {MiipEvidence[]}
    */
   _montarEvidencias(gtin, snapshot, ativo, score) {
+    let viaMip = false;
+    try {
+      const { isProdutoIdentidadeEnabled } = require('../../../produto-identidade/config/produtoIdentidadeFlags');
+      viaMip = isProdutoIdentidadeEnabled() === true;
+    } catch {
+      viaMip = false;
+    }
+
     const evidencias = [
       MiipEvidence.agora({
         motor: MOTOR_CODIGO,
         tipo: 'gtin_exato',
-        descricao: 'GTIN localizado em produtos.codigo_barras',
+        descricao: viaMip
+          ? 'GTIN resolvido via MIP (produto_identificadores) com fallback codigo_barras'
+          : 'GTIN localizado em produtos.codigo_barras',
         peso: 100,
         valor: gtin,
         score
@@ -103,7 +113,7 @@ class MotorGTIN extends IMotorIdentificacao {
         tipo: 'campo_origem',
         descricao: 'Campo utilizado na identificação',
         peso: 0,
-        valor: 'codigo_barras',
+        valor: viaMip ? 'mip|codigo_barras' : 'codigo_barras',
         score: 0
       })
     ];

@@ -1,5 +1,7 @@
 let carrinho = [];
 let produtosDisponiveis = [];
+/** Feature flag MIP no PDV (Sprint 05). OFF = identificação local legada. */
+let pdvMipHabilitado = false;
 let formaPagamentoSelecionada = null;
 let clienteSelecionado = null;
 let clientesResultados = [];
@@ -219,15 +221,87 @@ function loadPDV() {
         success: function(produtos) {
             produtosDisponiveis = normalizarProdutoPdvLista(produtos);
 
-            inicializarPDV();
+            carregarFlagMipPdv().finally(function() {
+                inicializarPDV();
+            });
         },
         error: function(xhr) {
             console.error('Erro ao carregar produtos:', xhr);
             produtosDisponiveis = [];
-            inicializarPDV();
-            showNotification('Erro ao carregar produtos do PDV.', 'danger');
+            carregarFlagMipPdv().finally(function() {
+                inicializarPDV();
+                showNotification('Erro ao carregar produtos do PDV.', 'danger');
+            });
         }
     });
+}
+
+/**
+ * Lê produto_identidade_enabled (default OFF).
+ * @returns {Promise<boolean>}
+ */
+function carregarFlagMipPdv() {
+    const token = localStorage.getItem('token') || '';
+    return fetch(`${API_URL}/configuracoes/produto_identidade_enabled`, {
+        method: 'GET',
+        headers: { Authorization: 'Bearer ' + token }
+    })
+        .then(function(resp) {
+            if (!resp.ok) {
+                pdvMipHabilitado = false;
+                return false;
+            }
+            return resp.json();
+        })
+        .then(function(row) {
+            if (row === false) return false;
+            const v = String(row && row.valor != null ? row.valor : '').toLowerCase();
+            pdvMipHabilitado = v === '1' || v === 'true' || v === 'sim';
+            console.log('[PDV] MIP produto_identidade_enabled =', pdvMipHabilitado ? 'ON' : 'OFF');
+            return pdvMipHabilitado;
+        })
+        .catch(function() {
+            pdvMipHabilitado = false;
+            return false;
+        });
+}
+
+/**
+ * Identifica produto exclusivamente via MIP (backend).
+ * @param {string} codigo
+ * @returns {Promise<Object>}
+ */
+async function identificarProdutoViaMip(codigo) {
+    const token = localStorage.getItem('token') || '';
+    const contexto = { origem: 'pdv' };
+    if (window.PDV_ETIQUETA_LAYOUT) {
+        contexto.layoutStrategy = String(window.PDV_ETIQUETA_LAYOUT);
+    }
+    if (window.PDV_BALANCA_EQUIPAMENTO_ID) {
+        contexto.equipamentoId = Number(window.PDV_BALANCA_EQUIPAMENTO_ID);
+    }
+
+    const response = await fetch(`${API_URL}/produtos/identificar`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + token
+        },
+        body: JSON.stringify({ codigo: String(codigo || '').trim(), contexto })
+    });
+
+    if (!response.ok) {
+        const errBody = await response.json().catch(function() { return {}; });
+        throw new Error(errBody.error || ('HTTP ' + response.status));
+    }
+
+    return response.json();
+}
+
+function encontrarProdutoPorIdPdv(produtoId) {
+    return (produtosDisponiveis || []).find(function(p) {
+        return Number(p.id) === Number(produtoId);
+    }) || null;
 }
 
 // Auto-registrar terminal no backend (somente app PDV dedicado)
@@ -2347,6 +2421,18 @@ function adicionarProdutoPorCodigo(codigo) {
 
     const codigoDigitado = String(codigo).trim();
 
+    if (pdvMipHabilitado) {
+        adicionarProdutoPorCodigoViaMip(codigoDigitado);
+        return;
+    }
+
+    adicionarProdutoPorCodigoLegado(codigoDigitado);
+}
+
+/**
+ * Caminho legado (flag OFF) — parser local + cache produtosDisponiveis.
+ */
+function adicionarProdutoPorCodigoLegado(codigoDigitado) {
     // 1) Código de balança
     const dadosBalanca = interpretarCodigoBalanca(codigoDigitado);
 
@@ -2389,7 +2475,7 @@ function adicionarProdutoPorCodigo(codigo) {
     const produto = encontrarProdutoPorCodigoExato(codigoDigitado);
 
     if (!produto) {
-        showNotification(`Produto não encontrado: ${codigo}`, 'danger');
+        showNotification(`Produto não encontrado: ${codigoDigitado}`, 'danger');
         return;
     }
 
@@ -2399,8 +2485,100 @@ function adicionarProdutoPorCodigo(codigo) {
         return;
     }
 
-    // Buscar promoção do produto
     buscarPromocaoAtivaProduto(produto.id).then(promocao => {
+        iniciarFluxoAdicionarProdutoPdv(produto, promocao);
+    });
+}
+
+/**
+ * Caminho MIP (flag ON) — localização exclusiva via /produtos/identificar.
+ */
+async function adicionarProdutoPorCodigoViaMip(codigoDigitado) {
+    let resultado;
+    try {
+        resultado = await identificarProdutoViaMip(codigoDigitado);
+    } catch (err) {
+        console.error('[PDV←MIP] falha:', err);
+        showNotification('Erro ao identificar produto pelo Motor de Identificação.', 'danger');
+        return;
+    }
+
+    // Servidor com flag OFF (cache desatualizado) → compatibilidade: legado
+    if (resultado && resultado.habilitado === false) {
+        pdvMipHabilitado = false;
+        adicionarProdutoPorCodigoLegado(codigoDigitado);
+        return;
+    }
+
+    if (!resultado || !resultado.encontrado) {
+        const plu = resultado && resultado.meta && resultado.meta.plu;
+        if (resultado && resultado.etiquetaBalanca && plu) {
+            showNotification(`Produto da balança não encontrado. PLU: ${plu}`, 'danger');
+        } else {
+            showNotification(`Produto não encontrado: ${codigoDigitado}`, 'danger');
+        }
+        return;
+    }
+
+    const produto = encontrarProdutoPorIdPdv(resultado.produtoId)
+        || (resultado.produto && resultado.produto.id
+            ? encontrarProdutoPorIdPdv(resultado.produto.id)
+            : null)
+        || resultado.produto;
+
+    if (!produto || !produto.id) {
+        showNotification(`Produto não encontrado: ${codigoDigitado}`, 'danger');
+        return;
+    }
+
+    if (resultado.etiquetaBalanca || resultado.strategy === 'ETIQUETA_BALANCA') {
+        if (!unidadeEhKg(produto)) {
+            showNotification(`O produto ${produto.nome} não está cadastrado como KG.`, 'warning');
+            return;
+        }
+
+        const precoKg = Number(produto.preco_venda || 0);
+        if (precoKg <= 0) {
+            showNotification(`Preço por KG inválido para ${produto.nome}.`, 'danger');
+            return;
+        }
+
+        const meta = resultado.meta || {};
+        let peso = meta.peso != null ? Number(meta.peso) : null;
+        const valorTotal = meta.valorTotal != null ? Number(meta.valorTotal) : null;
+
+        if ((peso == null || !Number.isFinite(peso) || peso <= 0) && valorTotal != null && valorTotal > 0) {
+            peso = valorTotal / precoKg;
+        }
+
+        if (!Number.isFinite(peso) || peso <= 0) {
+            showNotification(`Não foi possível calcular o peso da etiqueta para ${produto.nome}.`, 'danger');
+            return;
+        }
+
+        const sufixoValor = valorTotal != null && Number.isFinite(valorTotal)
+            ? ` - Total: ${formatCurrency(valorTotal)}`
+            : '';
+
+        buscarPromocaoAtivaProduto(produto.id).then(function(promocao) {
+            adicionarItemNoCarrinho(
+                produto,
+                peso,
+                precoKg,
+                ` - Peso: ${formatarQuantidadePdv(peso, { unidade: 'kg', produto_fracionado: 1 })} KG${sufixoValor}`,
+                promocao
+            );
+        });
+        return;
+    }
+
+    const validacaoMinima = pdvValidarEstoqueVenda(produto, 1);
+    if (!validacaoMinima.sucesso) {
+        showNotification(validacaoMinima.mensagem, 'danger');
+        return;
+    }
+
+    buscarPromocaoAtivaProduto(produto.id).then(function(promocao) {
         iniciarFluxoAdicionarProdutoPdv(produto, promocao);
     });
 }

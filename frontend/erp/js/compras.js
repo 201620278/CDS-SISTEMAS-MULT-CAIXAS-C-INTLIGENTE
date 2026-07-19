@@ -1338,8 +1338,42 @@ function onProdutoInput() {
         atualizarPainelConversaoUnidadesCompra();
         return;
     }
-    const produto = findProdutoByInput(inputValue);
-    if (produto) {
+
+    const aplicar = (produto) => {
+        if (produto) {
+            $('#produto_id_item').val(produto.id);
+            $('#margem_padrao_item').val(produto.lucro_percentual || 30);
+            if (!produtoUsaConversaoUnidadesCompra(produto)) {
+                $('#preco_item').val(produto.preco_compra || '');
+                calcularValorVendaItem();
+            } else {
+                $('#preco_item').val('');
+                $('#preco_venda_item').val('');
+            }
+            onProdutoSelecionado();
+        } else {
+            $('#produto_id_item').val('');
+            atualizarCamposValidadeCompra();
+            atualizarPainelConversaoUnidadesCompra();
+        }
+    };
+
+    aplicar(findProdutoByInput(inputValue));
+    findProdutoByInputAsync(inputValue).then(aplicar);
+}
+
+function onProdutoKeyDown(event) {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    const inputValue = $('#codigo_barras_item').val().trim();
+    if (!inputValue) return;
+
+    findProdutoByInputAsync(inputValue).then((produto) => {
+        if (!produto) {
+            showNotification('Produto não encontrado', 'warning');
+            return;
+        }
+
         $('#produto_id_item').val(produto.id);
         $('#margem_padrao_item').val(produto.lucro_percentual || 30);
         if (!produtoUsaConversaoUnidadesCompra(produto)) {
@@ -1349,51 +1383,24 @@ function onProdutoInput() {
             $('#preco_item').val('');
             $('#preco_venda_item').val('');
         }
+        $('#codigo_barras_item').val(`${produto.codigo_barras || produto.codigo || ''} - ${produto.nome}`);
+
         onProdutoSelecionado();
-    } else {
-        $('#produto_id_item').val('');
-        atualizarCamposValidadeCompra();
-        atualizarPainelConversaoUnidadesCompra();
-    }
-}
 
-function onProdutoKeyDown(event) {
-    if (event.key !== 'Enter') return;
-    event.preventDefault();
-    const inputValue = $('#codigo_barras_item').val().trim();
-    if (!inputValue) return;
-    const produto = findProdutoByInput(inputValue);
-    if (!produto) {
-        showNotification('Produto não encontrado', 'warning');
-        return;
-    }
+        if (produtoUsaConversaoUnidadesCompra(produto)) {
+            $('#quantidade_embalagens_item').focus();
+            showNotification('Preencha a conversão de embalagem e a distribuição fiscal/não fiscal.', 'info');
+            return;
+        }
 
-    $('#produto_id_item').val(produto.id);
-    $('#margem_padrao_item').val(produto.lucro_percentual || 30);
-    if (!produtoUsaConversaoUnidadesCompra(produto)) {
-        $('#preco_item').val(produto.preco_compra || '');
-        calcularValorVendaItem();
-    } else {
-        $('#preco_item').val('');
-        $('#preco_venda_item').val('');
-    }
-    $('#codigo_barras_item').val(`${produto.codigo_barras || produto.codigo || ''} - ${produto.nome}`);
+        if (Number(produto.controlar_validade || 0) === 1) {
+            $('#data_validade_item').focus();
+            showNotification('Preencha a data de validade e pressione ENTER novamente para adicionar.', 'info');
+            return;
+        }
 
-    onProdutoSelecionado();
-
-    if (produtoUsaConversaoUnidadesCompra(produto)) {
-        $('#quantidade_embalagens_item').focus();
-        showNotification('Preencha a conversão de embalagem e a distribuição fiscal/não fiscal.', 'info');
-        return;
-    }
-
-    if (Number(produto.controlar_validade || 0) === 1) {
-        $('#data_validade_item').focus();
-        showNotification('Preencha a data de validade e pressione ENTER novamente para adicionar.', 'info');
-        return;
-    }
-
-    adicionarItemCompra();
+        adicionarItemCompra();
+    });
 }
 
 function findFornecedorByTerm(term) {
@@ -1411,9 +1418,72 @@ function findProdutoByInput(input) {
     return produtosCompraList.find(p => {
         const codigo = String(p.codigo || '').trim();
         const codigoBarras = String(p.codigo_barras || '').trim();
+        const plu = String(p.plu || '').trim();
         const nome = String(p.nome || '').toLowerCase().trim();
-        return codigo === cleaned || codigoBarras === cleaned || nome === lower;
+        return codigo === cleaned
+            || codigoBarras === cleaned
+            || (plu && plu === cleaned)
+            || nome === lower;
     });
+}
+
+/**
+ * Sprint 07 — identificação via MIP quando flag ON; senão findProdutoByInput legado.
+ * @param {string} input
+ * @returns {Promise<Object|null>}
+ */
+async function findProdutoByInputAsync(input) {
+    const cleaned = String(input || '').replace(/\s+-\s+.*$/, '').trim();
+    if (!cleaned) return null;
+
+    let mipOn = false;
+    try {
+        const token = localStorage.getItem('token') || '';
+        const resp = await fetch(`${API_URL}/configuracoes/produto_identidade_enabled`, {
+            headers: { Authorization: 'Bearer ' + token }
+        });
+        if (resp.ok) {
+            const row = await resp.json();
+            const v = String(row && row.valor != null ? row.valor : '').toLowerCase();
+            mipOn = v === '1' || v === 'true' || v === 'sim';
+        }
+    } catch {
+        mipOn = false;
+    }
+
+    if (!mipOn) {
+        return findProdutoByInput(cleaned);
+    }
+
+    try {
+        const token = localStorage.getItem('token') || '';
+        const resp = await fetch(`${API_URL}/produtos/identificar`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: 'Bearer ' + token
+            },
+            body: JSON.stringify({
+                codigo: cleaned,
+                contexto: { origem: 'compras' }
+            })
+        });
+        if (resp.ok) {
+            const r = await resp.json();
+            if (r.habilitado === false) {
+                return findProdutoByInput(cleaned);
+            }
+            if (r.encontrado && r.produtoId) {
+                const cached = produtosCompraList.find(p => Number(p.id) === Number(r.produtoId));
+                if (cached) return cached;
+                if (r.produto) return r.produto;
+            }
+        }
+    } catch (err) {
+        console.warn('[Compras←MIP] findProdutoByInputAsync falhou:', err);
+    }
+
+    return findProdutoByInput(cleaned);
 }
 
 function showCompraModal() {

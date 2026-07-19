@@ -26,10 +26,27 @@ const { emitirNFeDevolucaoCompra } = require('../services/fiscal/nfeDevolucaoCom
 const MiipService = require('../motores/miip/MiipService');
 const centralOrchestrator = require('../motores/central-entradas/CentralEntradasOrchestrator');
 const { logCentralErro } = require('../motores/central-entradas/utils/centralLog');
+const EntradasProdutoIdentificacaoService = require('../motores/produto-identidade/services/EntradasProdutoIdentificacaoService');
+const { espelharIdentificadoresSafe } = require('../motores/produto-identidade');
+const { isProdutoIdentidadeEnabled } = require('../motores/produto-identidade/config/produtoIdentidadeFlags');
 
 const itemCompraEhFracionado = itemCompraUsaConversaoUnidades;
 const obterTotalConvertidoItemCompraBackend = obterTotalConvertidoItemCompra;
 const validarDistribuicaoFracionadoItem = validarDistribuicaoConversaoUnidadesItem;
+
+let _comprasMipService = null;
+
+function obterComprasMipService() {
+  if (!_comprasMipService) {
+    _comprasMipService = new EntradasProdutoIdentificacaoService({ db });
+  }
+  return _comprasMipService;
+}
+
+/** @internal testes */
+function _setComprasMipServiceForTests(svc) {
+  _comprasMipService = svc;
+}
 
 
 /**
@@ -283,88 +300,123 @@ function criarFinanceiroCompra(compra, callback) {
   });
 }
 
-function ensureProductForItemLegado(item, callback) {
+function ensureProductForItemLegado(item, callback, opcoes = {}) {
   const codigo = item.codigo_barras || createSlugCodigo(item.produto_nome || 'PRODUTO-IMPORTADO');
   const nome = item.produto_nome || `Produto ${codigo}`;
   const qtds = resolverQuantidadesCompraItem(item);
   const itemFiscal = qtds.quantidade_fiscal > 0 ? 1 : 0;
+  // Quando MIP já tentou codigo/barras, legado só casa por nome (evita SQL duplicado)
+  const apenasNome = opcoes.apenasNome === true;
 
-  db.get(
-    'SELECT id FROM produtos WHERE codigo = ? OR codigo_barras = ? OR nome = ? LIMIT 1',
-    [codigo, codigo, nome],
-    (findErr, existente) => {
-      if (findErr) return callback(findErr);
-      if (existente) return callback(null, existente.id);
+  const sql = apenasNome
+    ? 'SELECT id FROM produtos WHERE nome = ? LIMIT 1'
+    : 'SELECT id FROM produtos WHERE codigo = ? OR codigo_barras = ? OR nome = ? LIMIT 1';
+  const params = apenasNome ? [nome] : [codigo, codigo, nome];
 
-      const precosCadastro = resolverPrecosCadastroAposCompra(item);
+  db.get(sql, params, (findErr, existente) => {
+    if (findErr) return callback(findErr);
+    if (existente) return callback(null, existente.id);
 
-      db.run(`
+    const precosCadastro = resolverPrecosCadastroAposCompra(item);
+
+    db.run(`
         INSERT INTO produtos (
           codigo, codigo_barras, nome, unidade, preco_compra, preco_venda,
           lucro_percentual, estoque_atual, estoque_minimo, fornecedor, ncm,
           saldo_fiscal, saldo_nao_fiscal, item_fiscal, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 0, 0, ?, CURRENT_TIMESTAMP)
       `, [
+      codigo,
+      item.codigo_barras || codigo,
+      nome,
+      item.unidade || 'UN',
+      precosCadastro.precoCompra,
+      precosCadastro.precoVenda ?? precosCadastro.precoCompra,
+      precosCadastro.lucroPercentual,
+      item.fornecedor || null,
+      item.ncm || null,
+      itemFiscal
+    ], function(insertErr) {
+      if (insertErr) return callback(insertErr);
+      const novoId = this.lastID;
+      // Dual-write MIP (silencioso) — mantém produto_identificadores alinhado
+      espelharIdentificadoresSafe(novoId, {
         codigo,
-        item.codigo_barras || codigo,
-        nome,
-        item.unidade || 'UN',
-        precosCadastro.precoCompra,
-        precosCadastro.precoVenda ?? precosCadastro.precoCompra,
-        precosCadastro.lucroPercentual,
-        item.fornecedor || null,
-        item.ncm || null,
-        itemFiscal
-      ], function(insertErr) {
-        if (insertErr) return callback(insertErr);
-        callback(null, this.lastID);
+        codigo_barras: item.codigo_barras || codigo,
+        plu: item.plu !== undefined ? item.plu : undefined
       });
-    }
-  );
+      callback(null, novoId);
+    });
+  });
 }
 
+/**
+ * Resolve produto do item: produto_id → MIP → MIIP → legado.
+ * Sprint 07: MIP elimina busca duplicada codigo/barras quando flag ON.
+ */
 function ensureProductForItem(item, callback) {
   if (item.produto_id) {
     return callback(null, Number(item.produto_id));
   }
 
-  if (!MiipService.estaHabilitado()) {
-    MiipService.registrarIntegracao({
-      evento: 'legado_feature_flag',
-      item,
-      motivo: 'usarMiip=false — fluxo legado imediato'
-    });
-    return ensureProductForItemLegado(item, callback);
+  const seguirComMiipOuLegado = (mipJaTentou) => {
+    if (!MiipService.estaHabilitado()) {
+      MiipService.registrarIntegracao({
+        evento: 'legado_feature_flag',
+        item,
+        motivo: 'usarMiip=false — fluxo legado'
+      });
+      return ensureProductForItemLegado(item, callback, { apenasNome: mipJaTentou === true });
+    }
+
+    MiipService.identificar(item, { origem: 'compra', ponto: 'ensureProductForItem' })
+      .then((miip) => {
+        if (miip?.desabilitado) {
+          return ensureProductForItemLegado(item, callback, { apenasNome: mipJaTentou === true });
+        }
+
+        if (miip?.produtoId) {
+          return callback(null, Number(miip.produtoId));
+        }
+
+        MiipService.registrarIntegracao({
+          evento: 'miip_fallback_legado',
+          item,
+          resultado: miip?.resultado ?? null,
+          motivo: 'MIIP não encontrou produto — executando ensureProductForItemLegado'
+        });
+
+        return ensureProductForItemLegado(item, callback, { apenasNome: mipJaTentou === true });
+      })
+      .catch((miipErr) => {
+        MiipService.registrarIntegracao({
+          evento: 'miip_erro_fallback_legado',
+          item,
+          erro: miipErr?.message || String(miipErr),
+          motivo: 'erro MIIP — executando ensureProductForItemLegado'
+        });
+        ensureProductForItemLegado(item, callback, { apenasNome: mipJaTentou === true });
+      });
+  };
+
+  // Sprint 07 — MIP antes de MIIP/legado (quando habilitado)
+  if (isProdutoIdentidadeEnabled()) {
+    obterComprasMipService()
+      .identificarItem(item, { origem: 'compras' })
+      .then((r) => {
+        if (r.encontrado && r.produtoId) {
+          return callback(null, Number(r.produtoId));
+        }
+        return seguirComMiipOuLegado(true);
+      })
+      .catch((err) => {
+        console.warn('[MIP] compras identificarItem falhou, seguindo MIIP/legado:', err.message);
+        return seguirComMiipOuLegado(false);
+      });
+    return;
   }
 
-  MiipService.identificar(item, { origem: 'compra', ponto: 'ensureProductForItem' })
-    .then((miip) => {
-      if (miip?.desabilitado) {
-        return ensureProductForItemLegado(item, callback);
-      }
-
-      if (miip?.produtoId) {
-        return callback(null, Number(miip.produtoId));
-      }
-
-      MiipService.registrarIntegracao({
-        evento: 'miip_fallback_legado',
-        item,
-        resultado: miip?.resultado ?? null,
-        motivo: 'MIIP não encontrou produto — executando ensureProductForItemLegado'
-      });
-
-      return ensureProductForItemLegado(item, callback);
-    })
-    .catch((miipErr) => {
-      MiipService.registrarIntegracao({
-        evento: 'miip_erro_fallback_legado',
-        item,
-        erro: miipErr?.message || String(miipErr),
-        motivo: 'erro MIIP — executando ensureProductForItemLegado'
-      });
-      ensureProductForItemLegado(item, callback);
-    });
+  seguirComMiipOuLegado(false);
 }
 
 function processarItensCompra(compraId, itens, fornecedor, opcoes, done) {
@@ -1334,3 +1386,7 @@ router.put('/:id/chave-nfe-fornecedor', (req, res) => {
 });
 
 module.exports = router;
+module.exports._setComprasMipServiceForTests = _setComprasMipServiceForTests;
+module.exports._obterComprasMipService = obterComprasMipService;
+module.exports.ensureProductForItem = ensureProductForItem;
+module.exports.ensureProductForItemLegado = ensureProductForItemLegado;

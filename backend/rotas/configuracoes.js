@@ -344,6 +344,17 @@ router.put('/:chave', (req, res) => {
     }
 
     console.log(`[CONFIG] Configuração ${chave} salva com sucesso. Changes: ${this.changes}`);
+
+    if (chave === 'produto_identidade_enabled') {
+      try {
+        const { setProdutoIdentidadeEnabled } = require('../motores/produto-identidade/config/produtoIdentidadeFlags');
+        const v = String(valor || '').toLowerCase();
+        setProdutoIdentidadeEnabled(v === '1' || v === 'true' || v === 'sim');
+      } catch (e) {
+        console.warn('[CONFIG] Falha ao sincronizar flag MIP em memória:', e.message);
+      }
+    }
+
     auditarConfiguracao(req, 'atualizar_configuracao', chave, { valor });
     res.json({ message: 'Configuração atualizada com sucesso' });
   });

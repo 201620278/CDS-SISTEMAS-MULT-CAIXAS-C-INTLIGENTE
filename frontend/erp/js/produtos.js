@@ -1526,7 +1526,7 @@ function showProdutoModal(produto = null) {
                             <input type="hidden" id="produtoId" value="${isEdit ? (produto.id || '') : ''}">
 
                             <div class="row">
-                                <div class="col-md-6 mb-3">
+                                <div class="col-md-4 mb-3">
                                     <label for="codigo" class="form-label">Código</label>
                                     <input
                                         type="text"
@@ -1536,7 +1536,21 @@ function showProdutoModal(produto = null) {
                                     >
                                 </div>
 
-                                <div class="col-md-6 mb-3">
+                                <div class="col-md-4 mb-3">
+                                    <label for="plu" class="form-label">PLU (Balança)</label>
+                                    <input
+                                        type="text"
+                                        class="form-control"
+                                        id="plu"
+                                        inputmode="numeric"
+                                        maxlength="10"
+                                        placeholder="Ex.: 67"
+                                        value="${isEdit ? escapeHtml(produto.plu || '') : ''}"
+                                    >
+                                    <div class="form-text">Código na balança (opcional). Armazenado em produto_identificadores.</div>
+                                </div>
+
+                                <div class="col-md-4 mb-3">
                                     <label for="nome" class="form-label">Nome *</label>
                                     <input
                                         type="text"
@@ -1584,9 +1598,10 @@ function showProdutoModal(produto = null) {
                                             ${isEdit && produtoEhFracionado(produto) ? 'checked' : ''}
                                         >
                                         <label class="form-check-label" for="produto_fracionado">
-                                            Vendido por Peso
+                                            Produto Pesável / Vendido por Peso
                                         </label>
                                     </div>
+                                    <div class="form-text ms-4">Mesmo flag operacional já usado pelo PDV e balanças (produto_fracionado).</div>
 
                                     <div class="ms-4 mt-2 d-none" id="painelVendaUnidadeCadastro">
                                         <div class="form-check form-switch mb-2">
@@ -2705,9 +2720,22 @@ async function saveProduto() {
 
     if ($('#produto_fracionado').is(':checked') && !unidadeVendaSuportaConversao($('#unidade').val())) {
         showNotification(
-            'Vendido por Peso exige unidade de venda fracionável (KG, MT, LT, M², M³, etc.).',
+            'Produto Pesável exige unidade de venda fracionável (KG, MT, LT, M², M³, etc.).',
             'warning'
         );
+        return;
+    }
+
+    const pluBruto = ($('#plu').val() || '').trim();
+    const pluDigits = pluBruto.replace(/\D/g, '');
+    if (pluBruto && !pluDigits) {
+        showNotification('PLU inválido: use apenas dígitos.', 'warning');
+        $('#plu').focus();
+        return;
+    }
+    if (pluDigits.length > 10) {
+        showNotification('PLU inválido: máximo 10 dígitos.', 'warning');
+        $('#plu').focus();
         return;
     }
 
@@ -2772,11 +2800,13 @@ async function saveProduto() {
         origem: $('#origem').val() !== '' ? parseInt($('#origem').val(), 10) : 0,
         cest: ($('#cest').val() || '').trim(),
         codigo_barras: ($('#codigo_barras').val() || '').trim(),
+        plu: pluDigits,
         aliquota_icms: parseFloat($('#aliquota_icms').val()) || 0,
         aliquota_pis: parseFloat($('#aliquota_pis').val()) || 0,
         aliquota_cofins: parseFloat($('#aliquota_cofins').val()) || 0,
         produto_fracionado: fracionadoAtivo ? 1 : 0,
         vendido_por_peso: fracionadoAtivo ? 1 : 0,
+        produto_pesavel: fracionadoAtivo ? 1 : 0,
         permite_venda_unidade: permiteVendaUnidade ? 1 : 0,
         peso_medio_unidade: permiteVendaUnidade ? pesoMedioUnidade : 0,
         preco_unidade: permiteVendaUnidade ? precoUnidadeVenda : 0,

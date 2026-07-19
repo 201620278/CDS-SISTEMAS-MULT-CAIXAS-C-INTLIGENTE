@@ -256,6 +256,14 @@ db.whenReady(async (readyErr) => {
     }
 
     try {
+        const { hidratarFlagDoBanco, MIP_VERSION } = require('./motores/produto-identidade');
+        const mipOn = await hidratarFlagDoBanco(db);
+        console.log(`[MIP] v${MIP_VERSION} produto_identidade_enabled = ${mipOn ? 'ON' : 'OFF'}`);
+    } catch (err) {
+        console.error('Falha ao hidratar flag MIP:', err.message);
+    }
+
+    try {
         await inicializarFinanceiroVendas();
     } catch (err) {
         console.error('Falha ao sincronizar financeiro de vendas canceladas:', err.message);

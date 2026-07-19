@@ -1342,6 +1342,18 @@ function criarTabelas() {
         else console.log('Tabela produto_atacado criada/verificada');
       });
 
+    // MIP Sprint 01 — catálogo de identificadores (fundação; sem alterar comportamento de busca)
+    try {
+      const { garantirSchemaProdutoIdentificadores } = require('./motores/produto-identidade/schema/produtoIdentificadoresSchema');
+      garantirSchemaProdutoIdentificadores(db, (schemaErr) => {
+        if (schemaErr) {
+          console.error('Erro ao garantir schema produto_identificadores:', schemaErr.message);
+        }
+      });
+    } catch (requireErr) {
+      console.error('Erro ao carregar schema produto_identificadores:', requireErr.message);
+    }
+
     const colunasProdutoPeso = [
       "ALTER TABLE produtos ADD COLUMN vendido_por_peso INTEGER DEFAULT 0",
       "ALTER TABLE produtos ADD COLUMN produto_fracionado INTEGER DEFAULT 0",
@@ -2878,6 +2890,17 @@ db.serialize(() => {
     db.run(`
       INSERT OR IGNORE INTO configuracoes (chave, valor, descricao)
       VALUES ('equipamentos_ativo', 'true', 'Motor de Equipamentos habilitado')
+    `);
+
+    // MIP Sprint 02 — feature flag OFF por padrão (nenhum módulo consome ainda)
+    db.run(`
+      INSERT OR IGNORE INTO configuracoes (chave, valor, tipo, descricao)
+      VALUES (
+        'produto_identidade_enabled',
+        'false',
+        'boolean',
+        'MIP: Motor de Identificação de Produtos (default OFF)'
+      )
     `);
 
     db.run(`

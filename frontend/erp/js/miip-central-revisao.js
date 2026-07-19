@@ -429,7 +429,8 @@
         if (!lower) return true;
         return String(p.nome || '').toLowerCase().includes(lower)
           || String(p.codigo || '').includes(lower)
-          || String(p.codigo_barras || '').includes(lower);
+          || String(p.codigo_barras || '').includes(lower)
+          || String(p.plu || '').includes(lower);
       }).slice(0, 30);
 
       $('#miipCentralBuscaResultados').html(filtrados.map((p) => `

@@ -12,6 +12,30 @@ const {
   definirSaldosIniciaisProduto
 } = require('../services/ajusteEstoqueService');
 const { sqlRankingProdutos, isModoFiscalRelatorio } = require('../services/reportFiscalHelpers');
+const { espelharIdentificadoresSafe } = require('../motores/produto-identidade');
+const PdvProdutoIdentificacaoService = require('../motores/produto-identidade/services/PdvProdutoIdentificacaoService');
+const {
+  isProdutoIdentidadeEnabled,
+  FLAG_CHAVE: MIP_FLAG_CHAVE
+} = require('../motores/produto-identidade/config/produtoIdentidadeFlags');
+const {
+  validarPluOpcional,
+  resolverFlagProdutoPesavel
+} = require('../motores/produto-identidade/validators/validarPlu');
+
+let _pdvIdentificacaoService = null;
+
+function obterPdvIdentificacaoService() {
+  if (!_pdvIdentificacaoService) {
+    _pdvIdentificacaoService = new PdvProdutoIdentificacaoService({ db });
+  }
+  return _pdvIdentificacaoService;
+}
+
+/** @internal testes */
+function _setPdvIdentificacaoServiceForTests(svc) {
+  _pdvIdentificacaoService = svc;
+}
 
 function resolverItemFiscalCadastro(body, saldoFiscal, saldoNaoFiscal) {
   if (body.item_fiscal !== undefined && body.item_fiscal !== null) {
@@ -52,10 +76,18 @@ function normalizarProdutoResposta(produto, modoFiscal) {
     ? resolverCustoUnitarioProdutoCadastro(produto)
     : Number(produto.preco_compra || 0);
 
+  const pluValor = produto.plu != null && String(produto.plu).trim() !== ''
+    ? String(produto.plu).trim()
+    : null;
+
   const base = {
     ...produto,
     ...aplicarCamposVendaUnidadeResposta(produto),
     produto_fracionado: flagFracionado,
+    vendido_por_peso: flagFracionado,
+    /** Alias oficial Sprint 06 — mesmo valor de produto_fracionado */
+    produto_pesavel: flagFracionado,
+    plu: pluValor,
     preco_compra: precoCompra,
     saldo_fiscal: saldoFiscal,
     saldo_nao_fiscal: saldoNaoFiscal,
@@ -85,10 +117,7 @@ function produtosTemColuna(nomeColuna, callback) {
 }
 
 function resolverFlagProdutoFracionado(body = {}) {
-  if (body.produto_fracionado !== undefined || body.vendido_por_peso !== undefined) {
-    return Number(body.produto_fracionado ?? body.vendido_por_peso ?? 0) ? 1 : 0;
-  }
-  return undefined;
+  return resolverFlagProdutoPesavel(body);
 }
 
 function normalizarCamposVendaUnidade(valores = {}) {
@@ -142,8 +171,22 @@ const CAMPOS_PRODUTO_IGNORADOS = new Set([
   'saldo_nao_fiscal',
   'estoque_exibido',
   'saldo_fiscal_inicial',
-  'saldo_nao_fiscal_inicial'
+  'saldo_nao_fiscal_inicial',
+  // Sprint 06 — não são colunas de produtos; tratados via MIP / alias
+  'plu',
+  'produto_pesavel',
+  'identificadores'
 ]);
+
+const SQL_PLU_SUBQUERY = `(
+  SELECT pi.codigo FROM produto_identificadores pi
+  WHERE pi.produto_id = p.id
+    AND pi.tipo = 'PLU'
+    AND COALESCE(pi.ativo, 1) = 1
+    AND COALESCE(pi.principal, 0) = 1
+  ORDER BY pi.id DESC
+  LIMIT 1
+) AS plu`;
 
 function obterEstoqueTotalProduto(produto = {}) {
   const fiscal = Number(produto.saldo_fiscal ?? 0);
@@ -284,6 +327,7 @@ function buscarProdutoCompleto(produtoId, callback) {
   db.get(`
     SELECT 
       p.*, 
+      ${SQL_PLU_SUBQUERY},
       (SELECT preco_atacado FROM produto_atacado WHERE produto_id = p.id ORDER BY quantidade_minima ASC LIMIT 1) AS preco_atacado,
       (SELECT quantidade_minima FROM produto_atacado WHERE produto_id = p.id ORDER BY quantidade_minima ASC LIMIT 1) AS quantidade_minima_atacado,
       c.nome AS categoria_nome,
@@ -321,6 +365,53 @@ function buscarProdutoCompleto(produtoId, callback) {
 }
 
 
+/**
+ * MIP Sprint 05 — identificação exclusiva para o PDV.
+ * Flag OFF → { habilitado: false } (cliente usa legado local).
+ * Flag ON  → resolve via ProdutoIdentidadeService.
+ */
+router.post('/identificar', async (req, res) => {
+  try {
+    const codigo = req.body?.codigo ?? req.query?.codigo ?? '';
+    const contexto = (req.body && typeof req.body.contexto === 'object' && req.body.contexto)
+      ? req.body.contexto
+      : {};
+
+    const service = obterPdvIdentificacaoService();
+    const payload = await service.identificar(codigo, contexto);
+    return res.json(payload);
+  } catch (err) {
+    console.error('[MIP] identificar falhou:', err.message);
+    return res.status(500).json({
+      error: err.message || 'Falha ao identificar produto',
+      habilitado: isProdutoIdentidadeEnabled(),
+      encontrado: false,
+      flag: MIP_FLAG_CHAVE
+    });
+  }
+});
+
+router.get('/identificar', async (req, res) => {
+  try {
+    const codigo = req.query?.codigo ?? '';
+    const contexto = {};
+    if (req.query.layoutStrategy) contexto.layoutStrategy = String(req.query.layoutStrategy);
+    if (req.query.equipamentoId) contexto.equipamentoId = Number(req.query.equipamentoId);
+
+    const service = obterPdvIdentificacaoService();
+    const payload = await service.identificar(codigo, contexto);
+    return res.json(payload);
+  } catch (err) {
+    console.error('[MIP] identificar GET falhou:', err.message);
+    return res.status(500).json({
+      error: err.message || 'Falha ao identificar produto',
+      habilitado: isProdutoIdentidadeEnabled(),
+      encontrado: false,
+      flag: MIP_FLAG_CHAVE
+    });
+  }
+});
+
 // LISTAR PRODUTOS
 router.get('/', (req, res) => {
   const modoFiscal = isModoFiscalQuery(req.query.modo_fiscal);
@@ -329,6 +420,7 @@ router.get('/', (req, res) => {
   db.all(`
     SELECT 
       p.*, 
+      ${SQL_PLU_SUBQUERY},
       (SELECT preco_atacado FROM produto_atacado WHERE produto_id = p.id ORDER BY quantidade_minima ASC LIMIT 1) AS preco_atacado,
       (SELECT quantidade_minima FROM produto_atacado WHERE produto_id = p.id ORDER BY quantidade_minima ASC LIMIT 1) AS quantidade_minima_atacado,
       c.nome AS categoria_nome,
@@ -1611,7 +1703,8 @@ router.post('/', (req, res) => {
     ncm, cfop, csosn, origem, cest, codigo_barras,
     aliquota_icms, aliquota_pis, aliquota_cofins,
     controlar_validade,
-    produto_fracionado, vendido_por_peso, peso_total_compra, valor_total_compra, custo_por_kg,
+    produto_fracionado, vendido_por_peso, produto_pesavel,
+    peso_total_compra, valor_total_compra, custo_por_kg,
     venda_atacado,
     atacado_faixas,
     saldo_fiscal_inicial,
@@ -1620,6 +1713,7 @@ router.post('/', (req, res) => {
     permite_venda_unidade,
     peso_medio_unidade,
     preco_unidade,
+    plu,
     // Campos adicionais para lote inicial
     lote_inicial,
     data_fabricacao_inicial,
@@ -1627,8 +1721,17 @@ router.post('/', (req, res) => {
     dias_alerta_validade
   } = req.body;
 
+  const pluValidacao = validarPluOpcional(plu);
+  if (!pluValidacao.ok) {
+    return res.status(400).json({ error: pluValidacao.erro });
+  }
+
   const controlarValidade = controlar_validade ? 1 : 0;
-  const flagFracionado = resolverFlagProdutoFracionado({ produto_fracionado, vendido_por_peso }) ?? 0;
+  const flagFracionado = resolverFlagProdutoFracionado({
+    produto_fracionado,
+    vendido_por_peso,
+    produto_pesavel
+  }) ?? 0;
 
   let saldoFiscalInicial;
   let saldoNaoFiscalInicial;
@@ -1703,6 +1806,12 @@ router.post('/', (req, res) => {
       }
 
       const produtoId = this.lastID;
+      // MIP — dual-write codigo/barras/PLU (não altera contrato quando plu omitido)
+      const camposEspelho = { codigo, codigo_barras };
+      if (pluValidacao.informado) {
+        camposEspelho.plu = pluValidacao.valor;
+      }
+      espelharIdentificadoresSafe(produtoId, camposEspelho);
       db.get(
         'SELECT id, nome, item_fiscal, saldo_fiscal, saldo_nao_fiscal FROM produtos WHERE id = ?',
         [produtoId],
@@ -1825,8 +1934,15 @@ router.put('/:id', (req, res) => {
     data_validade,
     dias_alerta_validade,
     controlar_validade,
+    plu,
     ...bodyUpdates
   } = req.body;
+
+  const pluInformado = Object.prototype.hasOwnProperty.call(req.body, 'plu');
+  const pluValidacao = pluInformado ? validarPluOpcional(plu) : { ok: true, valor: null, informado: false };
+  if (!pluValidacao.ok) {
+    return res.status(400).json({ error: pluValidacao.erro });
+  }
 
   const dataValidadeInformada = data_validade_inicial || data_validade || null;
   const diasAlertaInformado = dias_alerta_validade;
@@ -1897,7 +2013,7 @@ router.put('/:id', (req, res) => {
     });
 
     const temSaldosIniciais = saldo_fiscal_inicial !== undefined || saldo_nao_fiscal_inicial !== undefined;
-    if (fields.length === 0 && !Array.isArray(atacado_faixas) && !temSaldosIniciais) {
+    if (fields.length === 0 && !Array.isArray(atacado_faixas) && !temSaldosIniciais && !pluInformado) {
       return res.status(400).json({ error: 'Nenhum campo válido para atualizar.' });
     }
 
@@ -1906,6 +2022,24 @@ router.put('/:id', (req, res) => {
     }
 
     values.push(id);
+
+    const espelharIdentificadoresAposSave = () => {
+      const deveEspelhar = bodyUpdates.codigo !== undefined
+        || bodyUpdates.codigo_barras !== undefined
+        || pluInformado;
+      if (!deveEspelhar) return;
+
+      const camposEspelho = {
+        codigo: bodyUpdates.codigo !== undefined ? bodyUpdates.codigo : old.codigo,
+        codigo_barras: bodyUpdates.codigo_barras !== undefined
+          ? bodyUpdates.codigo_barras
+          : old.codigo_barras
+      };
+      if (pluInformado) {
+        camposEspelho.plu = pluValidacao.valor;
+      }
+      espelharIdentificadoresSafe(id, camposEspelho);
+    };
 
     const finalizarAtualizacao = () => {
       const novoPc = bodyUpdates.preco_compra !== undefined ? bodyUpdates.preco_compra : old.preco_compra;
@@ -2001,6 +2135,7 @@ router.put('/:id', (req, res) => {
         if (errFinal) {
           return res.status(400).json({ error: errFinal.message });
         }
+        espelharIdentificadoresAposSave();
         finalizarAtualizacao();
       });
     }
@@ -2014,6 +2149,8 @@ router.put('/:id', (req, res) => {
         res.status(500).json({ error: updateErr.message });
         return;
       }
+
+      espelharIdentificadoresAposSave();
 
       db.get(
         'SELECT id, nome, item_fiscal, saldo_fiscal, saldo_nao_fiscal FROM produtos WHERE id = ?',
@@ -2302,3 +2439,5 @@ router.post('/verificar-expiradas-agora', (req, res) => {
 });
 
 module.exports = router;
+module.exports._setPdvIdentificacaoServiceForTests = _setPdvIdentificacaoServiceForTests;
+module.exports._obterPdvIdentificacaoService = obterPdvIdentificacaoService;
