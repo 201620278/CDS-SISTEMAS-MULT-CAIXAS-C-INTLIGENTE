@@ -22,6 +22,13 @@ const {
   validarPluOpcional,
   resolverFlagProdutoPesavel
 } = require('../motores/produto-identidade/validators/validarPlu');
+const {
+  produtoImagemUpload,
+  caminhoPublicoImagemProduto,
+  removerArquivoImagemProduto,
+  handleMulterProdutoImagemError
+} = require('../services/produtoImagemUpload');
+const { obterProdutoImagemService } = require('../services/ProdutoImagemService');
 
 let _pdvIdentificacaoService = null;
 
@@ -158,6 +165,8 @@ const CAMPOS_PRODUTO_IGNORADOS = new Set([
   'subcategoria',
   'categoria_nome',
   'subcategoria_nome',
+  'marca',
+  'marca_nome',
   'preco_atacado',
   'quantidade_minima_atacado',
   'dias_para_vencer',
@@ -177,6 +186,27 @@ const CAMPOS_PRODUTO_IGNORADOS = new Set([
   'produto_pesavel',
   'identificadores'
 ]);
+
+function normalizarMarcaIdOpcional(valor) {
+  if (valor === undefined) return undefined;
+  if (valor === null || valor === '' || valor === 'null' || valor === 'undefined') return null;
+  const n = parseInt(valor, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function normalizarTextoOpcional(valor) {
+  if (valor === undefined) return undefined;
+  if (valor === null) return null;
+  return String(valor);
+}
+
+function normalizarImagemPrincipalOpcional(valor) {
+  if (valor === undefined) return undefined;
+  if (valor === null || valor === '' || valor === 'null') return null;
+  const texto = String(valor).trim();
+  if (!texto || texto.startsWith('data:')) return null;
+  return texto;
+}
 
 const SQL_PLU_SUBQUERY = `(
   SELECT pi.codigo FROM produto_identificadores pi
@@ -331,10 +361,12 @@ function buscarProdutoCompleto(produtoId, callback) {
       (SELECT preco_atacado FROM produto_atacado WHERE produto_id = p.id ORDER BY quantidade_minima ASC LIMIT 1) AS preco_atacado,
       (SELECT quantidade_minima FROM produto_atacado WHERE produto_id = p.id ORDER BY quantidade_minima ASC LIMIT 1) AS quantidade_minima_atacado,
       c.nome AS categoria_nome,
-      s.nome AS subcategoria_nome
+      s.nome AS subcategoria_nome,
+      m.nome AS marca_nome
     FROM produtos p
     LEFT JOIN categorias c ON c.id = p.categoria_id
     LEFT JOIN subcategorias s ON s.id = p.subcategoria_id
+    LEFT JOIN marcas m ON m.id = p.marca_id
     WHERE p.id = ?
   `, [produtoId], (err, row) => {
     if (err) {
@@ -357,6 +389,7 @@ function buscarProdutoCompleto(produtoId, callback) {
           ...row,
           categoria: row.categoria_nome || '',
           subcategoria: row.subcategoria_nome || '',
+          marca: row.marca_nome || '',
           atacado_faixas: faixas || []
         }, false));
       }
@@ -377,11 +410,32 @@ router.post('/identificar', async (req, res) => {
       ? req.body.contexto
       : {};
 
+    // DEBUG 01 — rastreamento PLU (temporário)
+    console.log('[MIP DEBUG] POST /produtos/identificar Request:', {
+      codigo,
+      contexto,
+      body: req.body
+    });
+
     const service = obterPdvIdentificacaoService();
     const payload = await service.identificar(codigo, contexto);
+
+    console.log('[MIP DEBUG] POST /produtos/identificar Response:', {
+      statusHttp: 200,
+      encontrado: payload?.encontrado,
+      produtoId: payload?.produtoId,
+      strategy: payload?.strategy,
+      nome: payload?.produto?.nome,
+      fallbackLegado: payload?.fallbackLegado
+    });
+
     return res.json(payload);
   } catch (err) {
     console.error('[MIP] identificar falhou:', err.message);
+    console.log('[MIP DEBUG] POST /produtos/identificar Response ERRO:', {
+      statusHttp: 500,
+      error: err.message
+    });
     return res.status(500).json({
       error: err.message || 'Falha ao identificar produto',
       habilitado: isProdutoIdentidadeEnabled(),
@@ -1638,6 +1692,119 @@ router.get('/:id/tem-movimentacoes', exigirPerfilAjusteEstoque(), (req, res) => 
 
 router.post('/:id/ajustar-estoque', exigirPerfilAjusteEstoque(), executarAjusteEstoque);
 
+// Sprint INFRA 01 — upload de imagem principal (caminho público; nunca Base64 no banco)
+router.post(
+  '/upload-imagem',
+  produtoImagemUpload.single('imagem'),
+  handleMulterProdutoImagemError,
+  (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Arquivo de imagem não enviado.' });
+    }
+    const pathPublico = caminhoPublicoImagemProduto(req.file.filename);
+    return res.json({ success: true, path: pathPublico, imagem_principal: pathPublico });
+  }
+);
+
+router.delete('/:id/imagem', (req, res) => {
+  const { id } = req.params;
+  db.get('SELECT id, imagem_principal FROM produtos WHERE id = ?', [id], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    if (!row) {
+      return res.status(404).json({ error: 'Produto não encontrado' });
+    }
+
+    const anterior = row.imagem_principal;
+    db.run(
+      `UPDATE produtos SET imagem_principal = NULL, updated_at = datetime('now', 'localtime') WHERE id = ?`,
+      [id],
+      function (updErr) {
+        if (updErr) {
+          return res.status(500).json({ error: updErr.message });
+        }
+        removerArquivoImagemProduto(anterior);
+        obterProdutoImagemService(db).sincronizarAPartirDeImagemPrincipalSafe(id, null);
+        return res.json({ success: true, message: 'Imagem removida com sucesso' });
+      }
+    );
+  });
+});
+
+// Sprint INFRA 02 — APIs futuras da galeria (UI atual NÃO consome estes endpoints)
+router.get('/:id/imagens', async (req, res) => {
+  try {
+    const produtoId = Number(req.params.id);
+    const imagens = await obterProdutoImagemService(db).listarImagens(produtoId);
+    return res.json(imagens);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.post(
+  '/:id/imagens',
+  produtoImagemUpload.single('imagem'),
+  handleMulterProdutoImagemError,
+  async (req, res) => {
+    try {
+      const produtoId = Number(req.params.id);
+      let arquivo = req.body?.arquivo || req.body?.path || null;
+      if (req.file) {
+        arquivo = caminhoPublicoImagemProduto(req.file.filename);
+      }
+      const principal = String(req.body?.principal || '') === '1' || req.body?.principal === true;
+      const imagem = await obterProdutoImagemService(db).adicionarImagem(produtoId, arquivo, {
+        principal,
+        ordem: req.body?.ordem
+      });
+      return res.status(201).json(imagem);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+  }
+);
+
+router.put('/:id/imagens/principal', async (req, res) => {
+  try {
+    const produtoId = Number(req.params.id);
+    const imagemId = Number(req.body?.imagem_id || req.body?.id);
+    if (!imagemId) {
+      return res.status(400).json({ error: 'imagem_id é obrigatório.' });
+    }
+    const imagem = await obterProdutoImagemService(db).definirImagemPrincipal(produtoId, imagemId);
+    return res.json(imagem);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+router.put('/:id/imagens/ordenar', async (req, res) => {
+  try {
+    const produtoId = Number(req.params.id);
+    const ordenacao = Array.isArray(req.body?.ordenacao) ? req.body.ordenacao : [];
+    const imagens = await obterProdutoImagemService(db).ordenarImagens(produtoId, ordenacao);
+    return res.json(imagens);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/:id/imagens/:imagemId', async (req, res) => {
+  try {
+    const produtoId = Number(req.params.id);
+    const imagemId = Number(req.params.imagemId);
+    const removerArquivo = String(req.query.remover_arquivo || '') === '1';
+    const result = await obterProdutoImagemService(db).removerImagem(produtoId, imagemId, {
+      removerArquivo
+    });
+    return res.json(result);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
 // Buscar produto por ID trazendo o nome da categoria
 router.get('/:id', (req, res) => {
   const modoFiscal = isModoFiscalQuery(req.query.modo_fiscal);
@@ -1645,6 +1812,7 @@ router.get('/:id', (req, res) => {
   db.get(`
     SELECT 
       p.*, 
+      ${SQL_PLU_SUBQUERY},
       (SELECT preco_atacado FROM produto_atacado WHERE produto_id = p.id ORDER BY quantidade_minima ASC LIMIT 1) AS preco_atacado,
       (SELECT quantidade_minima FROM produto_atacado WHERE produto_id = p.id ORDER BY quantidade_minima ASC LIMIT 1) AS quantidade_minima_atacado,
       c.nome AS categoria_nome,
@@ -1714,6 +1882,9 @@ router.post('/', (req, res) => {
     peso_medio_unidade,
     preco_unidade,
     plu,
+    marca_id,
+    observacoes,
+    imagem_principal,
     // Campos adicionais para lote inicial
     lote_inicial,
     data_fabricacao_inicial,
@@ -1725,6 +1896,16 @@ router.post('/', (req, res) => {
   if (!pluValidacao.ok) {
     return res.status(400).json({ error: pluValidacao.erro });
   }
+
+  const marcaIdGravar = normalizarMarcaIdOpcional(
+    Object.prototype.hasOwnProperty.call(req.body, 'marca_id') ? marca_id : null
+  );
+  const observacoesGravar = Object.prototype.hasOwnProperty.call(req.body, 'observacoes')
+    ? normalizarTextoOpcional(observacoes)
+    : null;
+  const imagemPrincipalGravar = Object.prototype.hasOwnProperty.call(req.body, 'imagem_principal')
+    ? normalizarImagemPrincipalOpcional(imagem_principal)
+    : null;
 
   const controlarValidade = controlar_validade ? 1 : 0;
   const flagFracionado = resolverFlagProdutoFracionado({
@@ -1775,9 +1956,10 @@ router.post('/', (req, res) => {
       vendido_por_peso, produto_fracionado, peso_total_compra, valor_total_compra, custo_por_kg,
       venda_atacado,
       saldo_fiscal, saldo_nao_fiscal, item_fiscal,
-      permite_venda_unidade, peso_medio_unidade, preco_unidade
+      permite_venda_unidade, peso_medio_unidade, preco_unidade,
+      marca_id, observacoes, imagem_principal
     )
-    VALUES (${Array(33).fill('?').join(', ')})
+    VALUES (${Array(36).fill('?').join(', ')})
   `, [
     codigo, nome, categoria_id, subcategoria_id, unidade,
     preco_compra, lucro_percentual, preco_venda,
@@ -1796,7 +1978,10 @@ router.post('/', (req, res) => {
     itemFiscalGravar,
     permiteVendaUnidade,
     pesoMedioUnidade,
-    precoUnidade
+    precoUnidade,
+    marcaIdGravar,
+    observacoesGravar,
+    imagemPrincipalGravar
   ],
     function(err) {
       if (err) {
@@ -1806,47 +1991,58 @@ router.post('/', (req, res) => {
       }
 
       const produtoId = this.lastID;
-      // MIP — dual-write codigo/barras/PLU (não altera contrato quando plu omitido)
+      // MIP — dual-write codigo/barras/PLU (aguardar antes da resposta para o GET/editar ver o PLU)
       const camposEspelho = { codigo, codigo_barras };
       if (pluValidacao.informado) {
         camposEspelho.plu = pluValidacao.valor;
       }
-      espelharIdentificadoresSafe(produtoId, camposEspelho);
-      db.get(
-        'SELECT id, nome, item_fiscal, saldo_fiscal, saldo_nao_fiscal FROM produtos WHERE id = ?',
-        [produtoId],
-        (auditErr, auditRow) => {
-          if (!auditErr && auditRow) {
-            console.log('[AUDIT PRODUTO POST] gravado no banco:', auditRow);
+
+      const aposDualWrite = () => {
+        // INFRA 02 — espelha imagem_principal na galeria (sem alterar o campo legado)
+        if (imagemPrincipalGravar) {
+          obterProdutoImagemService(db).sincronizarAPartirDeImagemPrincipalSafe(
+            produtoId,
+            imagemPrincipalGravar
+          );
+        }
+        db.get(
+          'SELECT id, nome, item_fiscal, saldo_fiscal, saldo_nao_fiscal FROM produtos WHERE id = ?',
+          [produtoId],
+          (auditErr, auditRow) => {
+            if (!auditErr && auditRow) {
+              console.log('[AUDIT PRODUTO POST] gravado no banco:', auditRow);
+            }
           }
-        }
-      );
+        );
 
-      // Se controlar validade, persistir validade e criar lote inicial quando houver estoque
-      if (controlarValidade) {
-        if (estoqueInicial > 0 && !data_validade_inicial) {
-          return res.status(400).json({
-            error: 'Data de validade é obrigatória para o estoque inicial.'
-          });
-        }
-
-        sincronizarValidadeELoteProduto(produtoId, {
-          controlarValidade: true,
-          dataValidade: data_validade_inicial,
-          diasAlerta: dias_alerta_validade,
-          estoqueTotal: estoqueInicial
-        }, (syncErr) => {
-          if (syncErr) {
-            console.error('Erro ao sincronizar validade/lote inicial:', syncErr.message);
-            return res.status(500).json({
-              error: `Produto criado, mas falhou ao registrar validade/lote: ${syncErr.message}`
+        // Se controlar validade, persistir validade e criar lote inicial quando houver estoque
+        if (controlarValidade) {
+          if (estoqueInicial > 0 && !data_validade_inicial) {
+            return res.status(400).json({
+              error: 'Data de validade é obrigatória para o estoque inicial.'
             });
           }
+
+          sincronizarValidadeELoteProduto(produtoId, {
+            controlarValidade: true,
+            dataValidade: data_validade_inicial,
+            diasAlerta: dias_alerta_validade,
+            estoqueTotal: estoqueInicial
+          }, (syncErr) => {
+            if (syncErr) {
+              console.error('Erro ao sincronizar validade/lote inicial:', syncErr.message);
+              return res.status(500).json({
+                error: `Produto criado, mas falhou ao registrar validade/lote: ${syncErr.message}`
+              });
+            }
+            continuarCriacaoProduto();
+          });
+        } else {
           continuarCriacaoProduto();
-        });
-      } else {
-        continuarCriacaoProduto();
-      }
+        }
+      };
+
+      espelharIdentificadoresSafe(produtoId, camposEspelho, { db }, () => aposDualWrite());
 
       function continuarCriacaoProduto() {
         inserirFaixasAtacadoProduto(produtoId, atacado_faixas, (faixaErr) => {
@@ -2005,6 +2201,19 @@ router.put('/:id', (req, res) => {
 
     Object.assign(bodyUpdates, normalizarCamposVendaUnidade(bodyUpdates));
 
+    if (Object.prototype.hasOwnProperty.call(bodyUpdates, 'marca_id')) {
+      bodyUpdates.marca_id = normalizarMarcaIdOpcional(bodyUpdates.marca_id);
+    }
+    if (Object.prototype.hasOwnProperty.call(bodyUpdates, 'observacoes')) {
+      bodyUpdates.observacoes = normalizarTextoOpcional(bodyUpdates.observacoes);
+    }
+    if (Object.prototype.hasOwnProperty.call(bodyUpdates, 'imagem_principal')) {
+      bodyUpdates.imagem_principal = normalizarImagemPrincipalOpcional(bodyUpdates.imagem_principal);
+    }
+
+    const imagemAnterior = old.imagem_principal;
+    const imagemNovaInformada = Object.prototype.hasOwnProperty.call(bodyUpdates, 'imagem_principal');
+
     Object.keys(bodyUpdates).forEach(key => {
       if (!CAMPOS_PRODUTO_IGNORADOS.has(key)) {
         fields.push(`${key} = ?`);
@@ -2023,11 +2232,14 @@ router.put('/:id', (req, res) => {
 
     values.push(id);
 
-    const espelharIdentificadoresAposSave = () => {
+    const espelharIdentificadoresAposSave = (done) => {
+      const cb = typeof done === 'function' ? done : () => {};
       const deveEspelhar = bodyUpdates.codigo !== undefined
         || bodyUpdates.codigo_barras !== undefined
         || pluInformado;
-      if (!deveEspelhar) return;
+      if (!deveEspelhar) {
+        return cb();
+      }
 
       const camposEspelho = {
         codigo: bodyUpdates.codigo !== undefined ? bodyUpdates.codigo : old.codigo,
@@ -2038,10 +2250,18 @@ router.put('/:id', (req, res) => {
       if (pluInformado) {
         camposEspelho.plu = pluValidacao.valor;
       }
-      espelharIdentificadoresSafe(id, camposEspelho);
+      espelharIdentificadoresSafe(id, camposEspelho, { db }, () => cb());
     };
 
     const finalizarAtualizacao = () => {
+      if (imagemNovaInformada) {
+        const nova = bodyUpdates.imagem_principal;
+        if (String(imagemAnterior || '') !== String(nova || '')) {
+          removerArquivoImagemProduto(imagemAnterior);
+        }
+        obterProdutoImagemService(db).sincronizarAPartirDeImagemPrincipalSafe(id, nova);
+      }
+
       const novoPc = bodyUpdates.preco_compra !== undefined ? bodyUpdates.preco_compra : old.preco_compra;
       const novoPv = bodyUpdates.preco_venda !== undefined ? bodyUpdates.preco_venda : old.preco_venda;
       const mudouCompra = Number(novoPc) !== Number(old.preco_compra);
@@ -2135,8 +2355,7 @@ router.put('/:id', (req, res) => {
         if (errFinal) {
           return res.status(400).json({ error: errFinal.message });
         }
-        espelharIdentificadoresAposSave();
-        finalizarAtualizacao();
+        espelharIdentificadoresAposSave(() => finalizarAtualizacao());
       });
     }
 
@@ -2149,8 +2368,6 @@ router.put('/:id', (req, res) => {
         res.status(500).json({ error: updateErr.message });
         return;
       }
-
-      espelharIdentificadoresAposSave();
 
       db.get(
         'SELECT id, nome, item_fiscal, saldo_fiscal, saldo_nao_fiscal FROM produtos WHERE id = ?',
@@ -2166,7 +2383,7 @@ router.put('/:id', (req, res) => {
         if (errFinal) {
           return res.status(400).json({ error: errFinal.message });
         }
-        finalizarAtualizacao();
+        espelharIdentificadoresAposSave(() => finalizarAtualizacao());
       });
     });
   });

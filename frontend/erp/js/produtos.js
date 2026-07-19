@@ -111,46 +111,18 @@ function parseNumeroCadastro(valor) {
     return Number.isFinite(numero) ? numero : 0;
 }
 
-function calcularCustoUnitarioReferenciaCadastro() {
-    if (!produtoCadastroUsaConversaoUnidades()) return;
-
-    const valor = parseNumeroCadastro($('#cadastro_valor_total_referencia').val());
-    const qtd = parseNumeroCadastro($('#cadastro_quantidade_total_referencia').val());
-    const unidade = String($('#unidade').val() || 'un').toUpperCase();
-
-    if (valor > 0 && qtd > 0) {
-        const custo = custoUnitarioVendaCadastro(valor / qtd);
-        $('#preco_compra').val(formatarCustoUnitarioCadastro(custo, true));
-        const qtdFmt = Number.isInteger(qtd) ? String(qtd) : qtd.toFixed(3).replace(/\.?0+$/, '');
-        $('#formula_custo_unitario_cadastro').text(
-            `R$ ${valor.toFixed(2).replace('.', ',')} ÷ ${qtdFmt} ${unidade} = R$ ${formatarCustoUnitarioCadastro(custo, true)}/${unidade}`
-        );
-        if (typeof sincronizarFormacaoPrecoProduto === 'function') {
-            sincronizarFormacaoPrecoProduto('compra');
-        }
-    } else {
-        $('#formula_custo_unitario_cadastro').text('—');
-        $('#preco_compra').val('');
-    }
-}
-
-function sincronizarQuantidadeTotalReferenciaCadastro() {
-    if (!produtoCadastroUsaConversaoUnidades()) return;
-
-    const saldos = obterSaldosIniciaisDoFormulario();
-    const total = Number(saldos.estoque_total || 0);
-    const $qtd = $('#cadastro_quantidade_total_referencia');
-
-    if (!$qtd.length) return;
-
-    if (total > 0) {
-        const casas = total % 1 === 0 ? 0 : 3;
-        $qtd.val(casas === 0 ? total : total.toFixed(casas)).prop('readonly', true).addClass('bg-light');
-    } else {
-        $qtd.prop('readonly', false).removeClass('bg-light');
-    }
-
-    calcularCustoUnitarioReferenciaCadastro();
+/**
+ * Ponte UX 06 — referência do Motor de Conversão a partir dos campos oficiais da tela
+ * (Quantidade Total do Estoque Inicial + Custo Unitário), sem o card removido.
+ * @returns {{ valor: number, qtd: number, precoCompra: number }}
+ */
+function obterReferenciaConversaoCadastro() {
+    const qtd = Number(obterSaldosIniciaisDoFormulario().estoque_total || 0);
+    const precoCompra = parseNumeroCadastro($('#preco_compra').val());
+    const valor = (qtd > 0 && precoCompra > 0)
+        ? Number((qtd * precoCompra).toFixed(4))
+        : 0;
+    return { valor, qtd, precoCompra };
 }
 
 function aplicarModoConversaoUnidadesCadastro() {
@@ -161,11 +133,9 @@ function aplicarModoConversaoUnidadesCadastro() {
     const unidade = ($('#unidade').val() || '').toLowerCase();
     const stepEstoque = obterStepEstoqueProduto(unidade, ativo);
 
-    $('#painelInfoConversaoUnidadesCadastro').toggleClass('d-none', !ativo);
-    $('#painelCalcularCustoUnitarioCadastro').toggleClass('d-none', !ativo);
-    $('#label_unidade_produto').text(ativo ? 'Unidade de Venda *' : 'Unidade');
+    $('#label_unidade_produto').text(ativo ? 'Unidade de Venda *' : 'Unidade Base');
     $('#label_preco_compra_produto').text(
-        ativo ? 'Custo por Unidade de Venda (calculado)' : 'Preço de Compra'
+        ativo ? 'Custo por Unidade de Venda' : 'Custo Unitário'
     );
     $('#hint_preco_compra_produto').toggleClass('d-none', !ativo);
     $('#avisoUnidadeConversaoCadastro').toggleClass(
@@ -175,16 +145,12 @@ function aplicarModoConversaoUnidadesCadastro() {
 
     $('#preco_compra')
         .attr('step', ativo ? '0.0001' : '0.01')
-        .prop('readonly', ativo)
-        .toggleClass('bg-light', ativo);
+        .prop('readonly', false)
+        .removeClass('bg-light');
     $('#saldo_fiscal_inicial, #saldo_nao_fiscal_inicial, #estoque_minimo').attr('step', stepEstoque);
 
     if (typeof atualizarPreviewEstoqueTotalInicial === 'function') {
         atualizarPreviewEstoqueTotalInicial();
-    }
-
-    if (ativo) {
-        sincronizarQuantidadeTotalReferenciaCadastro();
     }
 
     aplicarModoVendaUnidadeCadastro();
@@ -227,7 +193,7 @@ function inicializarMotorConversaoUnidadesCadastro() {
         .off('change.motorConversaoUnidades input.motorConversaoUnidades')
         .on(
             'change.motorConversaoUnidades input.motorConversaoUnidades',
-            '#produto_fracionado, #unidade, #cadastro_valor_total_referencia, #saldo_fiscal_inicial, #saldo_nao_fiscal_inicial',
+            '#produto_fracionado, #unidade, #saldo_fiscal_inicial, #saldo_nao_fiscal_inicial',
             function onMotorConversaoCadastro() {
                 if ($(this).is('#saldo_fiscal_inicial, #saldo_nao_fiscal_inicial')) {
                     if (typeof atualizarPreviewEstoqueTotalInicial === 'function') {
@@ -236,9 +202,6 @@ function inicializarMotorConversaoUnidadesCadastro() {
                     return;
                 }
                 aplicarModoConversaoUnidadesCadastro();
-                if ($(this).is('#cadastro_valor_total_referencia, #unidade')) {
-                    calcularCustoUnitarioReferenciaCadastro();
-                }
             }
         );
 
@@ -379,7 +342,7 @@ function montarHtmlCamposEstoqueProduto(produto, isEdit, opcoes = {}) {
         if (modoFiscal) {
             return `
                 <div class="col-md-6 mb-3">
-                    <label for="saldo_fiscal_inicial" class="form-label">Estoque Fiscal Inicial</label>
+                    <label for="saldo_fiscal_inicial" class="form-label">Quantidade Fiscal</label>
                     <input
                         type="number"
                         step="${stepEstoque}"
@@ -395,7 +358,7 @@ function montarHtmlCamposEstoqueProduto(produto, isEdit, opcoes = {}) {
 
         return `
             <div class="col-md-4 mb-3">
-                <label for="saldo_fiscal_inicial" class="form-label">Estoque Fiscal Inicial</label>
+                <label for="saldo_fiscal_inicial" class="form-label">Quantidade Fiscal</label>
                 <input
                     type="number"
                     step="${stepEstoque}"
@@ -406,7 +369,7 @@ function montarHtmlCamposEstoqueProduto(produto, isEdit, opcoes = {}) {
                 >
             </div>
             <div class="col-md-4 mb-3">
-                <label for="saldo_nao_fiscal_inicial" class="form-label">Estoque Não Fiscal Inicial</label>
+                <label for="saldo_nao_fiscal_inicial" class="form-label">Quantidade Não Fiscal</label>
                 <input
                     type="number"
                     step="${stepEstoque}"
@@ -417,7 +380,7 @@ function montarHtmlCamposEstoqueProduto(produto, isEdit, opcoes = {}) {
                 >
             </div>
             <div class="col-md-4 mb-3">
-                <label class="form-label">Estoque Total</label>
+                <label class="form-label">Quantidade Total</label>
                 <input
                     type="text"
                     class="form-control bg-light"
@@ -436,7 +399,7 @@ function montarHtmlCamposEstoqueProduto(produto, isEdit, opcoes = {}) {
     if (modoFiscal) {
         return `
             <div class="col-md-6 mb-3">
-                <label class="form-label">Estoque Fiscal</label>
+                <label class="form-label">Quantidade Fiscal</label>
                 <input
                     type="text"
                     class="form-control bg-light"
@@ -450,7 +413,7 @@ function montarHtmlCamposEstoqueProduto(produto, isEdit, opcoes = {}) {
 
     return `
         <div class="col-md-4 mb-3">
-            <label class="form-label">Estoque Fiscal</label>
+            <label class="form-label">Quantidade Fiscal</label>
             <input
                 type="text"
                 class="form-control bg-light"
@@ -459,7 +422,7 @@ function montarHtmlCamposEstoqueProduto(produto, isEdit, opcoes = {}) {
             >
         </div>
         <div class="col-md-4 mb-3">
-            <label class="form-label">Estoque Não Fiscal</label>
+            <label class="form-label">Quantidade Não Fiscal</label>
             <input
                 type="text"
                 class="form-control bg-light"
@@ -468,7 +431,7 @@ function montarHtmlCamposEstoqueProduto(produto, isEdit, opcoes = {}) {
             >
         </div>
         <div class="col-md-4 mb-3">
-            <label class="form-label">Estoque Total</label>
+            <label class="form-label">Quantidade Total</label>
             <input
                 type="text"
                 class="form-control bg-light"
@@ -566,10 +529,6 @@ function atualizarPreviewEstoqueTotalInicial() {
         const unidade = $('#unidade').val() || 'un';
         const opcoesFormato = { produtoFracionado: produtoCadastroUsaConversaoUnidades() };
         $preview.val(formatarEstoqueProduto(saldos.estoque_total, unidade, opcoesFormato));
-
-        if (produtoCadastroUsaConversaoUnidades()) {
-            sincronizarQuantidadeTotalReferenciaCadastro();
-        }
     }
 
     atualizarPreviewValorTotalEstoqueCadastro();
@@ -1027,36 +986,49 @@ function montarOptionsFiltroCategorias(produtos) {
         .join('');
 }
 
-function aplicarFiltrosProdutos(produtos) {
+function filtrarListaProdutosUI(produtos) {
     const termo = normalizarTexto($('#buscaProduto').val()).trim();
     const categoriaId = String($('#filtroCategoriaProduto').val() || '');
 
-    // Se houver termo de busca ou filtro de categoria, mostrar tabela normal
-    if (termo || categoriaId) {
-        $('#categorias-container').hide();
-        $('#tabela-produtos-container').show();
+    return (produtos || []).filter(p => {
+        const bateBusca =
+            !termo ||
+            (p.nome && normalizarTexto(p.nome).includes(termo)) ||
+            (p.codigo && normalizarTexto(p.codigo).includes(termo)) ||
+            (p.categoria && normalizarTexto(p.categoria).includes(termo)) ||
+            (p.fornecedor && normalizarTexto(p.fornecedor).includes(termo));
 
-        const filtrados = (produtos || []).filter(p => {
-            const bateBusca =
-                !termo ||
-                (p.nome && normalizarTexto(p.nome).includes(termo)) ||
-                (p.codigo && normalizarTexto(p.codigo).includes(termo)) ||
-                (p.categoria && normalizarTexto(p.categoria).includes(termo)) ||
-                (p.fornecedor && normalizarTexto(p.fornecedor).includes(termo));
+        const bateCategoria =
+            !categoriaId || String(p.categoria_id || '') === categoriaId;
 
-            const bateCategoria =
-                !categoriaId || String(p.categoria_id || '') === categoriaId;
+        return bateBusca && bateCategoria;
+    });
+}
 
-            return bateBusca && bateCategoria;
+function expandirNosArvoreParaLista(produtos) {
+    const estado = obterEstadoArvoreProdutos();
+    montarArvoreProdutos(produtos).forEach((categoria) => {
+        estado.categorias[categoria.key] = true;
+        categoria.subcategorias.forEach((sub) => {
+            estado.subcategorias[chaveSubcategoriaEstado(categoria.key, sub.key)] = true;
         });
+    });
+}
 
-        $('#produtos-tbody').html(renderProdutosAgrupados(filtrados));
-    } else {
-        // Se não houver filtro, mostrar categorias
-        $('#categorias-container').show();
-        $('#tabela-produtos-container').hide();
-        carregarCategoriasProdutos();
+function aplicarFiltrosProdutos(produtos) {
+    const termo = normalizarTexto($('#buscaProduto').val()).trim();
+    const categoriaId = String($('#filtroCategoriaProduto').val() || '');
+    const filtrados = filtrarListaProdutosUI(produtos);
+    const filtroAtivo = !!(termo || categoriaId);
+
+    // Com busca/filtro ativo, abre os nós do resultado para o usuário ver os produtos.
+    if (filtroAtivo) {
+        expandirNosArvoreParaLista(filtrados);
     }
+
+    $('#tabela-produtos-container').hide();
+    $('#categorias-container').show();
+    renderizarArvoreListagemProdutos(filtrados);
 }
 
 function produtoComEstoqueBaixo(p) {
@@ -1107,67 +1079,324 @@ function renderProdutoRow(p) {
     `;
 }
 
-function renderProdutosAgrupados(produtos) {
-    if (!produtos || produtos.length === 0) {
-        return `
-            <tr>
-                <td colspan="8" class="text-center text-muted py-4">
-                    Nenhum produto encontrado.
-                </td>
-            </tr>
-        `;
+const PRODUTOS_SEM_CATEGORIA = 'Sem Categoria';
+const PRODUTOS_SEM_SUBCATEGORIA = 'Sem Subcategoria';
+const PRODUTOS_ARVORE_ANIM_MS = 150;
+
+function obterEstadoArvoreProdutos() {
+    if (!window._produtosArvoreEstado) {
+        window._produtosArvoreEstado = {
+            categorias: Object.create(null),
+            subcategorias: Object.create(null)
+        };
     }
+    return window._produtosArvoreEstado;
+}
 
-    const grupos = {};
+function resetarEstadoArvoreProdutos() {
+    window._produtosArvoreEstado = {
+        categorias: Object.create(null),
+        subcategorias: Object.create(null)
+    };
+}
 
-    produtos.forEach(produto => {
-        const categoria = produto.categoria || produto.categoria_nome || 'SEM CATEGORIA';
-        const subcategoria = produto.subcategoria || produto.subcategoria_nome || 'SEM SUBCATEGORIA';
+function escapeAttrProdutos(valor) {
+    return String(valor ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
 
-        if (!grupos[categoria]) {
-            grupos[categoria] = {};
+function obterNomeCategoriaListagem(produto) {
+    const nome = String(produto.categoria || produto.categoria_nome || '').trim();
+    return nome || PRODUTOS_SEM_CATEGORIA;
+}
+
+function obterNomeSubcategoriaListagem(produto) {
+    const nome = String(produto.subcategoria || produto.subcategoria_nome || '').trim();
+    return nome || PRODUTOS_SEM_SUBCATEGORIA;
+}
+
+function chaveCategoriaListagem(produto) {
+    const id = String(produto.categoria_id || '').trim();
+    if (id) return `id:${id}`;
+    return `nome:${obterNomeCategoriaListagem(produto)}`;
+}
+
+function chaveSubcategoriaListagem(produto) {
+    const id = String(produto.subcategoria_id || '').trim();
+    if (id) return `id:${id}`;
+    return `nome:${obterNomeSubcategoriaListagem(produto)}`;
+}
+
+function chaveSubcategoriaEstado(catKey, subKey) {
+    return `${catKey}::${subKey}`;
+}
+
+function montarBadgesContagemListagem(count, countProximo, countBaixo) {
+    return `
+        <span class="cds-prod-tree__badges">
+            <span class="badge bg-primary cds-prod-tree__badge">${count}</span>
+            ${countProximo > 0 ? `<span class="badge bg-warning text-dark cds-prod-tree__badge" title="Próximo do estoque mínimo">${countProximo} próx.</span>` : ''}
+            ${countBaixo > 0 ? `<span class="badge bg-danger cds-prod-tree__badge" title="Estoque no mínimo ou abaixo">${countBaixo} baixo</span>` : ''}
+        </span>
+    `;
+}
+
+function montarArvoreProdutos(produtos) {
+    const categoriasMap = new Map();
+
+    (produtos || []).forEach((produto) => {
+        const catKey = chaveCategoriaListagem(produto);
+        const catNome = obterNomeCategoriaListagem(produto);
+        const subKey = chaveSubcategoriaListagem(produto);
+        const subNome = obterNomeSubcategoriaListagem(produto);
+
+        if (!categoriasMap.has(catKey)) {
+            categoriasMap.set(catKey, {
+                key: catKey,
+                nome: catNome,
+                itens: [],
+                subcategoriasMap: new Map()
+            });
         }
 
-        if (!grupos[categoria][subcategoria]) {
-            grupos[categoria][subcategoria] = [];
+        const categoria = categoriasMap.get(catKey);
+        categoria.itens.push(produto);
+
+        if (!categoria.subcategoriasMap.has(subKey)) {
+            categoria.subcategoriasMap.set(subKey, {
+                key: subKey,
+                nome: subNome,
+                produtos: []
+            });
         }
 
-        grupos[categoria][subcategoria].push(produto);
+        categoria.subcategoriasMap.get(subKey).produtos.push(produto);
     });
 
-    let html = '';
+    return Array.from(categoriasMap.values())
+        .map((categoria) => {
+            const subcategorias = Array.from(categoria.subcategoriasMap.values())
+                .map((sub) => {
+                    const produtosOrdenados = sub.produtos
+                        .slice()
+                        .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
+                    return {
+                        key: sub.key,
+                        nome: sub.nome,
+                        produtos: produtosOrdenados,
+                        count: produtosOrdenados.length,
+                        countBaixo: produtosOrdenados.filter((p) => produtoComEstoqueBaixo(p)).length,
+                        countProximo: produtosOrdenados.filter((p) => produtoProximoMinimo(p)).length
+                    };
+                })
+                .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 
-    Object.keys(grupos)
-        .sort((a, b) => a.localeCompare(b, 'pt-BR'))
-        .forEach(categoria => {
-            html += `
-                <tr class="table-dark">
-                    <td colspan="8" style="font-weight: bold; font-size: 15px;">
-                        ${escapeHtml(categoria.toUpperCase())}
-                    </td>
-                </tr>
-            `;
+            return {
+                key: categoria.key,
+                nome: categoria.nome,
+                count: categoria.itens.length,
+                countBaixo: categoria.itens.filter((p) => produtoComEstoqueBaixo(p)).length,
+                countProximo: categoria.itens.filter((p) => produtoProximoMinimo(p)).length,
+                subcategorias
+            };
+        })
+        .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+}
 
-            Object.keys(grupos[categoria])
-                .sort((a, b) => a.localeCompare(b, 'pt-BR'))
-                .forEach(subcategoria => {
-                    html += `
-                        <tr class="table-secondary">
-                            <td colspan="8" style="font-weight: bold; padding-left: 25px;">
-                                ${escapeHtml(subcategoria)}
-                            </td>
-                        </tr>
-                    `;
+function encontrarCategoriaArvore(produtos, catKey) {
+    return montarArvoreProdutos(produtos).find((cat) => cat.key === catKey) || null;
+}
 
-                    grupos[categoria][subcategoria]
-                        .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'))
-                        .forEach(produto => {
-                            html += renderProdutoRow(produto);
-                        });
-                });
-        });
+function encontrarSubcategoriaArvore(produtos, catKey, subKey) {
+    const categoria = encontrarCategoriaArvore(produtos, catKey);
+    if (!categoria) return null;
+    return categoria.subcategorias.find((sub) => sub.key === subKey) || null;
+}
 
-    return html;
+function renderCabecalhoCategoriaArvore(categoria, aberta) {
+    const chevron = aberta ? '▼' : '►';
+    return `
+        <div class="cds-prod-tree__categoria-header categoria-toggle" role="button" tabindex="0" aria-expanded="${aberta ? 'true' : 'false'}">
+            <span class="cds-prod-tree__categoria-title">
+                <span class="cds-prod-tree__chevron">${chevron}</span>
+                <span class="cds-prod-tree__icon cds-prod-tree__icon--cat" aria-hidden="true">📁</span>
+                <span class="cds-prod-tree__name">${escapeHtml(categoria.nome)}</span>
+            </span>
+            ${montarBadgesContagemListagem(categoria.count, categoria.countProximo, categoria.countBaixo)}
+        </div>
+    `;
+}
+
+function renderCabecalhoSubcategoriaArvore(sub, aberta) {
+    const chevron = aberta ? '▼' : '►';
+    return `
+        <div class="cds-prod-tree__subcategoria-header subcategoria-toggle" role="button" tabindex="0" aria-expanded="${aberta ? 'true' : 'false'}">
+            <span class="cds-prod-tree__subcategoria-title">
+                <span class="cds-prod-tree__chevron">${chevron}</span>
+                <span class="cds-prod-tree__icon cds-prod-tree__icon--sub" aria-hidden="true">📂</span>
+                <span class="cds-prod-tree__name">${escapeHtml(sub.nome)}</span>
+            </span>
+            ${montarBadgesContagemListagem(sub.count, sub.countProximo, sub.countBaixo)}
+        </div>
+    `;
+}
+
+function renderTabelaProdutosArvore(produtos) {
+    return `
+        <div class="cds-prod-tree__table-wrap table-responsive">
+            <table class="table table-striped table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Nome</th>
+                        <th>Código</th>
+                        <th>Categoria</th>
+                        <th>Unidade</th>
+                        <th>Preço Compra</th>
+                        <th>Preço Venda</th>
+                        <th>${tituloColunaEstoqueLista()}</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${(produtos || []).map((p) => renderProdutoRow(p)).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+function renderHtmlSubcategoriasArvore(categoria) {
+    const estado = obterEstadoArvoreProdutos();
+
+    return (categoria.subcategorias || []).map((sub) => {
+        const subEstadoKey = chaveSubcategoriaEstado(categoria.key, sub.key);
+        const subAberta = !!estado.subcategorias[subEstadoKey];
+        const produtosHtml = subAberta ? renderTabelaProdutosArvore(sub.produtos) : '';
+
+        return `
+            <div class="cds-prod-tree__subcategoria subcategoria-card" data-cat-key="${escapeAttrProdutos(categoria.key)}" data-sub-key="${escapeAttrProdutos(sub.key)}">
+                ${renderCabecalhoSubcategoriaArvore(sub, subAberta)}
+                <div class="cds-prod-tree__subcategoria-body subcategoria-body" ${subAberta ? '' : 'style="display: none;"'}>
+                    ${produtosHtml}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderHtmlArvoreListagemProdutos(produtos) {
+    const arvore = montarArvoreProdutos(produtos);
+    const estado = obterEstadoArvoreProdutos();
+
+    if (!arvore.length) {
+        return '<div class="alert alert-warning mb-0">Nenhum produto encontrado.</div>';
+    }
+
+    return arvore.map((categoria) => {
+        const catAberta = !!estado.categorias[categoria.key];
+        const subHtml = catAberta ? renderHtmlSubcategoriasArvore(categoria) : '';
+
+        return `
+            <div class="cds-prod-tree__categoria categoria-card" data-cat-key="${escapeAttrProdutos(categoria.key)}">
+                ${renderCabecalhoCategoriaArvore(categoria, catAberta)}
+                <div class="cds-prod-tree__categoria-body categoria-body" ${catAberta ? '' : 'style="display: none;"'}>
+                    ${subHtml}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function sincronizarCabecalhoCategoria($card, categoria, aberta) {
+    $card.children('.cds-prod-tree__categoria-header, .categoria-toggle').first()
+        .replaceWith(renderCabecalhoCategoriaArvore(categoria, aberta));
+}
+
+function sincronizarCabecalhoSubcategoria($card, sub, aberta) {
+    $card.children('.cds-prod-tree__subcategoria-header, .subcategoria-toggle').first()
+        .replaceWith(renderCabecalhoSubcategoriaArvore(sub, aberta));
+}
+
+function bindEventosArvoreListagemProdutos() {
+    const $container = $('#categorias-container');
+    $container.off('click.arvoreProdutos keydown.arvoreProdutos');
+
+    $container.on('click.arvoreProdutos', '.categoria-toggle', function (e) {
+        e.preventDefault();
+        const $card = $(this).closest('.categoria-card');
+        const catKey = String($card.attr('data-cat-key') || '');
+        if (!catKey) return;
+
+        const estado = obterEstadoArvoreProdutos();
+        const abrindo = !estado.categorias[catKey];
+        estado.categorias[catKey] = abrindo;
+
+        const categoria = encontrarCategoriaArvore(window._produtosArvoreListaAtual || [], catKey);
+        if (!categoria) return;
+
+        const $body = $card.children('.categoria-body');
+        sincronizarCabecalhoCategoria($card, categoria, abrindo);
+
+        if (abrindo) {
+            $body.stop(true, true).html(renderHtmlSubcategoriasArvore(categoria)).hide().slideDown(PRODUTOS_ARVORE_ANIM_MS);
+        } else {
+            $body.stop(true, true).slideUp(PRODUTOS_ARVORE_ANIM_MS, function () {
+                $(this).empty();
+            });
+        }
+    });
+
+    $container.on('click.arvoreProdutos', '.subcategoria-toggle', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $card = $(this).closest('.subcategoria-card');
+        const catKey = String($card.attr('data-cat-key') || '');
+        const subKey = String($card.attr('data-sub-key') || '');
+        if (!catKey || !subKey) return;
+
+        const estado = obterEstadoArvoreProdutos();
+        const subEstadoKey = chaveSubcategoriaEstado(catKey, subKey);
+        const abrindo = !estado.subcategorias[subEstadoKey];
+        estado.subcategorias[subEstadoKey] = abrindo;
+        estado.categorias[catKey] = true;
+
+        const sub = encontrarSubcategoriaArvore(window._produtosArvoreListaAtual || [], catKey, subKey);
+        if (!sub) return;
+
+        const $body = $card.children('.subcategoria-body');
+        sincronizarCabecalhoSubcategoria($card, sub, abrindo);
+
+        if (abrindo) {
+            $body.stop(true, true).html(renderTabelaProdutosArvore(sub.produtos)).hide().slideDown(PRODUTOS_ARVORE_ANIM_MS);
+        } else {
+            $body.stop(true, true).slideUp(PRODUTOS_ARVORE_ANIM_MS, function () {
+                $(this).empty();
+            });
+        }
+    });
+
+    $container.on('keydown.arvoreProdutos', '.categoria-toggle, .subcategoria-toggle', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        $(this).trigger('click');
+    });
+}
+
+function renderizarArvoreListagemProdutos(produtos) {
+    window._produtosArvoreListaAtual = produtos || [];
+    const $container = $('#categorias-container');
+    $container.addClass('cds-prod-tree');
+    $container.html(renderHtmlArvoreListagemProdutos(window._produtosArvoreListaAtual));
+    bindEventosArvoreListagemProdutos();
+}
+
+/** @deprecated Mantido para compatibilidade — a listagem usa a árvore recolhível. */
+function renderProdutosAgrupados(produtos) {
+    expandirNosArvoreParaLista(produtos || []);
+    return renderHtmlArvoreListagemProdutos(produtos || []);
 }
 
 function gerarRelatorioEstoque() {
@@ -1178,6 +1407,7 @@ function gerarRelatorioEstoque() {
 function renderProdutos(produtos) {
     window.produtosCache = produtos;
     window.produtosOriginais = produtos;
+    resetarEstadoArvoreProdutos();
     const shell = (typeof CdsPageShell !== 'undefined' && CdsPageShell.renderHeader)
         ? CdsPageShell.renderHeader({ page: 'produtos' })
         : '';
@@ -1266,15 +1496,13 @@ function renderProdutos(produtos) {
             <div class="card-body">
                 <div class="alert alert-info py-2 mb-3">
                     <i class="fas fa-info-circle me-2"></i>
-                    Clique em uma categoria para ver os produtos. Use a busca acima para pesquisar em todos os produtos.
+                    Expanda a categoria e a subcategoria para ver os produtos. Use a busca acima para pesquisar em todos os produtos.
                 </div>
                 <div class="d-flex flex-wrap gap-3 mb-3 small">
                     <span><span class="d-inline-block rounded px-2 py-1 bg-warning">&nbsp;</span> Amarelo: próximo do mínimo ou do vencimento</span>
                     <span><span class="d-inline-block rounded px-2 py-1 bg-danger">&nbsp;</span> Vermelho: estoque no mínimo ou abaixo / vencido</span>
                 </div>
-                <div id="categorias-container">
-                    ${renderCategoriasProdutos(produtos)}
-                </div>
+                <div id="categorias-container" class="cds-prod-tree"></div>
                 <div class="table-responsive" id="tabela-produtos-container" style="display: none;">
                     <table class="table table-striped table-hover">
                         <thead>
@@ -1303,7 +1531,6 @@ function renderProdutos(produtos) {
         aplicarFiltrosProdutos(produtos);
     });
 
-    // Carregar categorias inicialmente
     carregarCategoriasProdutos();
     inicializarCardEstoqueBaixo();
     inicializarModalVencimentosProdutos();
@@ -1312,144 +1539,22 @@ function renderProdutos(produtos) {
 }
 
 function renderCategoriasProdutos(produtos) {
-    if (!produtos || produtos.length === 0) {
-        return '<div class="alert alert-warning">Nenhum produto encontrado.</div>';
-    }
-
-    // Extrair categorias únicas dos produtos
-    const categoriasMap = new Map();
-    produtos.forEach(p => {
-        const catId = p.categoria_id || '';
-        const catNome = p.categoria || p.categoria_nome || 'Sem Categoria';
-        if (!categoriasMap.has(catId)) {
-            categoriasMap.set(catId, { id: catId, nome: catNome, count: 0 });
-        }
-        categoriasMap.get(catId).count++;
-    });
-
-    const categorias = Array.from(categoriasMap.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-
-    return categorias.map(cat => `
-        <div class="card mb-2 categoria-card" data-categoria-id="${cat.id}">
-            <div class="card-header bg-light d-flex justify-content-between align-items-center" style="cursor: pointer;" onclick="toggleProdutosCategoriaMenu('${cat.id}', '${escapeHtml(cat.nome)}')">
-                <strong><i class="fas fa-folder me-2"></i>${escapeHtml(cat.nome)}</strong>
-                <span class="badge bg-primary">${cat.count}</span>
-            </div>
-            <div class="card-body p-0" id="produtos-categoria-${cat.id}" style="display: none;">
-                <div class="text-center py-3">
-                    <div class="spinner-border spinner-border-sm text-primary"></div>
-                </div>
-            </div>
-        </div>
-    `).join('');
+    return renderHtmlArvoreListagemProdutos(produtos || []);
 }
 
 function carregarCategoriasProdutos() {
-    $('#categorias-container').html(`
-        <div class="text-center py-4">
-            <div class="spinner-border text-primary"></div>
-            <div class="mt-2">Carregando categorias...</div>
-        </div>
-    `);
-
-    $.ajax({
-        url: `${API_URL}/categorias?tipo=produto`,
-        method: 'GET',
-        success: function(categorias) {
-            if (!categorias || categorias.length === 0) {
-                $('#categorias-container').html(`
-                    <div class="alert alert-warning">
-                        Nenhuma categoria encontrada.
-                    </div>
-                `);
-                return;
-            }
-
-            // Contar produtos por categoria
-            const categoriasComContagem = categorias.map(cat => {
-                const produtosCategoria = (window.produtosCache || []).filter(
-                    (p) => String(p.categoria_id) === String(cat.id)
-                );
-                const count = produtosCategoria.length;
-                const countBaixo = produtosCategoria.filter((p) => produtoComEstoqueBaixo(p)).length;
-                const countProximo = produtosCategoria.filter((p) => produtoProximoMinimo(p)).length;
-                return { ...cat, count, countBaixo, countProximo };
-            }).filter(cat => cat.count > 0);
-
-            const html = categoriasComContagem.map(cat => `
-                <div class="card mb-2 categoria-card" data-categoria-id="${cat.id}">
-                    <div class="card-header bg-light d-flex justify-content-between align-items-center" style="cursor: pointer;" onclick="toggleProdutosCategoriaMenu(${cat.id}, '${escapeHtml(cat.nome)}')">
-                        <strong><i class="fas fa-folder me-2"></i>${escapeHtml(cat.nome)}</strong>
-                        <span>
-                            <span class="badge bg-primary">${cat.count}</span>
-                            ${cat.countProximo > 0 ? `<span class="badge bg-warning text-dark ms-1" title="Próximo do estoque mínimo">${cat.countProximo} próx.</span>` : ''}
-                            ${cat.countBaixo > 0 ? `<span class="badge bg-danger ms-1" title="Estoque no mínimo ou abaixo">${cat.countBaixo} baixo</span>` : ''}
-                        </span>
-                    </div>
-                    <div class="card-body p-0" id="produtos-categoria-${cat.id}" style="display: none;">
-                        <div class="text-center py-3">
-                            <div class="spinner-border spinner-border-sm text-primary"></div>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-
-            $('#categorias-container').html(html);
-        },
-        error: function() {
-            $('#categorias-container').html(`
-                <div class="alert alert-danger">
-                    Erro ao carregar categorias.
-                </div>
-            `);
-        }
-    });
+    aplicarFiltrosProdutos(window.produtosCache || []);
 }
 
-function toggleProdutosCategoriaMenu(categoriaId, categoriaNome) {
-    const container = $(`#produtos-categoria-${categoriaId}`);
+function toggleProdutosCategoriaMenu(categoriaId) {
+    const catKey = categoriaId != null && String(categoriaId).trim() !== ''
+        ? `id:${categoriaId}`
+        : '';
+    if (!catKey) return;
 
-    if (container.is(':visible')) {
-        container.slideUp();
-    } else {
-        // Se ainda não carregou os produtos, carregar
-        if (container.find('.spinner-border').length > 0) {
-            const produtosCategoria = (window.produtosCache || []).filter(p => String(p.categoria_id) === String(categoriaId));
-
-            if (!produtosCategoria || produtosCategoria.length === 0) {
-                container.html(`
-                    <div class="p-3 text-muted">
-                        Nenhum produto nesta categoria.
-                    </div>
-                `);
-            } else {
-                const tabelaHtml = `
-                    <div class="table-responsive">
-                        <table class="table table-striped table-hover mb-0">
-                            <thead>
-                                <tr>
-                                    <th>Nome</th>
-                                    <th>Código</th>
-                                    <th>Categoria</th>
-                                    <th>Unidade</th>
-                                    <th>Preço Compra</th>
-                                    <th>Preço Venda</th>
-                                    <th>${tituloColunaEstoqueLista()}</th>
-                                    <th>Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${produtosCategoria.map(p => renderProdutoRow(p)).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                `;
-                container.html(tabelaHtml);
-            }
-        }
-
-        container.slideDown();
-    }
+    const estado = obterEstadoArvoreProdutos();
+    estado.categorias[catKey] = !estado.categorias[catKey];
+    renderizarArvoreListagemProdutos(window._produtosArvoreListaAtual || window.produtosCache || []);
 }
 
 function renderProdutosRows(produtos) {
@@ -1486,17 +1591,6 @@ function showProdutoModal(produto = null) {
     const precoCompraInicial = isEdit
         ? formatarCustoUnitarioCadastro(custoUnitarioInicial, usaConversaoInicial)
         : '0';
-    const refValorInicial = isEdit && usaConversaoInicial
-        ? (Number(produto.valor_total_compra || 0) > 0
-            ? Number(produto.valor_total_compra)
-            : (Math.abs(Number(produto.preco_compra || 0) - custoUnitarioInicial) > 0.01
-                ? Number(produto.preco_compra || 0)
-                : ''))
-        : '';
-    const refQtdInicial = isEdit && usaConversaoInicial
-        ? (Number(produto.saldo_fiscal || 0) + Number(produto.saldo_nao_fiscal || 0))
-            || Number(produto.peso_total_compra || 0)
-        : '';
     const permiteVendaUnidadeInicial = isEdit && Number(produto?.permite_venda_unidade ?? 0) === 1;
     const pesoMedioUnidadeInicial = isEdit ? Number(produto?.peso_medio_unidade ?? 0) : 0;
     const precoUnidadeInicial = isEdit ? Number(produto?.preco_unidade ?? 0) : 0;
@@ -1508,8 +1602,8 @@ function showProdutoModal(produto = null) {
     $('#produtoModal').remove();
     $('#viewProdutoModal').remove();
     const modalHtml = `
-        <div class="modal fade" id="produtoModal" tabindex="-1" aria-hidden="true">
-            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal fade cds-prod-cadastro" id="produtoModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-xl modal-dialog-scrollable">
                 <div class="modal-content">
                     <div class="modal-header d-flex align-items-center justify-content-between">
                         <h5 class="modal-title mb-0">${title}</h5>
@@ -1525,177 +1619,378 @@ function showProdutoModal(produto = null) {
                         <form id="produtoForm">
                             <input type="hidden" id="produtoId" value="${isEdit ? (produto.id || '') : ''}">
 
-                            <div class="row">
-                                <div class="col-md-4 mb-3">
-                                    <label for="codigo" class="form-label">Código</label>
-                                    <input
-                                        type="text"
-                                        class="form-control"
-                                        id="codigo"
-                                        value="${isEdit ? escapeHtml(produto.codigo || '') : ''}"
-                                    >
-                                </div>
+                            <div class="cds-prod-cadastro__stack">
 
-                                <div class="col-md-4 mb-3">
-                                    <label for="plu" class="form-label">PLU (Balança)</label>
-                                    <input
-                                        type="text"
-                                        class="form-control"
-                                        id="plu"
-                                        inputmode="numeric"
-                                        maxlength="10"
-                                        placeholder="Ex.: 67"
-                                        value="${isEdit ? escapeHtml(produto.plu || '') : ''}"
-                                    >
-                                    <div class="form-text">Código na balança (opcional). Armazenado em produto_identificadores.</div>
-                                </div>
-
-                                <div class="col-md-4 mb-3">
-                                    <label for="nome" class="form-label">Nome *</label>
-                                    <input
-                                        type="text"
-                                        class="form-control"
-                                        id="nome"
-                                        required
-                                        value="${isEdit ? escapeHtml(produto.nome || '') : ''}"
-                                    >
-                                </div>
-
-                                <div class="col-md-6 mb-3">
-                                    <label for="categoria_id" class="form-label">Categoria</label>
-                                    <select class="form-control" id="categoria_id">
-                                        <option value="">Carregando...</option>
-                                    </select>
-                                </div>
-
-                                <div class="col-md-6 mb-3">
-                                    <label for="subcategoria_id" class="form-label">Subcategoria</label>
-                                    <select class="form-control" id="subcategoria_id">
-                                        <option value="">Selecione uma categoria</option>
-                                    </select>
-                                </div>
-
-                                <div class="col-md-6 mb-3">
-                                    <label for="unidade" class="form-label" id="label_unidade_produto">Unidade</label>
-                                    <select class="form-control" id="unidade">
-                                        <option value="un" ${isEdit && produto.unidade === 'un' ? 'selected' : ''}>Unidade</option>
-                                        <option value="kg" ${isEdit && produto.unidade === 'kg' ? 'selected' : ''}>Quilograma</option>
-                                        <option value="g" ${isEdit && produto.unidade === 'g' ? 'selected' : ''}>Grama</option>
-                                        <option value="l" ${isEdit && produto.unidade === 'l' ? 'selected' : ''}>Litro</option>
-                                        <option value="ml" ${isEdit && produto.unidade === 'ml' ? 'selected' : ''}>Mililitro</option>
-                                        <option value="mt" ${isEdit && produto.unidade === 'mt' ? 'selected' : ''}>Metro</option>
-                                        <option value="m2" ${isEdit && produto.unidade === 'm2' ? 'selected' : ''}>Metro Quadrado</option>
-                                        <option value="m3" ${isEdit && produto.unidade === 'm3' ? 'selected' : ''}>Metro Cúbico</option>
-                                    </select>
-                                </div>
-
-                                <div class="col-12 mb-3">
-                                    <div class="form-check form-switch">
-                                        <input
-                                            class="form-check-input"
-                                            type="checkbox"
-                                            id="produto_fracionado"
-                                            ${isEdit && produtoEhFracionado(produto) ? 'checked' : ''}
-                                        >
-                                        <label class="form-check-label" for="produto_fracionado">
-                                            Produto Pesável / Vendido por Peso
-                                        </label>
+                                <div class="cds-prod-cadastro__card">
+                                    <div class="cds-prod-cadastro__card-header">
+                                        <span class="cds-prod-cadastro__card-icon" aria-hidden="true">🏷️</span>
+                                        <h6 class="cds-prod-cadastro__card-title">Identificação</h6>
                                     </div>
-                                    <div class="form-text ms-4">Mesmo flag operacional já usado pelo PDV e balanças (produto_fracionado).</div>
-
-                                    <div class="ms-4 mt-2 d-none" id="painelVendaUnidadeCadastro">
-                                        <div class="form-check form-switch mb-2">
-                                            <input
-                                                class="form-check-input"
-                                                type="checkbox"
-                                                id="permite_venda_unidade"
-                                                ${permiteVendaUnidadeInicial ? 'checked' : ''}
-                                            >
-                                            <label class="form-check-label" for="permite_venda_unidade">
-                                                Permitir venda por unidade
-                                            </label>
-                                        </div>
-
-                                        <div class="ms-4 d-none" id="painelCamposVendaUnidadeCadastro">
-                                            <div class="row">
-                                                <div class="col-md-6 mb-3 mb-md-0">
-                                                    <label for="peso_medio_unidade" class="form-label">Peso médio da unidade (KG)</label>
-                                                    <input
-                                                        type="number"
-                                                        step="0.001"
-                                                        min="0"
-                                                        class="form-control"
-                                                        id="peso_medio_unidade"
-                                                        placeholder="Ex.: 0,450"
-                                                        value="${pesoMedioUnidadeInicial > 0 ? pesoMedioUnidadeInicial : ''}"
-                                                    >
-                                                </div>
-                                                <div class="col-md-6">
-                                                    <label for="preco_unidade" class="form-label">Preço por unidade (R$)</label>
-                                                    <input
-                                                        type="number"
-                                                        step="0.01"
-                                                        min="0"
-                                                        class="form-control"
-                                                        id="preco_unidade"
-                                                        placeholder="Ex.: 3,50"
-                                                        value="${precoUnidadeInicial > 0 ? precoUnidadeInicial : ''}"
-                                                    >
-                                                </div>
+                                    <div class="cds-prod-cadastro__card-body">
+                                        <div class="row g-3">
+                                            <div class="col-md-3">
+                                                <label for="codigo" class="form-label">Código Interno</label>
+                                                <input type="text" class="form-control" id="codigo" value="${isEdit ? escapeHtml(produto.codigo || '') : ''}">
+                                            </div>
+                                            <div class="col-md-2">
+                                                <label for="plu" class="form-label">PLU</label>
+                                                <input
+                                                    type="text"
+                                                    class="form-control cds-prod-cadastro__plu"
+                                                    id="plu"
+                                                    inputmode="numeric"
+                                                    maxlength="10"
+                                                    placeholder="Ex.: 67"
+                                                    value="${isEdit ? escapeHtml(produto.plu || '') : ''}"
+                                                >
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label for="codigo_barras" class="form-label">Código de Barras</label>
+                                                <input type="text" class="form-control" id="codigo_barras" value="${isEdit ? escapeHtml(produto.codigo_barras || '') : ''}">
+                                            </div>
+                                            <div class="col-12">
+                                                <label for="nome" class="form-label">Nome do Produto *</label>
+                                                <input
+                                                    type="text"
+                                                    class="form-control cds-prod-cadastro__nome"
+                                                    id="nome"
+                                                    required
+                                                    value="${isEdit ? escapeHtml(produto.nome || '') : ''}"
+                                                >
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div class="col-12 d-none" id="painelInfoConversaoUnidadesCadastro">
-                                    <div class="alert alert-info py-2 mb-2">
-                                        <strong>Motor de Conversão de Unidades</strong>
-                                        <small class="d-block mt-1">
-                                            Informe o <strong>valor total pago</strong> e a <strong>quantidade convertida</strong>.
-                                            O sistema calcula automaticamente o custo por unidade de venda.
-                                        </small>
-                                        <small class="text-warning d-none mt-1" id="avisoUnidadeConversaoCadastro">
-                                            Selecione uma unidade fracionável (KG, MT, LT, M², M³, etc.).
-                                        </small>
+                                <div class="cds-prod-cadastro__card">
+                                    <div class="cds-prod-cadastro__card-header">
+                                        <span class="cds-prod-cadastro__card-icon" aria-hidden="true">📁</span>
+                                        <h6 class="cds-prod-cadastro__card-title">Classificação</h6>
+                                    </div>
+                                    <div class="cds-prod-cadastro__card-body">
+                                        <div class="row g-3">
+                                            <div class="col-md-6">
+                                                <label for="categoria_id" class="form-label">Categoria</label>
+                                                <select class="form-control" id="categoria_id">
+                                                    <option value="">Carregando...</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label for="subcategoria_id" class="form-label">Subcategoria</label>
+                                                <select class="form-control" id="subcategoria_id">
+                                                    <option value="">Selecione uma categoria</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label for="marca_smart_input" class="form-label">Marca</label>
+                                                <div id="marca_smart_select_host"></div>
+                                                <input type="hidden" id="marca_id" value="${isEdit && produto.marca_id ? escapeHtml(String(produto.marca_id)) : ''}">
+                                            </div>
+                                            <div class="col-md-6 position-relative">
+                                                <label for="fornecedor" class="form-label">Fornecedor</label>
+                                                <input
+                                                    type="text"
+                                                    class="form-control"
+                                                    id="fornecedor"
+                                                    autocomplete="off"
+                                                    value="${isEdit ? escapeHtml(produto.fornecedor || '') : ''}"
+                                                >
+                                                <div
+                                                    id="fornecedor-autocomplete"
+                                                    class="list-group position-absolute w-100"
+                                                    style="z-index: 9999; display: none;"
+                                                ></div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label for="unidade" class="form-label" id="label_unidade_produto">Unidade Base</label>
+                                                <select class="form-control" id="unidade">
+                                                    <option value="un" ${isEdit && produto.unidade === 'un' ? 'selected' : ''}>Unidade</option>
+                                                    <option value="kg" ${isEdit && produto.unidade === 'kg' ? 'selected' : ''}>Quilograma</option>
+                                                    <option value="g" ${isEdit && produto.unidade === 'g' ? 'selected' : ''}>Grama</option>
+                                                    <option value="l" ${isEdit && produto.unidade === 'l' ? 'selected' : ''}>Litro</option>
+                                                    <option value="ml" ${isEdit && produto.unidade === 'ml' ? 'selected' : ''}>Mililitro</option>
+                                                    <option value="mt" ${isEdit && produto.unidade === 'mt' ? 'selected' : ''}>Metro</option>
+                                                    <option value="m2" ${isEdit && produto.unidade === 'm2' ? 'selected' : ''}>Metro Quadrado</option>
+                                                    <option value="m3" ${isEdit && produto.unidade === 'm3' ? 'selected' : ''}>Metro Cúbico</option>
+                                                </select>
+                                                <small class="text-warning d-none" id="avisoUnidadeConversaoCadastro">
+                                                    Selecione uma unidade fracionável (KG, MT, LT, M², M³, etc.).
+                                                </small>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
 
-                                <div class="col-12 d-none" id="painelCalcularCustoUnitarioCadastro">
-                                    <div class="card border-primary mb-2">
-                                        <div class="card-body py-2">
-                                            <div class="row g-2 align-items-end">
-                                                <div class="col-md-4">
-                                                    <label for="cadastro_valor_total_referencia" class="form-label">Valor Total Pago (R$)</label>
+                                <div class="cds-prod-cadastro__card">
+                                    <div class="cds-prod-cadastro__card-header">
+                                        <span class="cds-prod-cadastro__card-icon" aria-hidden="true">📦</span>
+                                        <h6 class="cds-prod-cadastro__card-title">Estoque Inicial</h6>
+                                    </div>
+                                    <div class="cds-prod-cadastro__card-body">
+                                        <div class="row g-3" id="areaCamposEstoqueProduto">
+                                            ${montarHtmlCamposEstoqueProduto(produto, isEdit, {
+                                                temMovimentacoes: produto?.tem_movimentacoes
+                                            })}
+                                        </div>
+                                        <div class="row g-3 mt-1">
+                                            <div class="col-md-4">
+                                                <label for="estoque_minimo" class="form-label">Estoque Mínimo</label>
+                                                <input
+                                                    type="number"
+                                                    step="${usaConversaoInicial ? '0.001' : '0.01'}"
+                                                    class="form-control"
+                                                    id="estoque_minimo"
+                                                    value="${isEdit ? Number(produto.estoque_minimo || 0) : 0}"
+                                                >
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="cds-prod-cadastro__card">
+                                    <div class="cds-prod-cadastro__card-header">
+                                        <span class="cds-prod-cadastro__card-icon" aria-hidden="true">💰</span>
+                                        <h6 class="cds-prod-cadastro__card-title">Formação do Preço</h6>
+                                    </div>
+                                    <div class="cds-prod-cadastro__card-body">
+                                        <div class="row g-3">
+                                            <div class="col-md-3">
+                                                <label for="preco_compra" class="form-label" id="label_preco_compra_produto">Custo Unitário</label>
+                                                <input
+                                                    type="number"
+                                                    step="${usaConversaoInicial ? '0.0001' : '0.01'}"
+                                                    class="form-control"
+                                                    id="preco_compra"
+                                                    value="${precoCompraInicial}"
+                                                >
+                                                <small class="text-muted d-none" id="hint_preco_compra_produto">
+                                                    Custo por unidade de venda. Valor Inicial = Quantidade Total × Custo Unitário.
+                                                </small>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label for="valor_total_compra_preview" class="form-label">Valor Inicial do Estoque</label>
+                                                <input
+                                                    type="text"
+                                                    class="form-control bg-light fw-semibold"
+                                                    id="valor_total_compra_preview"
+                                                    readonly
+                                                    value="${formatCurrency((estoqueTotalInicial || 0) * (Number(precoCompraInicial) || 0))}"
+                                                >
+                                                <small class="text-muted">Quantidade Total × Custo Unitário</small>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label for="lucro_percentual" class="form-label">Lucro (%)</label>
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    class="form-control"
+                                                    id="lucro_percentual"
+                                                    placeholder="%"
+                                                    value="${lucro}"
+                                                >
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label for="preco_venda" class="form-label">Preço de Venda *</label>
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    class="form-control"
+                                                    id="preco_venda"
+                                                    required
+                                                    value="${isEdit ? Number(produto.preco_venda || 0) : 0}"
+                                                >
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label for="valor_total_venda_preview" class="form-label">Valor Total Venda</label>
+                                                <input
+                                                    type="text"
+                                                    class="form-control bg-light fw-semibold text-success"
+                                                    id="valor_total_venda_preview"
+                                                    readonly
+                                                    value="${formatCurrency((estoqueTotalInicial || 0) * (Number(isEdit ? produto.preco_venda : 0) || 0))}"
+                                                >
+                                                <small class="text-muted">Quantidade Total × Preço de Venda</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="cds-prod-cadastro__card">
+                                    <div class="cds-prod-cadastro__atacado-header">
+                                        <h6 class="cds-prod-cadastro__atacado-title">
+                                            <span aria-hidden="true">🛒</span> Venda no Atacado
+                                        </h6>
+                                        <div class="form-check form-switch mb-0">
+                                            <input class="form-check-input" type="checkbox" id="venda_atacado" ${isEdit && Number(produto.venda_atacado || 0) === 1 ? 'checked' : ''}>
+                                            <label class="form-check-label" for="venda_atacado">ON/OFF</label>
+                                        </div>
+                                    </div>
+                                    <div class="cds-prod-cadastro__card-body" id="areaVendaAtacado" style="display: none;">
+                                        <div class="table-responsive">
+                                            <table class="table table-sm table-striped mb-2" id="tabelaAtacado">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Quantidade Mínima</th>
+                                                        <th>Desconto (%)</th>
+                                                        <th>Preço Unitário</th>
+                                                        <th></th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody></tbody>
+                                            </table>
+                                        </div>
+                                        <div class="d-flex gap-2">
+                                            <button type="button" class="btn btn-success btn-sm" id="btnAdicionarFaixa">+ Adicionar Faixa</button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="cds-prod-cadastro__card">
+                                    <div class="cds-prod-cadastro__card-header">
+                                        <span class="cds-prod-cadastro__card-icon" aria-hidden="true">🧾</span>
+                                        <h6 class="cds-prod-cadastro__card-title">Tributação</h6>
+                                    </div>
+                                    <div class="cds-prod-cadastro__card-body">
+                                        <div class="row g-3">
+                                            <div class="col-md-3">
+                                                <label for="ncm" class="form-label">NCM</label>
+                                                <input type="text" class="form-control" id="ncm" value="${isEdit ? escapeHtml(produto.ncm || '') : ''}">
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label for="cfop" class="form-label">CFOP</label>
+                                                <input type="text" class="form-control" id="cfop" value="${isEdit ? escapeHtml(produto.cfop || '') : ''}">
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label for="csosn" class="form-label">CSOSN</label>
+                                                <input type="text" class="form-control" id="csosn" value="${isEdit ? escapeHtml(produto.csosn || '') : ''}">
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label for="origem" class="form-label">Origem</label>
+                                                <input type="number" class="form-control" id="origem" value="${isEdit ? Number(produto.origem || 0) : 0}">
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label for="cest" class="form-label">CEST</label>
+                                                <input type="text" class="form-control" id="cest" value="${isEdit ? escapeHtml(produto.cest || '') : ''}">
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label for="aliquota_icms" class="form-label">Alíquota ICMS</label>
+                                                <input type="number" step="0.01" class="form-control" id="aliquota_icms" value="${isEdit ? Number(produto.aliquota_icms || 0) : 0}">
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label for="aliquota_pis" class="form-label">Alíquota PIS</label>
+                                                <input type="number" step="0.01" class="form-control" id="aliquota_pis" value="${isEdit ? Number(produto.aliquota_pis || 0) : 0}">
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label for="aliquota_cofins" class="form-label">Alíquota COFINS</label>
+                                                <input type="number" step="0.01" class="form-control" id="aliquota_cofins" value="${isEdit ? Number(produto.aliquota_cofins || 0) : 0}">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="cds-prod-cadastro__card">
+                                    <div class="cds-prod-cadastro__card-header">
+                                        <span class="cds-prod-cadastro__card-icon" aria-hidden="true">⚙️</span>
+                                        <h6 class="cds-prod-cadastro__card-title">Configurações</h6>
+                                    </div>
+                                    <div class="cds-prod-cadastro__card-body">
+                                        <div class="row g-3">
+                                            <div class="col-12">
+                                                <div class="form-check form-switch">
                                                     <input
-                                                        type="number"
-                                                        step="0.01"
-                                                        min="0"
-                                                        class="form-control"
-                                                        id="cadastro_valor_total_referencia"
-                                                        placeholder="Ex.: 50,67"
-                                                        value="${refValorInicial !== '' ? refValorInicial : ''}"
+                                                        class="form-check-input"
+                                                        type="checkbox"
+                                                        id="produto_fracionado"
+                                                        ${isEdit && produtoEhFracionado(produto) ? 'checked' : ''}
                                                     >
-                                                </div>
-                                                <div class="col-md-4">
-                                                    <label for="cadastro_quantidade_total_referencia" class="form-label">
-                                                        Quantidade Total
-                                                        <small class="text-muted">(Fiscal + Não Fiscal)</small>
+                                                    <label class="form-check-label" for="produto_fracionado">
+                                                        Produto Pesável / Vendido por Peso
                                                     </label>
-                                                    <input
-                                                        type="number"
-                                                        step="0.001"
-                                                        min="0"
-                                                        class="form-control bg-light"
-                                                        id="cadastro_quantidade_total_referencia"
-                                                        placeholder="Soma automática do estoque"
-                                                        value="${refQtdInicial !== '' ? refQtdInicial : ''}"
-                                                        readonly
-                                                    >
                                                 </div>
-                                                <div class="col-md-4">
-                                                    <label class="form-label">Fórmula</label>
-                                                    <div class="form-control bg-light" id="formula_custo_unitario_cadastro" style="min-height: 38px;">
-                                                        —
+                                                <div class="form-text">Mesmo flag operacional já usado pelo PDV e balanças (produto_fracionado).</div>
+
+                                                <div class="ms-1 mt-2 d-none" id="painelVendaUnidadeCadastro">
+                                                    <div class="form-check form-switch mb-2">
+                                                        <input
+                                                            class="form-check-input"
+                                                            type="checkbox"
+                                                            id="permite_venda_unidade"
+                                                            ${permiteVendaUnidadeInicial ? 'checked' : ''}
+                                                        >
+                                                        <label class="form-check-label" for="permite_venda_unidade">
+                                                            Permitir venda por unidade
+                                                        </label>
+                                                    </div>
+
+                                                    <div class="ms-1 d-none" id="painelCamposVendaUnidadeCadastro">
+                                                        <div class="row g-3">
+                                                            <div class="col-md-6">
+                                                                <label for="peso_medio_unidade" class="form-label">Peso médio da unidade (KG)</label>
+                                                                <input
+                                                                    type="number"
+                                                                    step="0.001"
+                                                                    min="0"
+                                                                    class="form-control"
+                                                                    id="peso_medio_unidade"
+                                                                    placeholder="Ex.: 0,450"
+                                                                    value="${pesoMedioUnidadeInicial > 0 ? pesoMedioUnidadeInicial : ''}"
+                                                                >
+                                                            </div>
+                                                            <div class="col-md-6">
+                                                                <label for="preco_unidade" class="form-label">Preço por unidade (R$)</label>
+                                                                <input
+                                                                    type="number"
+                                                                    step="0.01"
+                                                                    min="0"
+                                                                    class="form-control"
+                                                                    id="preco_unidade"
+                                                                    placeholder="Ex.: 3,50"
+                                                                    value="${precoUnidadeInicial > 0 ? precoUnidadeInicial : ''}"
+                                                                >
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div class="col-12">
+                                                <div class="form-check form-switch">
+                                                    <input
+                                                        class="form-check-input"
+                                                        type="checkbox"
+                                                        id="controlar_validade"
+                                                        ${isEdit && Number(produto.controlar_validade || 0) === 1 ? 'checked' : ''}
+                                                    >
+                                                    <label class="form-check-label" for="controlar_validade">
+                                                        Controlar validade deste produto
+                                                    </label>
+                                                </div>
+                                            </div>
+
+                                            <div class="col-12" id="areaLoteInicial" style="display: none;">
+                                                <div class="row g-3 border rounded p-3 bg-info bg-opacity-10">
+                                                    <div class="col-md-12">
+                                                        <strong>Informações do Lote Inicial</strong>
+                                                        <small class="text-muted d-block">Informe a validade do estoque. Em produtos novos ou sem lote, o sistema cria o lote automaticamente.</small>
+                                                    </div>
+                                                    <div class="col-md-4">
+                                                        <label for="data_validade_inicial" class="form-label">Data Validade *</label>
+                                                        <input
+                                                            type="date"
+                                                            id="data_validade_inicial"
+                                                            class="form-control"
+                                                            value="${isEdit ? (produto.data_validade_inicial || produto.data_validade || '') : ''}"
+                                                        >
+                                                    </div>
+                                                    <div class="col-md-4">
+                                                        <label for="dias_alerta_validade" class="form-label">Alertar (dias)</label>
+                                                        <input
+                                                            type="number"
+                                                            id="dias_alerta_validade"
+                                                            class="form-control"
+                                                            value="${isEdit ? Number(produto.dias_alerta_validade || 30) : 30}"
+                                                            min="1"
+                                                        >
                                                     </div>
                                                 </div>
                                             </div>
@@ -1703,230 +1998,45 @@ function showProdutoModal(produto = null) {
                                     </div>
                                 </div>
 
-                                <div class="col-md-4 mb-3">
-                                    <label for="preco_compra" class="form-label" id="label_preco_compra_produto">Preço de Compra</label>
-                                    <input
-                                        type="number"
-                                        step="${usaConversaoInicial ? '0.0001' : '0.01'}"
-                                        class="form-control${usaConversaoInicial ? ' bg-light' : ''}"
-                                        id="preco_compra"
-                                        value="${precoCompraInicial}"
-                                        ${usaConversaoInicial ? 'readonly' : ''}
-                                    >
-                                    <small class="text-muted d-none" id="hint_preco_compra_produto">
-                                        Calculado automaticamente. Ex.: R$ 50,67 ÷ 50 MT = R$ 1,1334/MT
-                                    </small>
-                                </div>
-
-                                <div class="col-md-4 mb-3">
-                                    <label for="lucro_percentual" class="form-label">% Lucro Real</label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        class="form-control"
-                                        id="lucro_percentual"
-                                        placeholder="%"
-                                        value="${lucro}"
-                                    >
-                                </div>
-
-                                <div class="col-md-4 mb-3">
-                                    <label for="preco_venda" class="form-label">Preço de Venda *</label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        class="form-control"
-                                        id="preco_venda"
-                                        required
-                                        value="${isEdit ? Number(produto.preco_venda || 0) : 0}"
-                                    >
-                                </div>
-
-                                <div id="areaCamposEstoqueProduto" style="display: contents;">
-                                ${montarHtmlCamposEstoqueProduto(produto, isEdit, {
-                                    temMovimentacoes: produto?.tem_movimentacoes
-                                })}
-                                </div>
-
-                                <div class="col-md-4 mb-3">
-                                    <label for="estoque_minimo" class="form-label">Estoque Mínimo</label>
-                                    <input
-                                        type="number"
-                                        step="${usaConversaoInicial ? '0.001' : '0.01'}"
-                                        class="form-control"
-                                        id="estoque_minimo"
-                                        value="${isEdit ? Number(produto.estoque_minimo || 0) : 0}"
-                                    >
-                                </div>
-
-                                <div class="col-md-4 mb-3">
-                                    <label for="valor_total_compra_preview" class="form-label">Valor Total Compra</label>
-                                    <input
-                                        type="text"
-                                        class="form-control bg-light fw-semibold"
-                                        id="valor_total_compra_preview"
-                                        readonly
-                                        value="${formatCurrency((estoqueTotalInicial || 0) * (Number(precoCompraInicial) || 0))}"
-                                    >
-                                    <small class="text-muted">Estoque total × preço de compra</small>
-                                </div>
-
-                                <div class="col-md-4 mb-3">
-                                    <label for="valor_total_venda_preview" class="form-label">Valor Total Venda</label>
-                                    <input
-                                        type="text"
-                                        class="form-control bg-light fw-semibold text-success"
-                                        id="valor_total_venda_preview"
-                                        readonly
-                                        value="${formatCurrency((estoqueTotalInicial || 0) * (Number(isEdit ? produto.preco_venda : 0) || 0))}"
-                                    >
-                                    <small class="text-muted">Estoque total × preço de venda</small>
-                                </div>
-
-                                <div class="col-md-12 mb-3 position-relative">
-                                    <label for="fornecedor" class="form-label">Fornecedor</label>
-                                    <input
-                                        type="text"
-                                        class="form-control"
-                                        id="fornecedor"
-                                        autocomplete="off"
-                                        value="${isEdit ? escapeHtml(produto.fornecedor || '') : ''}"
-                                    >
-                                    <div
-                                        id="fornecedor-autocomplete"
-                                        class="list-group position-absolute w-100"
-                                        style="z-index: 9999; display: none;"
-                                    ></div>
-                                </div>
-
-                                <div class="col-12">
-                                    <div class="row g-3 border rounded p-3 mb-2 bg-light">
-                                        <div class="col-md-12">
-                                            <div class="form-check">
-                                                <input
-                                                    class="form-check-input"
-                                                    type="checkbox"
-                                                    id="controlar_validade"
-                                                    ${isEdit && Number(produto.controlar_validade || 0) === 1 ? 'checked' : ''}
-                                                >
-                                                <label class="form-check-label" for="controlar_validade">
-                                                    Controlar validade deste produto
-                                                </label>
-                                            </div>
+                                <div class="cds-prod-cadastro__rodape">
+                                    <div class="cds-prod-cadastro__card">
+                                        <div class="cds-prod-cadastro__card-header">
+                                            <span class="cds-prod-cadastro__card-icon" aria-hidden="true">📝</span>
+                                            <h6 class="cds-prod-cadastro__card-title">Observações</h6>
                                         </div>
-                                    </div>
-                                </div>
-
-                                <!-- Campos para lote inicial (apenas quando controlar_validade está marcado) -->
-                                <div class="col-12" id="areaLoteInicial" style="display: none;">
-                                    <div class="row g-3 border rounded p-3 mb-2 bg-info bg-opacity-10">
-                                        <div class="col-md-12">
-                                            <strong>Informações do Lote Inicial</strong>
-                                            <small class="text-muted d-block">Informe a validade do estoque. Em produtos novos ou sem lote, o sistema cria o lote automaticamente.</small>
-                                        </div>
-                                        <div class="col-md-4">
-                                            <label for="data_validade_inicial" class="form-label">Data Validade *</label>
-                                            <input
-                                                type="date"
-                                                id="data_validade_inicial"
+                                        <div class="cds-prod-cadastro__card-body">
+                                            <textarea
                                                 class="form-control"
-                                                value="${isEdit ? (produto.data_validade_inicial || produto.data_validade || '') : ''}"
-                                            >
-                                        </div>
-                                        <div class="col-md-4">
-                                            <label for="dias_alerta_validade" class="form-label">Alertar (dias)</label>
-                                            <input
-                                                type="number"
-                                                id="dias_alerta_validade"
-                                                class="form-control"
-                                                value="${isEdit ? Number(produto.dias_alerta_validade || 30) : 30}"
-                                                min="1"
-                                            >
+                                                id="produto_observacoes"
+                                                rows="6"
+                                                placeholder="Observações do produto (opcional)"
+                                            >${isEdit ? escapeHtml(produto.observacoes || '') : ''}</textarea>
                                         </div>
                                     </div>
-                                </div>
-                            </div>
 
-                            <div class="card mt-3">
-                                <div class="card-header p-2">
-                                    <button class="btn btn-link text-decoration-none" type="button" data-bs-toggle="collapse" data-bs-target="#dadosFiscaisSection" aria-expanded="true" aria-controls="dadosFiscaisSection">
-                                        Dados Fiscais
-                                    </button>
+                                    <div class="cds-prod-cadastro__card">
+                                        <div class="cds-prod-cadastro__card-header">
+                                            <span class="cds-prod-cadastro__card-icon" aria-hidden="true">🖼️</span>
+                                            <h6 class="cds-prod-cadastro__card-title">Imagem do Produto</h6>
+                                        </div>
+                                        <div class="cds-prod-cadastro__card-body">
+                                            <input type="file" id="produto_imagem_input" accept="image/*" class="d-none">
+                                            <div class="cds-prod-cadastro__imagem-drop" id="produto_imagem_drop" tabindex="0" role="button" aria-label="Selecionar imagem do produto">
+                                                <div id="produto_imagem_placeholder">
+                                                    <div class="mb-1">Arraste uma imagem ou clique para selecionar</div>
+                                                    <div class="cds-prod-cadastro__hint">Opcional · PNG, JPG, GIF ou WEBP</div>
+                                                </div>
+                                                <img id="produto_imagem_preview" class="cds-prod-cadastro__imagem-preview d-none" alt="Pré-visualização da imagem do produto">
+                                            </div>
+                                            <div class="cds-prod-cadastro__imagem-actions">
+                                                <button type="button" class="btn btn-sm btn-outline-primary" id="btnProdutoImagemSelecionar">Selecionar</button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" id="btnProdutoImagemAlterar" disabled>Alterar</button>
+                                                <button type="button" class="btn btn-sm btn-outline-danger" id="btnProdutoImagemRemover" disabled>Remover</button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div id="dadosFiscaisSection" class="collapse show">
-                                    <div class="card-body">
-                                        <div class="row">
-                                            <div class="col-md-3 mb-3">
-                                                <label for="ncm" class="form-label">NCM</label>
-                                                <input type="text" class="form-control" id="ncm" value="${isEdit ? escapeHtml(produto.ncm || '') : ''}">
-                                            </div>
-                                            <div class="col-md-3 mb-3">
-                                                <label for="cfop" class="form-label">CFOP</label>
-                                                <input type="text" class="form-control" id="cfop" value="${isEdit ? escapeHtml(produto.cfop || '') : ''}">
-                                            </div>
-                                            <div class="col-md-3 mb-3">
-                                                <label for="csosn" class="form-label">CSOSN</label>
-                                                <input type="text" class="form-control" id="csosn" value="${isEdit ? escapeHtml(produto.csosn || '') : ''}">
-                                            </div>
-                                            <div class="col-md-3 mb-3">
-                                                <label for="origem" class="form-label">Origem</label>
-                                                <input type="number" class="form-control" id="origem" value="${isEdit ? Number(produto.origem || 0) : 0}">
-                                            </div>
 
-                                            <div class="col-md-4 mb-3">
-                                                <label for="cest" class="form-label">CEST</label>
-                                                <input type="text" class="form-control" id="cest" value="${isEdit ? escapeHtml(produto.cest || '') : ''}">
-                                            </div>
-                                            <div class="col-md-4 mb-3">
-                                                <label for="codigo_barras" class="form-label">Código de barras</label>
-                                                <input type="text" class="form-control" id="codigo_barras" value="${isEdit ? escapeHtml(produto.codigo_barras || '') : ''}">
-                                            </div>
-                                            <div class="col-md-4 mb-3">
-                                                <label for="aliquota_icms" class="form-label">Alíquota ICMS</label>
-                                                <input type="number" step="0.01" class="form-control" id="aliquota_icms" value="${isEdit ? Number(produto.aliquota_icms || 0) : 0}">
-                                            </div>
-                                            <div class="col-md-4 mb-3">
-                                                <label for="aliquota_pis" class="form-label">Alíquota PIS</label>
-                                                <input type="number" step="0.01" class="form-control" id="aliquota_pis" value="${isEdit ? Number(produto.aliquota_pis || 0) : 0}">
-                                            </div>
-                                            <div class="col-md-4 mb-3">
-                                                <label for="aliquota_cofins" class="form-label">Alíquota COFINS</label>
-                                                <input type="number" step="0.01" class="form-control" id="aliquota_cofins" value="${isEdit ? Number(produto.aliquota_cofins || 0) : 0}">
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <!-- Venda em Atacado -->
-                                    <div class="col-12">
-                                        <div class="card mt-2">
-                                            <div class="card-header d-flex align-items-center justify-content-between">
-                                                <strong>Venda em Atacado</strong>
-                                                <div class="form-check form-switch mb-0">
-                                                    <input class="form-check-input" type="checkbox" id="venda_atacado" ${isEdit && Number(produto.venda_atacado || 0) === 1 ? 'checked' : ''}>
-                                                </div>
-                                            </div>
-                                            <div class="card-body" id="areaVendaAtacado" style="display: none;">
-                                                <div class="table-responsive">
-                                                    <table class="table table-sm table-striped" id="tabelaAtacado">
-                                                        <thead>
-                                                            <tr>
-                                                                <th>Quantidade</th>
-                                                                <th>%</th>
-                                                                <th>Preço Atacado</th>
-                                                                <th></th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            <!-- Faixas serão carregadas dinamicamente -->
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                                <div class="d-flex gap-2">
-                                                    <button type="button" class="btn btn-success btn-sm" id="btnAdicionarFaixa">+ Adicionar Faixa</button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
                             </div>
                         </form>
                     </div>
@@ -1958,11 +2068,13 @@ function showProdutoModal(produto = null) {
     $('#btn-restaurar-produtoModal').remove();
 
     inicializarCategoriasESubcategorias(produto, isEdit);
+    inicializarMarcasProdutoCadastro(produto, isEdit);
     inicializarAutocompleteFornecedor();
     inicializarCalculoPreco(produto, isEdit);
     inicializarMotorConversaoUnidadesCadastro();
     inicializarVendaUnidadeCadastro(produto, isEdit);
     inicializarVendaAtacado(produto, isEdit);
+    inicializarImagemProdutoCadastro(produto, isEdit);
 
     if (isEdit && produto) {
         $('#controlar_validade').prop('checked', produto.controlar_validade == 1);
@@ -2066,6 +2178,231 @@ function inicializarEspelhoCodigoBarras(produto, isEdit) {
         });
 }
 window.inicializarEspelhoCodigoBarras = inicializarEspelhoCodigoBarras;
+
+function inicializarMarcasProdutoCadastro(produto, isEdit) {
+    const $host = $('#marca_smart_select_host');
+    const $hidden = $('#marca_id');
+    if (!$host.length || !$hidden.length) return;
+    if (typeof CdsSmartSelect === 'undefined' || typeof CdsSmartSelect.mount !== 'function') {
+        console.warn('[Marca] CdsSmartSelect indisponível');
+        return;
+    }
+
+    const token = localStorage.getItem('token') || '';
+    const marcaIdInicial = isEdit && produto?.marca_id ? String(produto.marca_id) : '';
+    const marcaNomeInicial = isEdit
+        ? String(produto?.marca || produto?.marca_nome || '').trim()
+        : '';
+
+    const instance = CdsSmartSelect.mount({
+        container: $host.get(0),
+        hiddenInput: $hidden.get(0),
+        inputId: 'marca_smart_input',
+        placeholder: 'Buscar ou criar marca...',
+        allowClear: true,
+        createPrefix: 'Criar marca',
+        initialItem: marcaIdInicial
+            ? { id: marcaIdInicial, label: marcaNomeInicial || `Marca #${marcaIdInicial}` }
+            : null,
+        fetchItems: async (query) => {
+            const url = query
+                ? `${API_URL}/marcas?q=${encodeURIComponent(query)}`
+                : `${API_URL}/marcas`;
+            const response = await fetch(url, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (!response.ok) {
+                throw new Error('Falha ao buscar marcas');
+            }
+            const lista = await response.json();
+            return (lista || []).map((m) => ({ id: m.id, label: m.nome }));
+        },
+        createItem: async (nome) => {
+            const response = await fetch(`${API_URL}/marcas/find-or-create`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({ nome })
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(body.erro || body.error || 'Erro ao criar marca');
+            }
+            if (body.criado) {
+                showNotification('Marca criada com sucesso.', 'success');
+            } else if (body.reativado) {
+                showNotification('Marca reativada e selecionada.', 'success');
+            }
+            return { id: body.id, label: body.nome };
+        },
+        onError: (err) => {
+            showNotification(err.message || 'Erro no Smart Select de marca.', 'danger');
+        }
+    });
+
+    $('#produtoModal').data('marcaSmartSelect', instance);
+
+    // Se editando e só temos id, tenta completar o rótulo
+    if (marcaIdInicial && !marcaNomeInicial) {
+        fetch(`${API_URL}/marcas/${marcaIdInicial}`, {
+            headers: { Authorization: `Bearer ${token}` }
+        })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((marca) => {
+                if (marca && instance) {
+                    instance.setValue({ id: marca.id, label: marca.nome });
+                }
+            })
+            .catch(() => {});
+    }
+}
+window.inicializarMarcasProdutoCadastro = inicializarMarcasProdutoCadastro;
+
+/** Sprint INFRA 01 — upload persistente de imagem (caminho em imagem_principal). */
+function inicializarImagemProdutoCadastro(produto = null, isEdit = false) {
+    const $modal = $('#produtoModal');
+    const $input = $('#produto_imagem_input');
+    const $drop = $('#produto_imagem_drop');
+    const $preview = $('#produto_imagem_preview');
+    const $placeholder = $('#produto_imagem_placeholder');
+    const $btnSelecionar = $('#btnProdutoImagemSelecionar');
+    const $btnAlterar = $('#btnProdutoImagemAlterar');
+    const $btnRemover = $('#btnProdutoImagemRemover');
+
+    if (!$modal.length || !$input.length || !$drop.length) {
+        return;
+    }
+
+    function urlImagem(path) {
+        const valor = String(path || '').trim();
+        if (!valor) return '';
+        if (valor.startsWith('http') || valor.startsWith('data:')) return valor;
+        return valor.startsWith('/') ? valor : `/${valor}`;
+    }
+
+    function aplicarPreview(path) {
+        const src = urlImagem(path);
+        if (!src) {
+            $preview.attr('src', '').addClass('d-none');
+            $placeholder.removeClass('d-none');
+            $btnAlterar.prop('disabled', true);
+            $btnRemover.prop('disabled', true);
+            $modal.data('produtoImagemPath', null);
+            return;
+        }
+        $preview.attr('src', src).removeClass('d-none');
+        $placeholder.addClass('d-none');
+        $btnAlterar.prop('disabled', false);
+        $btnRemover.prop('disabled', false);
+        $modal.data('produtoImagemPath', path);
+    }
+
+    async function enviarArquivo(file) {
+        if (!file || !String(file.type || '').startsWith('image/')) {
+            showNotification('Selecione um arquivo de imagem válido.', 'warning');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('imagem', file);
+
+        try {
+            const response = await fetch(`${API_URL}/produtos/upload-imagem`, {
+                method: 'POST',
+                headers: { Authorization: 'Bearer ' + (localStorage.getItem('token') || '') },
+                body: formData
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                showNotification(body.error || 'Erro ao enviar imagem.', 'danger');
+                return;
+            }
+            const path = body.path || body.imagem_principal;
+            aplicarPreview(path);
+            showNotification('Imagem carregada. Salve o produto para confirmar.', 'success');
+        } catch (err) {
+            console.error(err);
+            showNotification('Erro ao enviar imagem.', 'danger');
+        }
+    }
+
+    aplicarPreview(isEdit ? (produto?.imagem_principal || '') : '');
+
+    $btnSelecionar.off('click.imagemProduto').on('click.imagemProduto', function () {
+        $input.trigger('click');
+    });
+    $btnAlterar.off('click.imagemProduto').on('click.imagemProduto', function () {
+        $input.trigger('click');
+    });
+    $btnRemover.off('click.imagemProduto').on('click.imagemProduto', async function () {
+        const produtoId = ($('#produtoId').val() || '').trim();
+        const pathAtual = $modal.data('produtoImagemPath');
+
+        if (produtoId && pathAtual) {
+            try {
+                const response = await fetch(`${API_URL}/produtos/${produtoId}/imagem`, {
+                    method: 'DELETE',
+                    headers: { Authorization: 'Bearer ' + (localStorage.getItem('token') || '') }
+                });
+                if (!response.ok) {
+                    const body = await response.json().catch(() => ({}));
+                    showNotification(body.error || 'Erro ao remover imagem.', 'danger');
+                    return;
+                }
+            } catch (err) {
+                console.error(err);
+                showNotification('Erro ao remover imagem.', 'danger');
+                return;
+            }
+        }
+
+        $input.val('');
+        aplicarPreview('');
+        showNotification('Imagem removida.', 'success');
+    });
+
+    $drop.off('click.imagemProduto').on('click.imagemProduto', function (e) {
+        if ($(e.target).closest('button').length) return;
+        $input.trigger('click');
+    });
+
+    $drop.off('keydown.imagemProduto').on('keydown.imagemProduto', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            $input.trigger('click');
+        }
+    });
+
+    $input.off('change.imagemProduto').on('change.imagemProduto', function () {
+        const file = this.files && this.files[0] ? this.files[0] : null;
+        enviarArquivo(file);
+    });
+
+    $drop.off('dragenter.imagemProduto dragover.imagemProduto')
+        .on('dragenter.imagemProduto dragover.imagemProduto', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            $drop.addClass('is-dragover');
+        });
+
+    $drop.off('dragleave.imagemProduto drop.imagemProduto')
+        .on('dragleave.imagemProduto', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            $drop.removeClass('is-dragover');
+        })
+        .on('drop.imagemProduto', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            $drop.removeClass('is-dragover');
+            const dt = e.originalEvent && e.originalEvent.dataTransfer;
+            const file = dt && dt.files && dt.files[0] ? dt.files[0] : null;
+            enviarArquivo(file);
+        });
+}
+window.inicializarImagemProdutoCadastro = inicializarImagemProdutoCadastro;
 
 // Função para controlar visibilidade dos campos de lote inicial
 function inicializarControleLoteInicial() {
@@ -2249,10 +2586,17 @@ function inicializarAutocompleteFornecedor() {
 function inicializarVendaAtacado(produto, isEdit) {
     const produtoId = produto && produto.id ? String(produto.id) : null;
     const ativo = isEdit && Number(produto.venda_atacado || 0) === 1;
+    const animMs = 150;
 
     $('#venda_atacado').off('change').on('change', function() {
         const checked = $(this).is(':checked');
-        $('#areaVendaAtacado').toggle(checked);
+        const $area = $('#areaVendaAtacado');
+        $area.stop(true, true);
+        if (checked) {
+            $area.slideDown(animMs);
+        } else {
+            $area.slideUp(animMs);
+        }
         // atualizar flag local no produto (quando existir)
         if (produto && produto.id) produto.venda_atacado = checked ? 1 : 0;
     });
@@ -2740,16 +3084,12 @@ async function saveProduto() {
     }
 
     if ($('#produto_fracionado').is(':checked')) {
-        calcularCustoUnitarioReferenciaCadastro();
-        const valorRef = parseNumeroCadastro($('#cadastro_valor_total_referencia').val());
-        const qtdRef = parseNumeroCadastro($('#cadastro_quantidade_total_referencia').val());
-        const precoCompra = parseFloat($('#preco_compra').val()) || 0;
-        if (valorRef <= 0 || qtdRef <= 0) {
-            showNotification('Informe valor total pago e quantidade total para calcular o custo por unidade.', 'warning');
-            return;
-        }
-        if (precoCompra <= 0) {
-            showNotification('Não foi possível calcular o custo unitário. Verifique valor e quantidade.', 'warning');
+        const ref = obterReferenciaConversaoCadastro();
+        if (ref.qtd <= 0 || ref.precoCompra <= 0) {
+            showNotification(
+                'Para produto pesável, informe a Quantidade Total no Estoque Inicial e o Custo por Unidade de Venda.',
+                'warning'
+            );
             return;
         }
     }
@@ -2780,6 +3120,9 @@ async function saveProduto() {
         nome: ($('#nome').val() || '').trim(),
         categoria_id: $('#categoria_id').val() ? String($('#categoria_id').val()) : null,
         subcategoria_id: $('#subcategoria_id').val() ? String($('#subcategoria_id').val()) : null,
+        marca_id: $('#marca_id').val() ? String($('#marca_id').val()) : null,
+        observacoes: ($('#produto_observacoes').val() || '').trim() || null,
+        imagem_principal: ($('#produtoModal').data('produtoImagemPath') || null),
         unidade: ($('#unidade').val() || '').trim(),
         preco_compra: parseFloat($('#preco_compra').val()) || 0,
         preco_venda: parseFloat($('#preco_venda').val()) || 0,
@@ -2816,13 +3159,12 @@ async function saveProduto() {
     };
 
     if ($('#produto_fracionado').is(':checked')) {
-        const valorRef = parseNumeroCadastro($('#cadastro_valor_total_referencia').val());
-        const qtdRef = parseNumeroCadastro($('#cadastro_quantidade_total_referencia').val());
-        if (valorRef > 0 && qtdRef > 0) {
-            data.valor_total_compra = valorRef;
-            data.peso_total_compra = qtdRef;
-            data.custo_por_kg = parseFloat($('#preco_compra').val()) || 0;
-            data.preco_compra = custoUnitarioVendaCadastro(valorRef / qtdRef);
+        const ref = obterReferenciaConversaoCadastro();
+        if (ref.valor > 0 && ref.qtd > 0) {
+            data.valor_total_compra = ref.valor;
+            data.peso_total_compra = ref.qtd;
+            data.custo_por_kg = ref.precoCompra;
+            data.preco_compra = custoUnitarioVendaCadastro(ref.precoCompra);
         }
     }
 

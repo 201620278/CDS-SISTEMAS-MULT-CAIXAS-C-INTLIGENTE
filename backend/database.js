@@ -222,7 +222,11 @@ function aplicarAlteracoesPosCriacao() {
     `ALTER TABLE produtos ADD COLUMN saldo_nao_fiscal REAL DEFAULT 0`,
     `ALTER TABLE produtos ADD COLUMN permite_venda_unidade INTEGER DEFAULT 0`,
     `ALTER TABLE produtos ADD COLUMN peso_medio_unidade REAL DEFAULT 0`,
-    `ALTER TABLE produtos ADD COLUMN preco_unidade REAL DEFAULT 0`
+    `ALTER TABLE produtos ADD COLUMN preco_unidade REAL DEFAULT 0`,
+    // Sprint INFRA 01 — extensões opcionais (zero breaking change)
+    `ALTER TABLE produtos ADD COLUMN marca_id INTEGER`,
+    `ALTER TABLE produtos ADD COLUMN observacoes TEXT`,
+    `ALTER TABLE produtos ADD COLUMN imagem_principal TEXT`
   ];
 
   const alteracoesCompras = [
@@ -1294,6 +1298,20 @@ function criarTabelas() {
       }
     });
 
+    // Sprint INFRA 01 — marcas de produto (opcional; inativação lógica via ativo)
+    db.run(`
+      CREATE TABLE IF NOT EXISTS marcas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nome TEXT NOT NULL UNIQUE,
+        ativo INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela marcas:', err);
+      else console.log('Tabela marcas criada/verificada');
+    });
+
     // Tabela de produtos
     db.run(`
       CREATE TABLE IF NOT EXISTS produtos (
@@ -1352,6 +1370,18 @@ function criarTabelas() {
       });
     } catch (requireErr) {
       console.error('Erro ao carregar schema produto_identificadores:', requireErr.message);
+    }
+
+    // Sprint INFRA 02 — galeria produto_imagens (complementar a imagem_principal)
+    try {
+      const { garantirSchemaProdutoImagens } = require('./services/produto-imagem/produtoImagensSchema');
+      garantirSchemaProdutoImagens(db, (schemaErr) => {
+        if (schemaErr) {
+          console.error('Erro ao garantir schema produto_imagens:', schemaErr.message);
+        }
+      });
+    } catch (requireErr) {
+      console.error('Erro ao carregar schema produto_imagens:', requireErr.message);
     }
 
     const colunasProdutoPeso = [

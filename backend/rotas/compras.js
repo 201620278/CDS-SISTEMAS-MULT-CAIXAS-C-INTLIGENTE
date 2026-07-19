@@ -344,7 +344,7 @@ function ensureProductForItemLegado(item, callback, opcoes = {}) {
         codigo,
         codigo_barras: item.codigo_barras || codigo,
         plu: item.plu !== undefined ? item.plu : undefined
-      });
+      }, { db });
       callback(null, novoId);
     });
   });

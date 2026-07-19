@@ -34,7 +34,7 @@ class ProdutoIdentidadeCatalogo {
    * @param {MipLookupCache|false|null} [deps.cache] — false desliga cache
    */
   constructor(deps = {}) {
-    this._db = deps.db ?? resolverDb(deps);
+    this._db = deps.db != null ? deps.db : resolverDb(null);
     this._helpers = this._db ? criarDbHelpers(this._db) : null;
     this._ids = deps.identificadoresRepository
       ?? new ProdutoIdentificadoresRepository({ db: this._db });
@@ -119,25 +119,39 @@ class ProdutoIdentidadeCatalogo {
     const key = `ident:${String(tipo).toUpperCase()}:${codigoNorm}`;
     if (this._cache) {
       const hit = this._cache.get(key);
-      if (hit !== undefined) return hit;
+      if (hit !== undefined) {
+        console.log('[MIP DEBUG] Repository cache hit', { tipo, codigoNorm, hit: !!hit });
+        return hit;
+      }
     }
 
+    console.log('[MIP DEBUG] Repository buscarPorTipoCodigo', { tipo, codigo: codigoNorm });
     const ident = await this._ids.buscarPorTipoCodigo(tipo, codigoNorm, {
       escopo: null,
       escopoValor: null,
       apenasAtivos: true
     });
     if (!ident) {
+      console.log('[MIP DEBUG] Repository: nenhum identificador', { tipo, codigo: codigoNorm });
       if (this._cache) this._cache.set(key, null);
       return null;
     }
+
+    console.log('[MIP DEBUG] Repository: identificador encontrado', {
+      id: ident.id,
+      produtoId: ident.produtoId,
+      tipo: ident.tipo,
+      codigo: ident.codigo
+    });
 
     const produto = await this.buscarProdutoPorId(ident.produtoId);
     if (!produto) {
+      console.log('[MIP DEBUG] Repository: produto_id sem produto', ident.produtoId);
       if (this._cache) this._cache.set(key, null);
       return null;
     }
 
+    console.log('[MIP DEBUG] Repository → Produto', { id: produto.id, nome: produto.nome });
     const result = { produto, identificador: ident };
     if (this._cache) this._cache.set(key, result);
     return result;

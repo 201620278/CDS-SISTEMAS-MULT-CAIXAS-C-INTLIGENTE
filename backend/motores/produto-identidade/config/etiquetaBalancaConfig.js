@@ -22,7 +22,7 @@ async function resolverLayoutId(contexto = {}, deps = {}) {
     : null;
 
   if (equipamentoId && Number.isFinite(equipamentoId) && equipamentoId > 0) {
-    const db = deps.db ?? resolverDb(deps);
+    const db = deps.db != null ? deps.db : resolverDb(null);
     if (db) {
       const helpers = criarDbHelpers(db);
       await helpers.whenReady();

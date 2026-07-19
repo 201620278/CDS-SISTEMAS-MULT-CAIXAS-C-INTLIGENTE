@@ -1,5 +1,5 @@
 /**
- * Motor de Identificação de Produtos — MIP V1.0.0 (Sprints 01–08).
+ * Motor de Identificação de Produtos — MIP V1.0.0 (Sprints 01–09).
  * @module motores/produto-identidade
  */
 
@@ -46,12 +46,14 @@ const MipLookupCache = require('./observability/MipLookupCache');
 const { MIP_VERSION, MIP_STATUS, MIP_RELEASE_DATE } = require('./version');
 
 /**
- * Dual-write fire-and-forget seguro (não quebra resposta HTTP).
+ * Dual-write seguro. Aguarda callback após persistir (ou falhar sem quebrar o HTTP).
+ * Sempre usa o banco oficial quando deps.db não é informado.
  */
 function espelharIdentificadoresSafe(produtoId, campos, deps = {}, callback) {
   const cb = typeof callback === 'function' ? callback : null;
+  const db = deps.db != null ? deps.db : require('../../database');
   const service = deps.service
-    ?? new ProdutoIdentificadoresService({ db: deps.db ?? null });
+    ?? new ProdutoIdentificadoresService({ db });
 
   Promise.resolve()
     .then(() => service.espelharCodigoEBarras(produtoId, campos, { origem: deps.origem || 'dual_write' }))
@@ -62,6 +64,13 @@ function espelharIdentificadoresSafe(produtoId, campos, deps = {}, callback) {
         || resultado?.plu?.acao === 'conflito'
       ) {
         mipLogger.warn('dual-write conflito', { produtoId, resultado });
+      } else {
+        mipLogger.debug('dual-write ok', {
+          produtoId,
+          interno: resultado?.interno?.acao,
+          barras: resultado?.barras?.acao,
+          plu: resultado?.plu?.acao
+        });
       }
       if (cb) cb(null, resultado);
       return resultado;

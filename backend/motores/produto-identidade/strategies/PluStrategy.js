@@ -31,12 +31,16 @@ class PluStrategy extends IdentidadeStrategyBase {
   }
 
   async resolve(codigo, contexto, deteccao) {
-    if (!this._catalogo) return null;
+    if (!this._catalogo) {
+      console.log('[MIP DEBUG] PluStrategy: catalogo ausente');
+      return null;
+    }
     const bruto = deteccao?.bruto ?? String(codigo ?? '');
     const digitos = normalizarCodigoIdentificador(
       deteccao?.digitos || bruto,
       TIPOS_IDENTIFICADOR.PLU
     );
+    console.log('[MIP DEBUG] PluStrategy.resolve', { bruto, digitos });
     if (!digitos) return null;
 
     const viaId = await this._catalogo.resolverPorIdentificador(
@@ -44,6 +48,11 @@ class PluStrategy extends IdentidadeStrategyBase {
       digitos
     );
     if (viaId?.produto) {
+      console.log('[MIP DEBUG] PluStrategy → Repository OK', {
+        produtoId: viaId.produto.id,
+        nome: viaId.produto.nome,
+        plu: digitos
+      });
       return IdentidadeResultadoDTO.encontrado({
         produtoId: viaId.produto.id,
         produto: viaId.produto,
@@ -55,6 +64,7 @@ class PluStrategy extends IdentidadeStrategyBase {
       });
     }
 
+    console.log('[MIP DEBUG] PluStrategy → Repository sem registro PLU=', digitos);
     return null;
   }
 }

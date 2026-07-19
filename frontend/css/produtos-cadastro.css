@@ -1,0 +1,136 @@
+/* Sprint UX 04 — Cadastro de Produtos (layout por cards) */
+
+.cds-prod-cadastro .modal-dialog {
+  max-width: 980px;
+}
+
+.cds-prod-cadastro__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.cds-prod-cadastro__card {
+  border: 1px solid #dee2e6;
+  border-radius: 0.4rem;
+  background: #fff;
+  overflow: hidden;
+}
+
+.cds-prod-cadastro__card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.75rem 1rem;
+  background: #e9ecef;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.cds-prod-cadastro__card-icon {
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.cds-prod-cadastro__card-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #212529;
+  letter-spacing: 0.01em;
+}
+
+.cds-prod-cadastro__card-body {
+  padding: 1rem;
+  background: #f8f9fa;
+}
+
+.cds-prod-cadastro__card-body .form-label {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.cds-prod-cadastro__plu {
+  max-width: 7.5rem;
+}
+
+.cds-prod-cadastro__nome {
+  width: 100%;
+}
+
+.cds-prod-cadastro__atacado-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 1rem;
+  background: #e9ecef;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.cds-prod-cadastro__atacado-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.cds-prod-cadastro__rodape {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+}
+
+.cds-prod-cadastro__imagem-drop {
+  border: 2px dashed #ced4da;
+  border-radius: 0.4rem;
+  background: #fff;
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 1rem;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.cds-prod-cadastro__imagem-drop:hover,
+.cds-prod-cadastro__imagem-drop.is-dragover {
+  background: #eef3f8;
+  border-color: #6c757d;
+}
+
+.cds-prod-cadastro__imagem-preview {
+  width: 160px;
+  height: 160px;
+  object-fit: cover;
+  border-radius: 0.35rem;
+  border: 1px solid #dee2e6;
+  background: #fff;
+}
+
+.cds-prod-cadastro__imagem-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: center;
+  margin-top: 0.75rem;
+}
+
+.cds-prod-cadastro__hint {
+  font-size: 0.78rem;
+  color: #6c757d;
+}
+
+@media (max-width: 768px) {
+  .cds-prod-cadastro__rodape {
+    grid-template-columns: 1fr;
+  }
+
+  .cds-prod-cadastro__plu {
+    max-width: none;
+  }
+}

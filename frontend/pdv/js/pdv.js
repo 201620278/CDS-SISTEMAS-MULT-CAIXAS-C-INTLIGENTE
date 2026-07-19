@@ -1,7 +1,7 @@
 let carrinho = [];
 let produtosDisponiveis = [];
 /** Feature flag MIP no PDV (Sprint 05). OFF = identificação local legada. */
-let pdvMipHabilitado = false;
+let pdvMipHabilitado = true; // Sprint 09 — MIP é o motor oficial do PDV (sem flag)
 let formaPagamentoSelecionada = null;
 let clienteSelecionado = null;
 let clientesResultados = [];
@@ -220,54 +220,31 @@ function loadPDV() {
         cache: false,
         success: function(produtos) {
             produtosDisponiveis = normalizarProdutoPdvLista(produtos);
-
-            carregarFlagMipPdv().finally(function() {
-                inicializarPDV();
-            });
+            console.log('[PDV] Identificação: MIP oficial → fallback legado');
+            inicializarPDV();
         },
         error: function(xhr) {
             console.error('Erro ao carregar produtos:', xhr);
             produtosDisponiveis = [];
-            carregarFlagMipPdv().finally(function() {
-                inicializarPDV();
-                showNotification('Erro ao carregar produtos do PDV.', 'danger');
-            });
+            inicializarPDV();
+            showNotification('Erro ao carregar produtos do PDV.', 'danger');
         }
     });
 }
 
 /**
- * Lê produto_identidade_enabled (default OFF).
+ * Sprint 09 — flag global não controla mais o PDV (MIP é oficial).
+ * Mantida como no-op compatível para chamadas legadas.
  * @returns {Promise<boolean>}
  */
 function carregarFlagMipPdv() {
-    const token = localStorage.getItem('token') || '';
-    return fetch(`${API_URL}/configuracoes/produto_identidade_enabled`, {
-        method: 'GET',
-        headers: { Authorization: 'Bearer ' + token }
-    })
-        .then(function(resp) {
-            if (!resp.ok) {
-                pdvMipHabilitado = false;
-                return false;
-            }
-            return resp.json();
-        })
-        .then(function(row) {
-            if (row === false) return false;
-            const v = String(row && row.valor != null ? row.valor : '').toLowerCase();
-            pdvMipHabilitado = v === '1' || v === 'true' || v === 'sim';
-            console.log('[PDV] MIP produto_identidade_enabled =', pdvMipHabilitado ? 'ON' : 'OFF');
-            return pdvMipHabilitado;
-        })
-        .catch(function() {
-            pdvMipHabilitado = false;
-            return false;
-        });
+    pdvMipHabilitado = true;
+    console.log('[PDV] MIP oficial (produto_identidade_enabled ignorada no PDV)');
+    return Promise.resolve(true);
 }
 
 /**
- * Identifica produto exclusivamente via MIP (backend).
+ * Identifica produto via MIP (backend) — porta oficial do PDV.
  * @param {string} codigo
  * @returns {Promise<Object>}
  */
@@ -281,21 +258,40 @@ async function identificarProdutoViaMip(codigo) {
         contexto.equipamentoId = Number(window.PDV_BALANCA_EQUIPAMENTO_ID);
     }
 
-    const response = await fetch(`${API_URL}/produtos/identificar`, {
+    const url = `${API_URL}/produtos/identificar`;
+    const payloadEnviado = { codigo: String(codigo || '').trim(), contexto };
+
+    // DEBUG 01 — request
+    console.log('[PDV DEBUG] POST /produtos/identificar Request:', {
+        url,
+        method: 'POST',
+        payload: payloadEnviado
+    });
+
+    const response = await fetch(url, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             Authorization: 'Bearer ' + token
         },
-        body: JSON.stringify({ codigo: String(codigo || '').trim(), contexto })
+        body: JSON.stringify(payloadEnviado)
+    });
+
+    const statusHttp = response.status;
+    const body = await response.json().catch(function() { return {}; });
+
+    // DEBUG 01 — response
+    console.log('[PDV DEBUG] POST /produtos/identificar Response:', {
+        statusHttp,
+        ok: response.ok,
+        body
     });
 
     if (!response.ok) {
-        const errBody = await response.json().catch(function() { return {}; });
-        throw new Error(errBody.error || ('HTTP ' + response.status));
+        throw new Error(body.error || ('HTTP ' + statusHttp));
     }
 
-    return response.json();
+    return body;
 }
 
 function encontrarProdutoPorIdPdv(produtoId) {
@@ -2414,37 +2410,44 @@ function iniciarFluxoAdicionarProdutoPdv(produto, promocao) {
 function adicionarProdutoPorCodigo(codigo) {
     if (!codigo || !codigo.trim()) return;
 
+    // DEBUG 01 — rastreamento PLU (temporário)
+    console.log('[PDV] Código recebido:', String(codigo).trim());
+
     if (!Array.isArray(produtosDisponiveis) || produtosDisponiveis.length === 0) {
+        console.log('[PDV DEBUG] INTERRUPÇÃO: produtosDisponiveis vazio — não chama MIP nem legado');
         showNotification('Nenhum produto disponível para venda.', 'warning');
         return;
     }
 
     const codigoDigitado = String(codigo).trim();
 
-    if (pdvMipHabilitado) {
-        adicionarProdutoPorCodigoViaMip(codigoDigitado);
-        return;
-    }
-
-    adicionarProdutoPorCodigoLegado(codigoDigitado);
+    // Sprint 09 — MIP primeiro; legado só como fallback
+    console.log('[PDV] Chamando ProdutoIdentidadeService (via /produtos/identificar)');
+    adicionarProdutoPorCodigoViaMip(codigoDigitado);
 }
 
 /**
- * Caminho legado (flag OFF) — parser local + cache produtosDisponiveis.
+ * Caminho legado — parser local + cache produtosDisponiveis (fallback Sprint 09).
  */
 function adicionarProdutoPorCodigoLegado(codigoDigitado) {
+    // DEBUG 01
+    console.log('[PDV] Chamando fluxo legado | codigo=', codigoDigitado);
+
     // 1) Código de balança
     const dadosBalanca = interpretarCodigoBalanca(codigoDigitado);
 
     if (dadosBalanca) {
+        console.log('[PDV DEBUG] Legado interpretou balança:', dadosBalanca);
         const produtoBalanca = encontrarProdutoPorCodigoExato(dadosBalanca.codigoProduto);
 
         if (!produtoBalanca) {
+            console.log('[PDV DEBUG] INTERRUPÇÃO legado: produto balança não encontrado no cache');
             showNotification(`Produto da balança não encontrado. Código interno: ${dadosBalanca.codigoProduto}`, 'danger');
             return;
         }
 
         if (!unidadeEhKg(produtoBalanca)) {
+            console.log('[PDV DEBUG] INTERRUPÇÃO legado: produto não é KG', produtoBalanca.nome);
             showNotification(`O produto ${produtoBalanca.nome} não está cadastrado como KG.`, 'warning');
             return;
         }
@@ -2452,12 +2455,14 @@ function adicionarProdutoPorCodigoLegado(codigoDigitado) {
         const precoKg = Number(produtoBalanca.preco_venda || 0);
 
         if (precoKg <= 0) {
+            console.log('[PDV DEBUG] INTERRUPÇÃO legado: preço KG inválido');
             showNotification(`Preço por KG inválido para ${produtoBalanca.nome}.`, 'danger');
             return;
         }
 
         const peso = dadosBalanca.valorTotal / precoKg;
 
+        console.log('[PDV DEBUG] Legado → carrinho (balança)', { id: produtoBalanca.id, nome: produtoBalanca.nome, peso });
         buscarPromocaoAtivaProduto(produtoBalanca.id).then(promocao => {
             adicionarItemNoCarrinho(
                 produtoBalanca,
@@ -2475,70 +2480,95 @@ function adicionarProdutoPorCodigoLegado(codigoDigitado) {
     const produto = encontrarProdutoPorCodigoExato(codigoDigitado);
 
     if (!produto) {
+        console.log('[PDV DEBUG] INTERRUPÇÃO legado: encontrarProdutoPorCodigoExato NÃO achou', codigoDigitado);
         showNotification(`Produto não encontrado: ${codigoDigitado}`, 'danger');
         return;
     }
 
+    console.log('[PDV DEBUG] Legado encontrou no cache:', { id: produto.id, nome: produto.nome, codigo: produto.codigo });
+
     const validacaoMinima = pdvValidarEstoqueVenda(produto, 1);
     if (!validacaoMinima.sucesso) {
+        console.log('[PDV DEBUG] INTERRUPÇÃO legado: estoque', validacaoMinima.mensagem);
         showNotification(validacaoMinima.mensagem, 'danger');
         return;
     }
 
+    console.log('[PDV DEBUG] Legado → iniciarFluxoAdicionarProdutoPdv (carrinho)');
     buscarPromocaoAtivaProduto(produto.id).then(promocao => {
         iniciarFluxoAdicionarProdutoPdv(produto, promocao);
     });
 }
 
 /**
- * Caminho MIP (flag ON) — localização exclusiva via /produtos/identificar.
+ * Porta oficial MIP (Sprint 09). Se não encontrar (ou API falhar) → fallback legado.
  */
 async function adicionarProdutoPorCodigoViaMip(codigoDigitado) {
     let resultado;
     try {
         resultado = await identificarProdutoViaMip(codigoDigitado);
+        // DEBUG 01 — resposta chegou ao PDV
+        console.log('[PDV DEBUG] Resposta MIP chegou ao PDV:', {
+            encontrado: resultado && resultado.encontrado,
+            produtoId: resultado && resultado.produtoId,
+            strategy: resultado && resultado.strategy,
+            fallbackLegado: resultado && resultado.fallbackLegado,
+            nome: resultado && resultado.produto && resultado.produto.nome
+        });
     } catch (err) {
-        console.error('[PDV←MIP] falha:', err);
-        showNotification('Erro ao identificar produto pelo Motor de Identificação.', 'danger');
-        return;
-    }
-
-    // Servidor com flag OFF (cache desatualizado) → compatibilidade: legado
-    if (resultado && resultado.habilitado === false) {
-        pdvMipHabilitado = false;
+        console.error('[PDV DEBUG] INTERRUPÇÃO: falha HTTP/MIP → fallback legado:', err);
         adicionarProdutoPorCodigoLegado(codigoDigitado);
         return;
     }
 
-    if (!resultado || !resultado.encontrado) {
-        const plu = resultado && resultado.meta && resultado.meta.plu;
-        if (resultado && resultado.etiquetaBalanca && plu) {
-            showNotification(`Produto da balança não encontrado. PLU: ${plu}`, 'danger');
-        } else {
-            showNotification(`Produto não encontrado: ${codigoDigitado}`, 'danger');
-        }
+    // Payload antigo / desabilitado → legado
+    if (resultado && resultado.habilitado === false) {
+        console.log('[PDV DEBUG] MIP retornou habilitado=false → fallback legado');
+        adicionarProdutoPorCodigoLegado(codigoDigitado);
         return;
     }
 
-    const produto = encontrarProdutoPorIdPdv(resultado.produtoId)
+    // MIP não encontrou → fallback legado (fluxo oficial Sprint 09)
+    if (!resultado || !resultado.encontrado) {
+        console.log('[PDV DEBUG] MIP não encontrou produto → fallback legado');
+        adicionarProdutoPorCodigoLegado(codigoDigitado);
+        return;
+    }
+
+    console.log('[PDV DEBUG] MIP encontrou — buscando no cache local produtosDisponiveis id=', resultado.produtoId);
+    const noCache = encontrarProdutoPorIdPdv(resultado.produtoId);
+    console.log('[PDV DEBUG] Cache local por id:', noCache
+        ? { id: noCache.id, nome: noCache.nome }
+        : 'NÃO ENCONTRADO no cache');
+
+    const produto = noCache
         || (resultado.produto && resultado.produto.id
             ? encontrarProdutoPorIdPdv(resultado.produto.id)
             : null)
         || resultado.produto;
 
     if (!produto || !produto.id) {
-        showNotification(`Produto não encontrado: ${codigoDigitado}`, 'danger');
+        console.log('[PDV DEBUG] INTERRUPÇÃO: MIP achou id mas produto inválido no PDV → fallback legado', {
+            produtoId: resultado.produtoId,
+            produtoPayload: resultado.produto
+        });
+        adicionarProdutoPorCodigoLegado(codigoDigitado);
         return;
     }
 
+    console.log('[PDV DEBUG] Produto resolvido no PDV:', { id: produto.id, nome: produto.nome });
+
     if (resultado.etiquetaBalanca || resultado.strategy === 'ETIQUETA_BALANCA') {
+        console.log('[PDV DEBUG] Caminho etiqueta balança → carrinho');
         if (!unidadeEhKg(produto)) {
+            console.log('[PDV DEBUG] INTERRUPÇÃO carrinho: unidade não KG');
             showNotification(`O produto ${produto.nome} não está cadastrado como KG.`, 'warning');
             return;
         }
 
         const precoKg = Number(produto.preco_venda || 0);
         if (precoKg <= 0) {
+            console.log('[PDV DEBUG] INTERRUPÇÃO carrinho: preço KG inválido');
             showNotification(`Preço por KG inválido para ${produto.nome}.`, 'danger');
             return;
         }
@@ -2552,6 +2582,7 @@ async function adicionarProdutoPorCodigoViaMip(codigoDigitado) {
         }
 
         if (!Number.isFinite(peso) || peso <= 0) {
+            console.log('[PDV DEBUG] INTERRUPÇÃO carrinho: peso inválido', { peso, valorTotal, meta });
             showNotification(`Não foi possível calcular o peso da etiqueta para ${produto.nome}.`, 'danger');
             return;
         }
@@ -2560,6 +2591,7 @@ async function adicionarProdutoPorCodigoViaMip(codigoDigitado) {
             ? ` - Total: ${formatCurrency(valorTotal)}`
             : '';
 
+        console.log('[PDV DEBUG] → adicionarItemNoCarrinho (balança)', { id: produto.id, peso });
         buscarPromocaoAtivaProduto(produto.id).then(function(promocao) {
             adicionarItemNoCarrinho(
                 produto,
@@ -2568,18 +2600,25 @@ async function adicionarProdutoPorCodigoViaMip(codigoDigitado) {
                 ` - Peso: ${formatarQuantidadePdv(peso, { unidade: 'kg', produto_fracionado: 1 })} KG${sufixoValor}`,
                 promocao
             );
+            console.log('[PDV DEBUG] Carrinho: item balança enviado');
         });
         return;
     }
 
     const validacaoMinima = pdvValidarEstoqueVenda(produto, 1);
     if (!validacaoMinima.sucesso) {
+        console.log('[PDV DEBUG] INTERRUPÇÃO carrinho: estoque', validacaoMinima.mensagem);
         showNotification(validacaoMinima.mensagem, 'danger');
         return;
     }
 
+    console.log('[PDV DEBUG] → iniciarFluxoAdicionarProdutoPdv (produto normal)', {
+        id: produto.id,
+        nome: produto.nome
+    });
     buscarPromocaoAtivaProduto(produto.id).then(function(promocao) {
         iniciarFluxoAdicionarProdutoPdv(produto, promocao);
+        console.log('[PDV DEBUG] Carrinho: fluxo de adição iniciado');
     });
 }
 
@@ -4332,7 +4371,7 @@ function abrirModalQuantidadeProduto(produto, callback, opcoes = {}) {
                             min="${fracionado ? '0.01' : '1'}"
                             step="${fracionado ? '0.01' : '1'}"
                             inputmode="${fracionado ? 'decimal' : 'numeric'}"
-                            value="${fracionado ? '' : '1'}"
+                            value="${fracionado ? '1,000' : '1'}"
                             placeholder="${vendaPorUnidade ? 'Ex: 5' : (fracionado ? 'Ex: 7,25' : 'Ex: 1')}"
                         >
 
@@ -4403,8 +4442,15 @@ function abrirModalQuantidadeProduto(produto, callback, opcoes = {}) {
 }
 
 function confirmarQuantidadeProduto(produto, callback, modal, opcoes = {}) {
-    const valor = $('#inputQuantidadeProduto').val();
+    let valor = $('#inputQuantidadeProduto').val();
     const tipoVenda = normalizarTipoVendaItem(opcoes);
+    // BUGFIX 02 — nunca confirmar com quantidade vazia (padrão 1 / 1,000)
+    if (!String(valor ?? '').trim()) {
+        valor = tipoVendaEhUnidade(tipoVenda)
+            ? '1'
+            : (permiteQuantidadeDecimal(produto) ? '1,000' : '1');
+        $('#inputQuantidadeProduto').val(valor);
+    }
     const quantidade = tipoVendaEhUnidade(tipoVenda)
         ? Math.max(0, Math.round(Number(parseQuantidadePdv(valor) || 0)))
         : normalizarQuantidadePdv(parseQuantidadePdv(valor), produto);

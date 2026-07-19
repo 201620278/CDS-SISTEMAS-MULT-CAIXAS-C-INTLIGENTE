@@ -1,21 +1,26 @@
 /**
- * Interpreta payload de /produtos/identificar para o fluxo do PDV (Sprint 05).
+ * Interpreta payload de /produtos/identificar para o fluxo do PDV (Sprint 05 + 09).
  * Contrato compartilhado — espelhado em frontend/pdv/js/pdv.js.
+ *
+ * Sprint 09: MIP miss / desabilitado legado → acao 'legado' (fallback).
  * @module motores/produto-identidade/adapters/interpretarResultadoPdv
  */
 
 /**
  * @param {Object} resultado — payload de PdvProdutoIdentificacaoService
- * @returns {{ acao: string, produtoId?: number|null, peso?: number|null, valorTotal?: number|null, plu?: string|null, etiquetaBalanca?: boolean }}
+ * @returns {{ acao: string, produtoId?: number|null, peso?: number|null, valorTotal?: number|null, plu?: string|null, etiquetaBalanca?: boolean, fallbackLegado?: boolean }}
  */
 function interpretarResultadoPdv(resultado) {
+  // Compat: payloads antigos com habilitado=false → fallback legado
   if (!resultado || resultado.habilitado === false) {
-    return { acao: 'legado' };
+    return { acao: 'legado', fallbackLegado: true };
   }
 
   if (!resultado.encontrado) {
+    // Sprint 09 — MIP não encontrou → PDV deve executar busca legado
     return {
-      acao: 'nao_encontrado',
+      acao: 'legado',
+      fallbackLegado: true,
       plu: resultado.meta && resultado.meta.plu != null ? String(resultado.meta.plu) : null,
       etiquetaBalanca: resultado.etiquetaBalanca === true
         || resultado.strategy === 'ETIQUETA_BALANCA'

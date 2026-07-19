@@ -33,7 +33,8 @@ class ProdutoIdentificadoresRepository {
    * @param {Object|null} [deps.db]
    */
   constructor(deps = {}) {
-    this._db = deps.db ?? resolverDb(deps);
+    // deps.db ausente/null → banco oficial; NÃO passar o objeto deps inteiro (é truthy e quebra o dual-write)
+    this._db = deps.db != null ? deps.db : resolverDb(null);
     this._helpers = this._db ? criarDbHelpers(this._db) : null;
   }
 

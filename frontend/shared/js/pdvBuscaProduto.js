@@ -9,6 +9,8 @@
   let timerBusca = null;
   let requisicaoAtual = 0;
   let dropdownAberto = false;
+  /** Último resolve MIP da busca instantânea (mesmo fluxo para PLU/EAN/GTIN/interno/balança). */
+  let ultimoMipBusca = null;
 
   function obterInput() {
     return document.getElementById('buscaProdutoPdv');
@@ -42,63 +44,8 @@
     return '0';
   }
 
-  function normalizarTermo(texto) {
-    if (typeof global.normalizarTexto === 'function') {
-      return global.normalizarTexto(texto);
-    }
-    return String(texto || '')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase();
-  }
-
-  function normalizarCodigoNumerico(codigo) {
-    if (typeof global.normalizarCodigoProduto === 'function') {
-      return global.normalizarCodigoProduto(codigo);
-    }
-    return String(codigo || '').replace(/\D/g, '').replace(/^0+/, '') || String(codigo || '').trim();
-  }
-
-  function produtoMatchExato(produto, termo) {
-    const busca = normalizarTermo(termo);
-    const buscaNum = normalizarCodigoNumerico(termo);
-    const codigo = normalizarTermo(produto?.codigo);
-    const barras = normalizarTermo(produto?.codigo_barras);
-    const codigoNum = normalizarCodigoNumerico(produto?.codigo);
-    const barrasNum = normalizarCodigoNumerico(produto?.codigo_barras);
-
-    return (
-      (codigo && codigo === busca) ||
-      (barras && barras === busca) ||
-      (codigoNum && codigoNum === buscaNum) ||
-      (barrasNum && barrasNum === buscaNum) ||
-      String(produto?.id) === buscaNum
-    );
-  }
-
-  function ehEntradaLeitorOuCodigoExato(termo) {
-    const limpo = String(termo || '').trim();
-    if (!limpo) return false;
-
-    if (typeof global.codigoEhBalanca === 'function' && global.codigoEhBalanca(limpo)) {
-      return true;
-    }
-
-    const apenasDigitos = limpo.replace(/\D/g, '');
-    if (apenasDigitos.length >= 8 && apenasDigitos.length === limpo.replace(/\s/g, '').length) {
-      return true;
-    }
-
-    const lista = global.produtosDisponiveis || [];
-    if (lista.some((p) => produtoMatchExato(p, limpo))) {
-      return true;
-    }
-
-    if (resultados.some((p) => p.match_exato === 1 || p.match_exato === true)) {
-      return true;
-    }
-
-    return false;
+  function obterApiUrl() {
+    return typeof API_URL !== 'undefined' ? API_URL : '/api';
   }
 
   function estoqueDisponivel(produto) {
@@ -106,6 +53,80 @@
       return global.pdvEstoqueDisponivel(produto);
     }
     return Number(produto?.estoque_atual ?? produto?.estoque_exibido ?? 0);
+  }
+
+  /**
+   * Resolve produto no cache local a partir do payload MIP.
+   */
+  function produtoDoMip(resultado) {
+    if (!resultado || !resultado.encontrado) return null;
+
+    const id = resultado.produtoId != null
+      ? Number(resultado.produtoId)
+      : (resultado.produto && resultado.produto.id != null ? Number(resultado.produto.id) : null);
+
+    if (!id) return null;
+
+    const cache = global.produtosDisponiveis || [];
+    const noCache = cache.find((p) => Number(p.id) === id);
+    if (noCache) {
+      return { ...noCache, match_exato: 1, _fonte: 'mip' };
+    }
+
+    const base = resultado.produto || { id };
+    const normalizado = typeof global.normalizarProdutoPdvLista === 'function'
+      ? global.normalizarProdutoPdvLista([base])[0]
+      : base;
+
+    return { ...normalizado, id, match_exato: 1, _fonte: 'mip' };
+  }
+
+  /**
+   * Identificação oficial via MIP (mesmo endpoint do Enter / carrinho).
+   */
+  async function identificarViaMip(termo) {
+    const codigo = String(termo || '').trim();
+    if (!codigo) return null;
+
+    const contexto = { origem: 'pdv' };
+    if (global.PDV_ETIQUETA_LAYOUT) {
+      contexto.layoutStrategy = String(global.PDV_ETIQUETA_LAYOUT);
+    }
+    if (global.PDV_BALANCA_EQUIPAMENTO_ID) {
+      contexto.equipamentoId = Number(global.PDV_BALANCA_EQUIPAMENTO_ID);
+    }
+
+    const response = await fetch(`${obterApiUrl()}/produtos/identificar`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${localStorage.getItem('token') || ''}`
+      },
+      body: JSON.stringify({ codigo, contexto })
+    });
+
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(body.error || (`HTTP ${response.status}`));
+    }
+    return body;
+  }
+
+  /**
+   * Busca por nome / parcial (legado consulta) — só quando MIP não resolve.
+   */
+  async function buscarConsultaNome(termo) {
+    const url = `${obterApiUrl()}/produtos/consulta-pdv/buscar?q=${encodeURIComponent(termo)}&modo_fiscal=${obterModoFiscal()}&limite=${LIMITE_RESULTADOS}`;
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('token') || ''}`
+      }
+    });
+    const dados = await response.json().catch(() => []);
+    if (!response.ok) {
+      throw new Error(dados?.error || 'Erro ao buscar produtos.');
+    }
+    return Array.isArray(dados) ? dados.slice(0, LIMITE_RESULTADOS) : [];
   }
 
   function renderizarLista() {
@@ -128,7 +149,10 @@
         ? !global.pdvValidarEstoqueVenda(produto, 1).sucesso
         : estoqueDisponivel(produto) <= 0;
       const promocao = produto.tem_promocao === 1 || produto.tem_promocao === true;
-      const codigoExibicao = produto.codigo_barras || produto.codigo || produto.id;
+      const codigoExibicao = produto.plu
+        || produto.codigo_barras
+        || produto.codigo
+        || produto.id;
       const nome = typeof global.escapeHtml === 'function'
         ? global.escapeHtml(produto.nome || '-')
         : String(produto.nome || '-');
@@ -155,6 +179,7 @@
     resultados = [];
     indiceSelecionado = -1;
     dropdownAberto = false;
+    ultimoMipBusca = null;
     const lista = obterLista();
     if (lista) {
       lista.classList.remove('aberta');
@@ -197,6 +222,10 @@
     }
   }
 
+  /**
+   * Enter: se MIP resolveu o termo digitado, usa o termo original
+   * (preserva PLU / etiqueta de balança no mesmo fluxo do carrinho).
+   */
   function confirmarEntrada() {
     const input = obterInput();
     if (!input) return;
@@ -204,17 +233,22 @@
     const termo = input.value.trim();
     if (!termo) return;
 
-    const exatoApi = resultados.find((p) => p.match_exato === 1 || p.match_exato === true);
-    if (exatoApi) {
-      adicionarProdutoSelecionado(exatoApi);
-      return;
-    }
-
-    if (ehEntradaLeitorOuCodigoExato(termo)) {
+    if (
+      ultimoMipBusca
+      && ultimoMipBusca.termo === termo
+      && ultimoMipBusca.resultado
+      && ultimoMipBusca.resultado.encontrado
+    ) {
       if (typeof global.adicionarProdutoPorCodigo === 'function') {
         global.adicionarProdutoPorCodigo(termo);
         limparCampo();
       }
+      return;
+    }
+
+    const exatoApi = resultados.find((p) => p.match_exato === 1 || p.match_exato === true);
+    if (exatoApi) {
+      adicionarProdutoSelecionado(exatoApi);
       return;
     }
 
@@ -234,15 +268,14 @@
     }
   }
 
+  /**
+   * Busca instantânea unificada: MIP primeiro (qualquer identificador),
+   * depois consulta por nome se MIP não encontrar.
+   */
   function buscarProdutos(termo) {
     const lista = obterLista();
     if (!termo || termo.length < 1) {
       fecharLista();
-      return;
-    }
-
-    if (ehEntradaLeitorOuCodigoExato(termo)) {
-      fecharLista('Código detectado — pressione Enter para adicionar.');
       return;
     }
 
@@ -252,31 +285,39 @@
       lista.classList.add('aberta');
     }
 
-    const apiUrl = typeof API_URL !== 'undefined' ? API_URL : '/api';
-    const url = `${apiUrl}/produtos/consulta-pdv/buscar?q=${encodeURIComponent(termo)}&modo_fiscal=${obterModoFiscal()}&limite=${LIMITE_RESULTADOS}`;
+    Promise.resolve()
+      .then(() => identificarViaMip(termo))
+      .then((mip) => {
+        if (reqId !== requisicaoAtual) return null;
 
-    fetch(url, {
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem('token') || ''}`
-      }
-    })
-      .then(async (response) => {
-        const dados = await response.json().catch(() => []);
-        if (!response.ok) {
-          throw new Error(dados?.error || 'Erro ao buscar produtos.');
+        if (mip && mip.encontrado) {
+          const produto = produtoDoMip(mip);
+          if (produto && produto.id) {
+            if (mip.meta && mip.meta.plu != null) {
+              produto.plu = String(mip.meta.plu);
+            }
+            ultimoMipBusca = { termo, resultado: mip };
+            resultados = [produto];
+            indiceSelecionado = 0;
+            renderizarLista();
+            return { resolvidoMip: true };
+          }
         }
-        return dados;
+
+        ultimoMipBusca = null;
+        return buscarConsultaNome(termo).then((produtos) => ({ resolvidoMip: false, produtos }));
       })
-      .then((produtos) => {
-        if (reqId !== requisicaoAtual) return;
-        resultados = Array.isArray(produtos) ? produtos.slice(0, LIMITE_RESULTADOS) : [];
+      .then((out) => {
+        if (!out || out.resolvidoMip || reqId !== requisicaoAtual) return;
+        resultados = out.produtos || [];
         const unicoExato = resultados.length === 1
           && (resultados[0].match_exato === 1 || resultados[0].match_exato === true);
-        indiceSelecionado = unicoExato ? 0 : -1;
+        indiceSelecionado = unicoExato ? 0 : (resultados.length === 1 ? 0 : -1);
         renderizarLista();
       })
       .catch((err) => {
         if (reqId !== requisicaoAtual) return;
+        ultimoMipBusca = null;
         fecharLista('Erro ao buscar produtos.');
         notificar(err.message, 'danger');
       });
@@ -325,7 +366,6 @@
         event.preventDefault();
         event.stopPropagation();
         fecharLista();
-        return;
       }
     }
   }
@@ -337,7 +377,23 @@
     const index = Number(botao.dataset.index);
     if (!Number.isFinite(index) || !resultados[index]) return;
 
-    adicionarProdutoSelecionado(resultados[index]);
+    const produto = resultados[index];
+    const input = obterInput();
+    const termo = input ? input.value.trim() : '';
+
+    // Clique no item resolvido via MIP: usa o termo digitado (PLU/EAN/balança)
+    if (
+      produto._fonte === 'mip'
+      && ultimoMipBusca
+      && ultimoMipBusca.termo === termo
+      && typeof global.adicionarProdutoPorCodigo === 'function'
+    ) {
+      global.adicionarProdutoPorCodigo(termo);
+      limparCampo();
+      return;
+    }
+
+    adicionarProdutoSelecionado(produto);
   }
 
   function inicializar() {

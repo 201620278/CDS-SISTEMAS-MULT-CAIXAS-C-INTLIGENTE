@@ -1,6 +1,6 @@
 /**
  * Testes — MIP Sprint 05 (Integração PDV ← MIP)
- * Flag OFF = legado | Flag ON = identificação exclusiva via MIP
+ * Sprint 09: MIP é oficial no PDV; legado = fallback quando MIP não encontra.
  * Executar: npm run test:mip-sprint05
  */
 
@@ -180,20 +180,21 @@ async function main() {
         preco_venda: 14.89
       });
 
-      await test('flag OFF → modo legado / habilitado false (PDV não usa MIP)', async () => {
+      await test('Sprint 09 — flag global OFF não desliga MIP no PDV', async () => {
         setProdutoIdentidadeEnabled(false);
         const svc = new PdvProdutoIdentificacaoService({ db, isEnabled: () => false });
         const r = await svc.identificar(CODIGO_EAN, { origem: 'pdv' });
-        assert.strictEqual(r.habilitado, false);
-        assert.strictEqual(r.encontrado, false);
-        assert.strictEqual(r.modo, 'legado');
-        assert.strictEqual(interpretarResultadoPdv(r).acao, 'legado');
+        assert.strictEqual(r.habilitado, true);
+        assert.strictEqual(r.encontrado, true);
+        assert.strictEqual(r.modo, 'mip');
+        assert.strictEqual(r.produtoId, idEan);
+        assert.strictEqual(r.fallbackLegado, false);
       });
 
       setProdutoIdentidadeEnabled(true);
 
-      await test('flag ON → EAN resolve exclusivo via MIP', async () => {
-        const svc = new PdvProdutoIdentificacaoService({ db, isEnabled: () => true });
+      await test('EAN resolve via MIP (porta oficial PDV)', async () => {
+        const svc = new PdvProdutoIdentificacaoService({ db });
         const r = await svc.identificar(CODIGO_EAN, { origem: 'pdv' });
         assert.strictEqual(r.habilitado, true);
         assert.strictEqual(r.encontrado, true);
@@ -202,15 +203,15 @@ async function main() {
         assert.strictEqual(interpretarResultadoPdv(r).acao, 'normal');
       });
 
-      await test('flag ON → código interno via MIP', async () => {
-        const svc = new PdvProdutoIdentificacaoService({ db, isEnabled: () => true });
+      await test('código interno via MIP', async () => {
+        const svc = new PdvProdutoIdentificacaoService({ db });
         const r = await svc.identificar('67', { origem: 'pdv' });
         assert.strictEqual(r.encontrado, true);
         assert.strictEqual(r.produtoId, id67);
       });
 
-      await test('flag ON → Toledo real 2000067012631 (layout configurado)', async () => {
-        const svc = new PdvProdutoIdentificacaoService({ db, isEnabled: () => true });
+      await test('Toledo real 2000067012631 (layout configurado)', async () => {
+        const svc = new PdvProdutoIdentificacaoService({ db });
         const r = await svc.identificar(CODIGO_TOLEDO_67, {
           origem: 'pdv',
           layoutStrategy: LAYOUT_IDS.TOLEDO_PRIX4_VALOR_65
@@ -226,8 +227,8 @@ async function main() {
         assert.ok(Math.abs(peso - 1) < 0.001);
       });
 
-      await test('flag ON → Toledo real 2000052018945', async () => {
-        const svc = new PdvProdutoIdentificacaoService({ db, isEnabled: () => true });
+      await test('Toledo real 2000052018945', async () => {
+        const svc = new PdvProdutoIdentificacaoService({ db });
         const r = await svc.identificar(CODIGO_TOLEDO_52, {
           origem: 'pdv',
           layoutStrategy: LAYOUT_IDS.TOLEDO_PRIX4_VALOR_65
@@ -238,8 +239,8 @@ async function main() {
         assert.strictEqual(r.meta.valorTotal, 18.94);
       });
 
-      await test('flag ON → etiqueta legado CDS (default) compatível PDV antigo', async () => {
-        const svc = new PdvProdutoIdentificacaoService({ db, isEnabled: () => true });
+      await test('etiqueta legado CDS (default) compatível PDV antigo', async () => {
+        const svc = new PdvProdutoIdentificacaoService({ db });
         const r = await svc.identificar(CODIGO_LEGADO_BALANCA, { origem: 'pdv' });
         assert.strictEqual(r.encontrado, true);
         assert.strictEqual(r.produtoId, id1);
@@ -247,25 +248,27 @@ async function main() {
         assert.strictEqual(r.meta.valorTotal, 14.89);
       });
 
-      await test('flag ON → produto inexistente → nao_encontrado (sem fallback silencioso)', async () => {
-        const svc = new PdvProdutoIdentificacaoService({ db, isEnabled: () => true });
+      await test('produto inexistente → fallbackLegado (PDV usa legado)', async () => {
+        const svc = new PdvProdutoIdentificacaoService({ db });
         const r = await svc.identificar('9999999999999', { origem: 'pdv' });
         assert.strictEqual(r.habilitado, true);
         assert.strictEqual(r.encontrado, false);
-        assert.strictEqual(interpretarResultadoPdv(r).acao, 'nao_encontrado');
+        assert.strictEqual(r.fallbackLegado, true);
+        assert.strictEqual(interpretarResultadoPdv(r).acao, 'legado');
       });
 
-      await test('flag ON → PLU etiqueta sem produto → meta.plu preservado', async () => {
-        const svc = new PdvProdutoIdentificacaoService({ db, isEnabled: () => true });
+      await test('PLU etiqueta sem produto → fallback legado + meta.plu', async () => {
+        const svc = new PdvProdutoIdentificacaoService({ db });
         const r = await svc.identificar('2000099010001', {
           origem: 'pdv',
           layoutStrategy: LAYOUT_IDS.TOLEDO_PRIX4_VALOR_65
         });
         assert.strictEqual(r.encontrado, false);
+        assert.strictEqual(r.fallbackLegado, true);
         assert.strictEqual(r.etiquetaBalanca, true);
         assert.strictEqual(r.meta.plu, '99');
         const dec = interpretarResultadoPdv(r);
-        assert.strictEqual(dec.acao, 'nao_encontrado');
+        assert.strictEqual(dec.acao, 'legado');
         assert.strictEqual(dec.plu, '99');
       });
 
@@ -275,7 +278,7 @@ async function main() {
         assert.strictEqual(typeof produtosRouter._setPdvIdentificacaoServiceForTests, 'function');
       });
 
-      await test('compatibilidade: decisão legado quando API diz desabilitado', () => {
+      await test('compatibilidade: decisão legado quando API antiga diz desabilitado', () => {
         const dec = interpretarResultadoPdv({
           habilitado: false,
           encontrado: false,

@@ -1,31 +1,31 @@
 /**
- * Identificação de produto para o PDV via MIP (Sprint 05).
- * Flag OFF → resposta desabilitada (PDV usa caminho legado local).
- * Flag ON → resolve exclusivo pelo Motor de Identificação.
+ * Identificação de produto para o PDV via MIP (Sprint 05 + 09).
+ *
+ * Sprint 09 — MIP é o motor oficial do PDV:
+ * - Sempre resolve via ProdutoIdentidadeService (flag global irrelevante).
+ * - Não encontrado → o cliente PDV executa o fluxo legado como fallback.
+ *
  * @module motores/produto-identidade/services/PdvProdutoIdentificacaoService
  */
 
 const ProdutoIdentidadeService = require('./ProdutoIdentidadeService');
 const IdentidadeResultadoDTO = require('../contracts/IdentidadeResultadoDTO');
-const {
-  isProdutoIdentidadeEnabled,
-  FLAG_CHAVE
-} = require('../config/produtoIdentidadeFlags');
+const { FLAG_CHAVE } = require('../config/produtoIdentidadeFlags');
 
 class PdvProdutoIdentificacaoService {
   /**
    * @param {Object} [deps]
    * @param {Object|null} [deps.db]
    * @param {ProdutoIdentidadeService} [deps.identidadeService]
-   * @param {Function} [deps.isEnabled]
+   * @param {Function} [deps.isEnabled] — ignorado no PDV (Sprint 09); mantido por compatibilidade de testes
    */
   constructor(deps = {}) {
     this._db = deps.db ?? null;
-    this._isEnabled = deps.isEnabled ?? isProdutoIdentidadeEnabled;
+    // Sprint 09: PDV sempre habilita o MIP neste consumidor
     this._identidade = deps.identidadeService
       ?? new ProdutoIdentidadeService({
         db: this._db,
-        isEnabled: this._isEnabled
+        isEnabled: () => true
       });
   }
 
@@ -41,15 +41,17 @@ class PdvProdutoIdentificacaoService {
       ...contexto
     };
 
-    if (!this._isEnabled()) {
-      const dto = IdentidadeResultadoDTO.desabilitado(bruto || null);
-      return this._toPayload(dto, { modo: 'legado' });
-    }
+    // DEBUG 01
+    console.log('[MIP DEBUG] PdvProdutoIdentificacaoService.identificar → ProdutoIdentidadeService.resolve', {
+      codigo: bruto,
+      contexto: ctx
+    });
 
     if (!bruto) {
+      console.log('[MIP DEBUG] INTERRUPÇÃO: código vazio');
       return this._toPayload(
         IdentidadeResultadoDTO.naoEncontrado({ codigoOriginal: '' }),
-        { modo: 'mip' }
+        { modo: 'mip', fallbackLegado: true }
       );
     }
 
@@ -58,7 +60,19 @@ class PdvProdutoIdentificacaoService {
       ctx
     );
 
-    return this._toPayload(resultado, { modo: 'mip' });
+    const encontrado = resultado && resultado.encontrado === true;
+    console.log('[MIP DEBUG] Resultado resolve:', {
+      encontrado,
+      produtoId: resultado?.produtoId,
+      strategy: resultado?.strategy,
+      metodo: resultado?.metodo,
+      nome: resultado?.produto?.nome || null
+    });
+
+    return this._toPayload(resultado, {
+      modo: 'mip',
+      fallbackLegado: !encontrado
+    });
   }
 
   /**
@@ -72,10 +86,15 @@ class PdvProdutoIdentificacaoService {
     const ehBalanca = json.strategy === 'ETIQUETA_BALANCA'
       || (json.meta && (json.meta.tipoPayload === 'VALOR' || json.meta.tipoPayload === 'PESO'));
 
+    const encontrado = json.encontrado === true;
+
     return {
       ...json,
+      // PDV oficial sempre opera com MIP habilitado neste endpoint
+      habilitado: true,
       flag: FLAG_CHAVE,
-      modo: extras.modo || (json.habilitado === false ? 'legado' : 'mip'),
+      modo: extras.modo || 'mip',
+      fallbackLegado: extras.fallbackLegado === true || !encontrado,
       etiquetaBalanca: ehBalanca === true
     };
   }

@@ -13,7 +13,7 @@ class ProdutoIdentificadoresBackfill {
    * @param {ProdutoIdentificadoresService} [deps.service]
    */
   constructor(deps = {}) {
-    this._db = deps.db ?? resolverDb(deps);
+    this._db = deps.db != null ? deps.db : resolverDb(null);
     this._helpers = this._db ? criarDbHelpers(this._db) : null;
     this._service = deps.service
       ?? new ProdutoIdentificadoresService({ db: this._db });
