@@ -12,7 +12,18 @@ const DEFAULT = {
   modoOperacao: 'LOCAL',
   ipServidor: '',
   porta: 3001,
-  modo_confirmacao_fiscal: 'TEF'
+  modo_confirmacao_fiscal: 'TEF',
+  // Sprint 1 — módulo opcional (default OFF; zero impacto no PDV)
+  habilitar_vendas_entrega: false,
+  // Sprint 3.1 — impressão inteligente
+  imprimir_comprovante_entrega: true,
+  imprimir_comprovante_prestacao: true,
+  imprimir_danfe_nfce_entrega: true,
+  imprimir_cupom_nao_fiscal_entrega: false,
+  // Sprint 3.1 — alertas (horas)
+  entrega_alerta_horas_aguardando: 2,
+  entrega_alerta_horas_reserva: 4,
+  entrega_alerta_horas_parado: 3
 };
 
 const TIPOS = ['ERP_SEM_FISCAL', 'ERP_FISCAL', 'ERP_MULTICAIXA'];
@@ -158,6 +169,15 @@ function normalizeModoConfirmacaoFiscal(valor) {
   return modo === 'MANUAL' ? 'MANUAL' : 'TEF';
 }
 
+function normalizeBoolFlag(valor, padrao = false) {
+  if (valor === true || valor === 1 || valor === '1') return true;
+  if (valor === false || valor === 0 || valor === '0') return false;
+  const s = String(valor ?? '').trim().toLowerCase();
+  if (s === 'true' || s === 'sim' || s === 'yes' || s === 'on') return true;
+  if (s === 'false' || s === 'nao' || s === 'não' || s === 'no' || s === 'off') return false;
+  return padrao === true;
+}
+
 function normalizeConfig(obj) {
   return {
     tipoImplantacao: String(obj?.tipoImplantacao || DEFAULT.tipoImplantacao).toUpperCase(),
@@ -165,6 +185,38 @@ function normalizeConfig(obj) {
     ipServidor: String(obj?.ipServidor || '').trim(),
     porta: Number(obj?.porta || DEFAULT.porta),
     modo_confirmacao_fiscal: normalizeModoConfirmacaoFiscal(obj?.modo_confirmacao_fiscal),
+    habilitar_vendas_entrega: normalizeBoolFlag(
+      obj?.habilitar_vendas_entrega,
+      DEFAULT.habilitar_vendas_entrega
+    ),
+    imprimir_comprovante_entrega: normalizeBoolFlag(
+      obj?.imprimir_comprovante_entrega,
+      DEFAULT.imprimir_comprovante_entrega
+    ),
+    imprimir_comprovante_prestacao: normalizeBoolFlag(
+      obj?.imprimir_comprovante_prestacao,
+      DEFAULT.imprimir_comprovante_prestacao
+    ),
+    imprimir_danfe_nfce_entrega: normalizeBoolFlag(
+      obj?.imprimir_danfe_nfce_entrega,
+      DEFAULT.imprimir_danfe_nfce_entrega
+    ),
+    imprimir_cupom_nao_fiscal_entrega: normalizeBoolFlag(
+      obj?.imprimir_cupom_nao_fiscal_entrega,
+      DEFAULT.imprimir_cupom_nao_fiscal_entrega
+    ),
+    entrega_alerta_horas_aguardando: Math.max(
+      1,
+      Number(obj?.entrega_alerta_horas_aguardando ?? DEFAULT.entrega_alerta_horas_aguardando) || 2
+    ),
+    entrega_alerta_horas_reserva: Math.max(
+      1,
+      Number(obj?.entrega_alerta_horas_reserva ?? DEFAULT.entrega_alerta_horas_reserva) || 4
+    ),
+    entrega_alerta_horas_parado: Math.max(
+      1,
+      Number(obj?.entrega_alerta_horas_parado ?? DEFAULT.entrega_alerta_horas_parado) || 3
+    ),
     ...normalizePadraoFiscal(obj)
   };
 }
@@ -201,7 +253,9 @@ function getRecursos(cfg) {
     nfse: false,
     multiCaixa: false,
     clienteServidor: false,
-    terminaisPdv: false
+    terminaisPdv: false,
+    // Módulo opcional — independente do tipo de implantação
+    vendasEntrega: config.habilitar_vendas_entrega === true
   };
 
   if (tipo === 'ERP_FISCAL' || tipo === 'ERP_MULTICAIXA') {
@@ -226,6 +280,7 @@ function getRecursos(cfg) {
     modoOperacao: modo,
     ipServidor: config.ipServidor,
     porta: config.porta,
+    habilitar_vendas_entrega: config.habilitar_vendas_entrega === true,
     recursos
   };
 }
@@ -362,6 +417,17 @@ function saveConfig(obj) {
     throw error;
   }
 
+  const pickBool = (src, key, normalized, cur) => (
+    Object.prototype.hasOwnProperty.call(src || {}, key)
+      ? normalized[key] === true
+      : cur[key] === true
+  );
+  const pickNum = (src, key, normalized, cur, fallback) => (
+    Object.prototype.hasOwnProperty.call(src || {}, key)
+      ? Math.max(1, Number(normalized[key]) || fallback)
+      : Math.max(1, Number(cur[key]) || fallback)
+  );
+
   const current = readConfig();
   const toSave = {
     ...current,
@@ -369,7 +435,17 @@ function saveConfig(obj) {
     modoOperacao: validation.config.modoOperacao,
     ipServidor: validation.config.ipServidor,
     porta: validation.config.porta,
-    modo_confirmacao_fiscal: validation.config.modo_confirmacao_fiscal
+    modo_confirmacao_fiscal: validation.config.modo_confirmacao_fiscal,
+    habilitar_vendas_entrega: Object.prototype.hasOwnProperty.call(obj || {}, 'habilitar_vendas_entrega')
+      ? validation.config.habilitar_vendas_entrega === true
+      : current.habilitar_vendas_entrega === true,
+    imprimir_comprovante_entrega: pickBool(obj, 'imprimir_comprovante_entrega', validation.config, current),
+    imprimir_comprovante_prestacao: pickBool(obj, 'imprimir_comprovante_prestacao', validation.config, current),
+    imprimir_danfe_nfce_entrega: pickBool(obj, 'imprimir_danfe_nfce_entrega', validation.config, current),
+    imprimir_cupom_nao_fiscal_entrega: pickBool(obj, 'imprimir_cupom_nao_fiscal_entrega', validation.config, current),
+    entrega_alerta_horas_aguardando: pickNum(obj, 'entrega_alerta_horas_aguardando', validation.config, current, 2),
+    entrega_alerta_horas_reserva: pickNum(obj, 'entrega_alerta_horas_reserva', validation.config, current, 4),
+    entrega_alerta_horas_parado: pickNum(obj, 'entrega_alerta_horas_parado', validation.config, current, 3)
   };
 
   ensureConfigFile();

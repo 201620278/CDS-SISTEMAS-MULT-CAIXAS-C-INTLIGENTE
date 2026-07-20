@@ -12,6 +12,7 @@ const EthernetTransport = require('../transport/EthernetTransport');
 const equipamentosEvents = require('../events/EquipamentosEvents');
 const loggerService = require('./LoggerService');
 const diagnosticoService = require('../diagnostics/DiagnosticoService');
+const layoutEtiquetaService = require('./LayoutEtiquetaService');
 
 class EquipamentosService {
   /**
@@ -64,23 +65,51 @@ class EquipamentosService {
 
   async buscarPorId(id) {
     const eq = await equipamentosRepository.buscarPorId(id);
-    return this.formatarParaApi(eq);
+    const formatado = this.formatarParaApi(eq);
+    if (!formatado) return null;
+    formatado.layout_etiqueta = await layoutEtiquetaService.obterLayoutEquipamento(id);
+    return formatado;
   }
 
   async criar(dados) {
     const payload = await this._resolverDriver(dados);
-    const equipamento = await equipamentosRepository.salvar(payload);
+    const { layout_etiqueta: layoutBody, layout_ativo: layoutAtivo, ...rest } = payload;
+    const equipamento = await equipamentosRepository.salvar(rest);
+
+    if (layoutBody) {
+      await layoutEtiquetaService.salvarLayoutEquipamento(equipamento.id, layoutBody, {
+        definirComoAtivo: layoutAtivo === true || layoutAtivo === 1 || layoutAtivo === '1'
+      });
+    }
+
     await equipamentosEvents.emitirEquipamentoCriado(equipamento);
     await loggerService.logOperacao(equipamento.id, 'cadastro', { equipamento });
-    return this.formatarParaApi(equipamento);
+    const formatado = this.formatarParaApi(equipamento);
+    formatado.layout_etiqueta = await layoutEtiquetaService.obterLayoutEquipamento(equipamento.id);
+    return formatado;
   }
 
   async editar(id, dados) {
     const payload = await this._resolverDriver(dados);
-    const equipamento = await equipamentosRepository.editar(id, payload);
+    const { layout_etiqueta: layoutBody, layout_ativo: layoutAtivo, ...rest } = payload;
+    const equipamento = await equipamentosRepository.editar(id, rest);
+
+    if (layoutBody) {
+      await layoutEtiquetaService.salvarLayoutEquipamento(id, layoutBody, {
+        definirComoAtivo: layoutAtivo === true || layoutAtivo === 1 || layoutAtivo === '1'
+      });
+    } else if (layoutAtivo === true || layoutAtivo === 1 || layoutAtivo === '1') {
+      const existente = await layoutEtiquetaService.obterLayoutEquipamento(id);
+      if (existente) {
+        await layoutEtiquetaService.definirLayoutAtivo(existente, { equipamentoId: id });
+      }
+    }
+
     await equipamentosEvents.emitirEquipamentoEditado(equipamento);
     await loggerService.logOperacao(id, 'edicao', { equipamento });
-    return this.formatarParaApi(equipamento);
+    const formatado = this.formatarParaApi(equipamento);
+    formatado.layout_etiqueta = await layoutEtiquetaService.obterLayoutEquipamento(id);
+    return formatado;
   }
 
   async remover(id) {
@@ -326,6 +355,34 @@ class EquipamentosService {
 
   async listarLogs(equipamentoId, limite = 50) {
     return equipamentosRepository.listarLogs(equipamentoId, limite);
+  }
+
+  listarPresetsLayout() {
+    return layoutEtiquetaService.listarPresets();
+  }
+
+  async obterLayoutAtivo() {
+    return layoutEtiquetaService.obterLayoutAtivo();
+  }
+
+  async definirLayoutAtivo(layout) {
+    return layoutEtiquetaService.definirLayoutAtivo(layout);
+  }
+
+  async obterLayoutEquipamento(id) {
+    return layoutEtiquetaService.obterLayoutEquipamento(id);
+  }
+
+  async salvarLayoutEquipamento(id, layout, opcoes = {}) {
+    return layoutEtiquetaService.salvarLayoutEquipamento(id, layout, opcoes);
+  }
+
+  testarParseLayout(codigo, layout) {
+    return layoutEtiquetaService.testarParse(codigo, layout);
+  }
+
+  async interpretarEtiqueta(codigo, opcoes = {}) {
+    return layoutEtiquetaService.interpretarEtiqueta(codigo, opcoes);
   }
 }
 

@@ -105,6 +105,7 @@ const categoriasRoutes = require('./rotas/categorias');
 const subcategoriasRoutes = require('./rotas/subcategorias');
 const marcasRoutes = require('./rotas/marcas');
 const vendasRoutes = require('./rotas/vendas');
+const entregasRoutes = require('./rotas/entregas');
 const financeiroRoutes = require('./rotas/financeiro');
 const configuracoesRoutes = require('./rotas/configuracoes');
 const configuracaoRedeRoutes = require('./rotas/configuracao_rede');
@@ -143,6 +144,8 @@ app.use('/api/miip', verificarToken, miipRoutes);
 app.use('/api/categorias', verificarToken, categoriasRoutes);
 app.use('/api/subcategorias', verificarToken, subcategoriasRoutes);
 app.use('/api/marcas', verificarToken, marcasRoutes);
+// Sprint 1 — rotas de entrega montadas antes das rotas genéricas de vendas
+app.use('/api/vendas', verificarToken, entregasRoutes);
 app.use('/api/vendas', verificarToken, vendasRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/financeiro', verificarToken, financeiroRoutes);

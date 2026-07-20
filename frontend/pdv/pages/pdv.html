@@ -95,7 +95,7 @@
     <aside class="pdv-card pdv-resumo">
       <h2 class="pdv-resumo-titulo">Resumo</h2>
 
-      <div class="linha-resumo">
+      <div class="linha-resumo linha-resumo--destaque">
         <span>Subtotal</span>
         <strong id="subtotalPdv">R$ 0,00</strong>
       </div>
@@ -105,7 +105,7 @@
         <strong id="descontoAtacadoPdv">R$ 0,00</strong>
       </div>
 
-      <div class="linha-resumo">
+      <div class="linha-resumo linha-resumo--destaque">
         <span>Itens</span>
         <strong id="itensPdv">0</strong>
       </div>
@@ -118,6 +118,11 @@
       <div class="linha-resumo linha-resumo-input">
         <span>Acréscimo</span>
         <input type="number" id="acrescimoPdv" value="0" min="0" step="0.01">
+      </div>
+
+      <div id="pdvTipoVendaResumoBox" class="linha-resumo linha-resumo--tipo" style="display:none;">
+        <span>Tipo da Venda</span>
+        <strong id="pdvTipoVendaValor">Balcão</strong>
       </div>
 
       <div class="total-pdv">
@@ -159,15 +164,27 @@
       </div>
 
       <button id="btnFinalizarVendaPdv" class="btn-finalizar" type="button">
-        <span class="btn-finalizar-icone"><i class="fas fa-coins"></i></span>
+        <span class="btn-finalizar-icone pdv-btn-icone" aria-hidden="true"><i class="fas fa-coins"></i></span>
         <span class="btn-finalizar-textos">
           <span class="btn-finalizar-titulo">FINALIZAR VENDA</span>
           <span class="btn-finalizar-sub">(F10)</span>
         </span>
       </button>
 
-      <button id="btnCancelarVendaPdv" class="btn-cancelar" type="button">
-        <i class="fas fa-times"></i> Cancelar Venda
+      <button id="btnVendaEntregaPdv" class="btn-venda-entrega" type="button" disabled title="Enviar para Entrega (F9)">
+        <span class="btn-venda-entrega-icone pdv-btn-icone" aria-hidden="true">🚚</span>
+        <span class="btn-finalizar-textos">
+          <span class="btn-venda-entrega-titulo">ENVIAR PARA ENTREGA</span>
+          <span class="btn-finalizar-sub btn-venda-entrega-atalho">(F9)</span>
+        </span>
+      </button>
+
+      <button id="btnCancelarVendaPdv" class="btn-cancelar" type="button" title="Cancelar venda (ESC)">
+        <span class="pdv-btn-icone" aria-hidden="true"><i class="fas fa-times"></i></span>
+        <span class="btn-finalizar-textos">
+          <span class="btn-cancelar-titulo">CANCELAR VENDA</span>
+          <span class="btn-finalizar-sub">(ESC)</span>
+        </span>
       </button>
     </aside>
 
@@ -207,8 +224,10 @@
     <span class="pdv-atalho-chip">F4 Quantidade</span>
     <span class="pdv-atalho-chip">F7 Fechar Caixa</span>
     <span class="pdv-atalho-chip">F8 Desconto</span>
+    <span class="pdv-atalho-chip" data-atalho="entrega">F9 Entrega</span>
     <span class="pdv-atalho-chip">F10 Finalizar</span>
     <span class="pdv-atalho-chip" data-atalho="aparencia">F11 Aparência</span>
     <span class="pdv-atalho-chip">ESC Cancelar</span>
+    <span class="pdv-footer-widgets" data-pdv-footer-widgets="1" aria-hidden="true" style="display:none;"></span>
   </footer>
 </div>

@@ -18,6 +18,15 @@ let terminalHostname = null;
 /** Escolha explícita do operador: emitir NFC-e nesta venda (null = ainda não definido). */
 let pdvEmitirFiscalNaVenda = null;
 
+/** Expõe o carrinho para módulos PDV (entrega, widgets) — `let` não cria window.carrinho. */
+function sincronizarCarrinhoGlobalPdv() {
+    window.carrinho = carrinho;
+}
+window.obterCarrinhoPdv = function obterCarrinhoPdv() {
+    return carrinho;
+};
+sincronizarCarrinhoGlobalPdv();
+
 function sincronizarTerminalGlobalsPdv() {
     window.terminalId = terminalId;
     window.terminalHostname = terminalHostname;
@@ -104,6 +113,32 @@ function produtoPermiteEscolhaVendaUnidade(produto) {
 
 const TIPO_VENDA_PESO = 'PESO';
 const TIPO_VENDA_UNIDADE = 'UNIDADE';
+
+/** UX-01 — destaque visual do carrinho (somente UI) */
+let pdvLinhaDestaqueIndex = null;
+let pdvLinhaDestaqueTimer = null;
+let pdvTotalAnimIndex = null;
+let pdvTotalAnimTimer = null;
+
+function destacarLinhaCarrinho(index) {
+    if (index == null || index < 0) return;
+    pdvLinhaDestaqueIndex = Number(index);
+    if (pdvLinhaDestaqueTimer) clearTimeout(pdvLinhaDestaqueTimer);
+    pdvLinhaDestaqueTimer = setTimeout(() => {
+        pdvLinhaDestaqueIndex = null;
+        $('#tabelaItensVendaPdv tr.pdv-item-recem').removeClass('pdv-item-recem');
+    }, 2000);
+}
+
+function animarTotalLinhaCarrinho(index) {
+    if (index == null || index < 0) return;
+    pdvTotalAnimIndex = Number(index);
+    if (pdvTotalAnimTimer) clearTimeout(pdvTotalAnimTimer);
+    pdvTotalAnimTimer = setTimeout(() => {
+        pdvTotalAnimIndex = null;
+        $('#tabelaItensVendaPdv .pdv-total-flash').removeClass('pdv-total-flash');
+    }, 700);
+}
 
 function normalizarTipoVendaItem(item) {
     const tipo = String(item?.tipo_venda || '').toUpperCase();
@@ -245,28 +280,30 @@ function carregarFlagMipPdv() {
 
 /**
  * Identifica produto via MIP (backend) — porta oficial do PDV.
+ * Sprint EQUIPAMENTOS 03/RC1: etiqueta nunca vai completa ao MIP — só o PLU do Motor.
  * @param {string} codigo
+ * @param {Object} [opcoes]
+ * @param {boolean} [opcoes.aposMotorEquipamentos]
  * @returns {Promise<Object>}
  */
-async function identificarProdutoViaMip(codigo) {
+async function identificarProdutoViaMip(codigo, opcoes = {}) {
     const token = localStorage.getItem('token') || '';
     const contexto = { origem: 'pdv' };
-    if (window.PDV_ETIQUETA_LAYOUT) {
-        contexto.layoutStrategy = String(window.PDV_ETIQUETA_LAYOUT);
-    }
-    if (window.PDV_BALANCA_EQUIPAMENTO_ID) {
-        contexto.equipamentoId = Number(window.PDV_BALANCA_EQUIPAMENTO_ID);
+
+    if (!opcoes.aposMotorEquipamentos) {
+        if (window.PDV_ETIQUETA_LAYOUT) {
+            contexto.layoutStrategy = String(window.PDV_ETIQUETA_LAYOUT);
+        }
+        if (window.PDV_BALANCA_EQUIPAMENTO_ID) {
+            contexto.equipamentoId = Number(window.PDV_BALANCA_EQUIPAMENTO_ID);
+        }
+    } else {
+        contexto.origem = 'pdv_apos_motor_equipamentos';
+        contexto.tipoEsperado = 'PLU';
     }
 
     const url = `${API_URL}/produtos/identificar`;
     const payloadEnviado = { codigo: String(codigo || '').trim(), contexto };
-
-    // DEBUG 01 — request
-    console.log('[PDV DEBUG] POST /produtos/identificar Request:', {
-        url,
-        method: 'POST',
-        payload: payloadEnviado
-    });
 
     const response = await fetch(url, {
         method: 'POST',
@@ -280,17 +317,82 @@ async function identificarProdutoViaMip(codigo) {
     const statusHttp = response.status;
     const body = await response.json().catch(function() { return {}; });
 
-    // DEBUG 01 — response
-    console.log('[PDV DEBUG] POST /produtos/identificar Response:', {
-        statusHttp,
-        ok: response.ok,
-        body
-    });
-
     if (!response.ok) {
         throw new Error(body.error || ('HTTP ' + statusHttp));
     }
 
+    return body;
+}
+
+/** RC1 — auditoria estruturada somente Homologação / Debug (nunca produção). */
+function pdvAuditoriaEquipamentosHabilitada() {
+    try {
+        if (window.PDV_HOMOLOGACAO === true || window.PDV_DEBUG === true) return true;
+        if (localStorage.getItem('pdv_homologacao') === '1') return true;
+        if (localStorage.getItem('pdv_debug') === '1') return true;
+        if (sessionStorage.getItem('pdv_homologacao') === '1') return true;
+        if (sessionStorage.getItem('pdv_debug') === '1') return true;
+    } catch (_) { /* ignore */ }
+    return false;
+}
+
+function pdvAuditoriaEquipamentos(evento, dados) {
+    if (!pdvAuditoriaEquipamentosHabilitada()) return;
+    const registro = {
+        canal: 'EQUIPAMENTOS_RC1',
+        evento: String(evento || 'fluxo'),
+        timestamp: new Date().toISOString(),
+        ...dados
+    };
+    try {
+        if (!Array.isArray(window.__PDV_AUDIT_EQUIPAMENTOS)) {
+            window.__PDV_AUDIT_EQUIPAMENTOS = [];
+        }
+        window.__PDV_AUDIT_EQUIPAMENTOS.push(registro);
+        if (window.__PDV_AUDIT_EQUIPAMENTOS.length > 100) {
+            window.__PDV_AUDIT_EQUIPAMENTOS.shift();
+        }
+    } catch (_) { /* ignore */ }
+    // eslint-disable-next-line no-console
+    console.info('[PDV AUDIT EQUIPAMENTOS]', registro);
+}
+
+/**
+ * Interpretação oficial da etiqueta no Motor de Equipamentos (RC1).
+ * Sem layout ativo → mensagem amigável, sem interpretar.
+ * @param {string} codigoEan13
+ * @returns {Promise<Object>}
+ */
+async function interpretarEtiquetaViaMotorEquipamentos(codigoEan13) {
+    const token = localStorage.getItem('token') || '';
+    const payload = {
+        codigo: String(codigoEan13 || '').replace(/\D/g, '')
+    };
+    if (window.PDV_BALANCA_EQUIPAMENTO_ID) {
+        payload.equipamento_id = Number(window.PDV_BALANCA_EQUIPAMENTO_ID);
+    }
+
+    const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+
+    const response = await fetch(`${API_URL}/equipamentos/etiquetas/interpretar`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + token
+        },
+        body: JSON.stringify(payload)
+    });
+
+    const body = await response.json().catch(function() { return {}; });
+    const tempoTotalHttpMs = ((typeof performance !== 'undefined' && performance.now)
+        ? performance.now()
+        : Date.now()) - t0;
+
+    if (!response.ok) {
+        throw new Error(body.error || ('HTTP ' + response.status));
+    }
+
+    body._tempoHttpMotorMs = Number(tempoTotalHttpMs.toFixed(3));
     return body;
 }
 
@@ -1357,6 +1459,20 @@ function inicializarPDV() {
         PdvAppearancePanel.mountOnPdv();
     }
 
+    // Sprint 1 — infraestrutura de widgets do rodapé
+    if (window.PdvFooterWidgets && typeof PdvFooterWidgets.init === 'function') {
+        PdvFooterWidgets.init();
+    }
+    // Sprint 3 — ativa widget Entregas / Prestação (somente se módulo ligado)
+    if (window.PdvPrestacaoEntrega && typeof PdvPrestacaoEntrega.init === 'function') {
+        PdvPrestacaoEntrega.init();
+    }
+
+    // UX-01 — botão Entrega (visível só com módulo + itens)
+    if (window.PdvVendaEntrega && typeof PdvVendaEntrega.initUi === 'function') {
+        PdvVendaEntrega.initUi();
+    }
+
     // Verificar status do caixa a cada 30 segundos
     setInterval(verificarStatusCaixa, 30000);
 }
@@ -1582,11 +1698,31 @@ function alternarModoFiscalPdv() {
     aplicarModoFiscalPdv();
 }
 
-function focarCampoCodigo() {
+function focarCampoCodigo(opcoes) {
+    const opts = opcoes && typeof opcoes === 'object' ? opcoes : {};
+    const limpar = opts.limpar !== false;
+
     setTimeout(() => {
         const input = $('#buscaProdutoPdv');
-        if (input.length) input.trigger('focus');
-    }, 120);
+        if (!input.length) return;
+
+        if (limpar) {
+            input.val('');
+            try {
+                if (window.PdvBuscaProduto && typeof PdvBuscaProduto.fechar === 'function') {
+                    PdvBuscaProduto.fechar();
+                } else {
+                    $('#listaProdutosPdv').empty();
+                }
+            } catch (_) { /* ignore */ }
+        }
+
+        input.trigger('focus');
+        const el = input.get(0);
+        if (el && typeof el.select === 'function') {
+            try { el.select(); } catch (_) { /* ignore */ }
+        }
+    }, 80);
 }
 
 
@@ -1645,10 +1781,19 @@ function bindEventosPDV() {
             e.stopPropagation();
             $('#descontoPdv').trigger('focus');
         }
+        if (e.key === 'F9') {
+            e.preventDefault();
+            e.stopPropagation();
+            const btnEntrega = document.getElementById('btnVendaEntregaPdv');
+            if (btnEntrega && !btnEntrega.disabled) {
+                btnEntrega.click();
+            }
+        }
         if (e.key === 'F10') {
             e.preventDefault();
             e.stopPropagation();
-            abrirModalDecisaoFiscal();
+            // Mesmo fluxo do botão Finalizar (balcão)
+            document.getElementById('btnFinalizarVendaPdv')?.click();
         }
         if (e.key === 'Escape') {
             if (window.PdvBuscaProduto && PdvBuscaProduto.estaAberto()) {
@@ -1690,7 +1835,19 @@ function bindEventosPDV() {
 
     $('#btnLimparVendaPdv').off('click').on('click', limparCarrinho);
     $('#btnCancelarVendaPdv').off('click').on('click', cancelarVendaAtual);
-    $('#btnFinalizarVendaPdv').off('click').on('click', abrirTelaPagamento);
+    // UX-01: F10 / Finalizar = sempre balcão (fluxo original)
+    $('#btnFinalizarVendaPdv').off('click').on('click', function () {
+        abrirTelaPagamento();
+    });
+    $('#btnVendaEntregaPdv').off('click').on('click', function () {
+        if (window.PdvVendaEntrega && typeof PdvVendaEntrega.aoClicarBotaoEntrega === 'function') {
+            PdvVendaEntrega.aoClicarBotaoEntrega();
+            return;
+        }
+        if (window.PdvVendaEntrega && typeof PdvVendaEntrega.abrirModalVendaEntrega === 'function') {
+            PdvVendaEntrega.abrirModalVendaEntrega();
+        }
+    });
     $('#btnFechamentoCaixaPdv').off('click').on('click', abrirFechamentoCaixa);
 
     $('#btnCalculadoraPdv').off('click').on('click', function() {
@@ -1961,7 +2118,12 @@ function renderCarrinhoItens() {
         const decimal = vendaUnidade ? false : produtoUsaConversaoUnidadesPdv(produto);
         const unidade = vendaUnidade ? 'UN' : String(produto?.unidade || item.unidade || 'UN').toUpperCase();
         const temDesconto = Number(item.desconto_percentual || 0) > 0;
-        const classe = temDesconto ? 'table-warning' : '';
+        const classesLinha = [];
+        if (temDesconto) classesLinha.push('table-warning');
+        if (typeof pdvLinhaDestaqueIndex === 'number' && index === pdvLinhaDestaqueIndex) {
+            classesLinha.push('pdv-item-recem');
+        }
+        const classe = classesLinha.join(' ');
         const badgeDesconto = temDesconto ? `<small class="badge bg-danger">-${Number(item.desconto_percentual).toFixed(2)}%</small>` : '';
         const descontoAtacadoValor = Number(item.desconto_atacado || 0);
         const badgeDescontoAtacado = descontoAtacadoValor > 0 ? `<div><small class="text-success">Atacado: -${formatCurrency(descontoAtacadoValor)}</small></div>` : '';
@@ -1972,9 +2134,12 @@ function renderCarrinhoItens() {
                     ${renderTextoPreviewValorUnidade(produto, item.quantidade)}
                </div>`
             : '';
+        const classeTotal = (typeof pdvTotalAnimIndex === 'number' && index === pdvTotalAnimIndex)
+            ? 'col-total pdv-total-linha pdv-total-flash'
+            : 'col-total pdv-total-linha';
 
         return `
-            <tr ${classe ? `class="${classe}"` : ''}>
+            <tr ${classe ? `class="${classe}"` : ''} data-item-index="${index}">
                 <td class="col-qtd">
                     <input type="${decimal ? 'text' : 'number'}"
                            class="form-control form-control-sm quantidade-item"
@@ -2008,7 +2173,7 @@ function renderCarrinhoItens() {
                            step="0.01"
                            data-index="${index}">
                 </td>
-                <td class="col-total pdv-total-linha">${formatCurrency(item.subtotal)}</td>
+                <td class="${classeTotal}"><span class="pdv-total-valor">${formatCurrency(item.subtotal)}</span></td>
                 <td class="col-acao text-center">
                     <button type="button" class="btn btn-sm btn-outline-danger item-remover" data-index="${index}" title="Remover">
                         <i class="fas fa-trash"></i>
@@ -2082,6 +2247,13 @@ function normalizarQuantidadePdv(quantidade, produto) {
     return Math.round(qtd);
 }
 
+/** Quantidade KG de etiqueta — 3 casas para preservar total (valor ÷ preço). */
+function normalizarQuantidadeEtiquetaPdv(quantidade) {
+    const qtd = Number(quantidade || 0);
+    if (!Number.isFinite(qtd) || qtd <= 0) return 0;
+    return Number(qtd.toFixed(3));
+}
+
 function formatarQuantidadePdv(quantidade, produto) {
     const qtd = Number(quantidade || 0);
     if (!quantidadeUsaDecimaisPdv(produto)) {
@@ -2094,11 +2266,86 @@ function formatarQuantidadePdv(quantidade, produto) {
     return arredondado.toFixed(2).replace('.', ',').replace(/,00$/, '').replace(/(\,\d)0$/, '$1');
 }
 
-// Padrão profissional comum:
-// 2 + 5 dígitos código do produto + 6 dígitos valor total em centavos + dígito verificador
-// Exemplo: 2000010014890
-// Produto: 00001
-// Valor: R$ 14,89
+function formatarPesoEtiquetaPdv(peso) {
+    const qtd = Number(peso || 0);
+    if (!Number.isFinite(qtd)) return '0';
+    return qtd.toFixed(3).replace('.', ',').replace(/,?0+$/, '').replace(/,$/, '') || '0';
+}
+
+/**
+ * Monta quantidade/total a partir do retorno do Motor (VALOR ou PESO).
+ * Não altera o preço cadastrado do produto.
+ */
+function calcularItemEtiquetaBalancaPdv(produto, metaMotor) {
+    const precoUnitario = Number(produto?.preco_venda || 0);
+    const tipoPayload = String(metaMotor?.tipoPayload || '').toUpperCase();
+    const valorEtiqueta = metaMotor?.valorTotal != null ? Number(metaMotor.valorTotal) : null;
+    const pesoEtiqueta = metaMotor?.peso != null ? Number(metaMotor.peso) : null;
+
+    if (!(precoUnitario > 0)) {
+        return { ok: false, mensagem: `Preço por KG inválido para ${produto?.nome || 'produto'}.` };
+    }
+
+    // Layout PESO: quantidade = peso da etiqueta; total = qtd × preço cadastrado
+    if (tipoPayload === 'PESO') {
+        const quantidade = normalizarQuantidadeEtiquetaPdv(pesoEtiqueta);
+        if (!(quantidade > 0)) {
+            return { ok: false, mensagem: `Peso inválido na etiqueta para ${produto?.nome || 'produto'}.` };
+        }
+        const subtotal = Number((quantidade * precoUnitario).toFixed(2));
+        return {
+            ok: true,
+            tipoPayload: 'PESO',
+            quantidade,
+            precoUnitario,
+            subtotal,
+            valorEtiqueta: null,
+            mensagemExtra: ` - Peso: ${formatarPesoEtiquetaPdv(quantidade)} KG`
+        };
+    }
+
+    // Layout VALOR: quantidade = valor ÷ preço; total = valor impresso na etiqueta
+    if (!(valorEtiqueta != null && Number.isFinite(valorEtiqueta) && valorEtiqueta > 0)) {
+        // Fallback: se o Motor só trouxe peso
+        if (pesoEtiqueta != null && Number.isFinite(pesoEtiqueta) && pesoEtiqueta > 0) {
+            const quantidade = normalizarQuantidadeEtiquetaPdv(pesoEtiqueta);
+            const subtotal = Number((quantidade * precoUnitario).toFixed(2));
+            return {
+                ok: true,
+                tipoPayload: 'PESO',
+                quantidade,
+                precoUnitario,
+                subtotal,
+                valorEtiqueta: null,
+                mensagemExtra: ` - Peso: ${formatarPesoEtiquetaPdv(quantidade)} KG`
+            };
+        }
+        return {
+            ok: false,
+            mensagem: `Não foi possível obter valor/peso da etiqueta para ${produto?.nome || 'produto'}.`
+        };
+    }
+
+    const quantidade = normalizarQuantidadeEtiquetaPdv(valorEtiqueta / precoUnitario);
+    if (!(quantidade > 0)) {
+        return { ok: false, mensagem: `Não foi possível calcular o peso da etiqueta para ${produto?.nome || 'produto'}.` };
+    }
+
+    return {
+        ok: true,
+        tipoPayload: 'VALOR',
+        quantidade,
+        precoUnitario,
+        subtotal: Number(valorEtiqueta.toFixed(2)),
+        valorEtiqueta: Number(valorEtiqueta.toFixed(2)),
+        mensagemExtra: ` - Peso: ${formatarPesoEtiquetaPdv(quantidade)} KG - Total: ${formatCurrency(valorEtiqueta)}`
+    };
+}
+
+/**
+ * @deprecated RC1 — NÃO USAR. Etiquetas passam apenas pelo Motor de Equipamentos.
+ * Mantida apenas para evitar quebra de referências externas; o hot-path do PDV não a chama.
+ */
 function interpretarCodigoBalanca(codigo) {
     const limpo = String(codigo || '').replace(/\D/g, '');
 
@@ -2159,10 +2406,21 @@ function encontrarProdutoPorCodigoOuNome(termo) {
 
 function adicionarItemNoCarrinho(produto, quantidade, precoUnitario, mensagemExtra = '', promocao = null, opcoes = {}) {
     const tipoVenda = normalizarTipoVendaItem(opcoes);
+    const etiquetaBalanca = opcoes && opcoes.etiquetaBalanca && typeof opcoes.etiquetaBalanca === 'object'
+        ? opcoes.etiquetaBalanca
+        : null;
+    const subtotalEtiquetaFixo = etiquetaBalanca && etiquetaBalanca.subtotalFixo != null
+        ? Number(etiquetaBalanca.subtotalFixo)
+        : null;
 
     if (tipoVendaEhUnidade(tipoVenda)) {
         quantidade = Math.max(0, Math.round(Number(quantidade || 0)));
         precoUnitario = Number(produto.preco_unidade ?? precoUnitario ?? 0);
+    } else if (etiquetaBalanca) {
+        // Etiqueta: 3 casas + preço cadastrado (sem promoção/atacado)
+        quantidade = normalizarQuantidadeEtiquetaPdv(quantidade);
+        precoUnitario = Number(precoUnitario || produto.preco_venda || 0);
+        promocao = null;
     } else {
         quantidade = normalizarQuantidadePdv(quantidade, produto);
         precoUnitario = Number(precoUnitario || 0);
@@ -2183,10 +2441,10 @@ function adicionarItemNoCarrinho(produto, quantidade, precoUnitario, mensagemExt
         return;
     }
 
-    const precoPromocional = promocao && !tipoVendaEhUnidade(tipoVenda)
+    const precoPromocional = promocao && !tipoVendaEhUnidade(tipoVenda) && !etiquetaBalanca
         ? Number(promocao.preco_promocional || precoUnitario)
         : precoUnitario;
-    const percentualPromocao = promocao && !tipoVendaEhUnidade(tipoVenda)
+    const percentualPromocao = promocao && !tipoVendaEhUnidade(tipoVenda) && !etiquetaBalanca
         ? Number(promocao.desconto_percentual || 0)
         : 0;
 
@@ -2230,15 +2488,20 @@ function adicionarItemNoCarrinho(produto, quantidade, precoUnitario, mensagemExt
     );
 
     if (itemExistente) {
-        const novaQuantidade = Number(itemExistente.quantidade) + quantidade;
+        const novaQuantidadeBruta = Number(itemExistente.quantidade) + quantidade;
+        const novaQuantidade = tipoVendaEhUnidade(tipoVenda)
+            ? novaQuantidadeBruta
+            : (etiquetaBalanca
+                ? normalizarQuantidadeEtiquetaPdv(novaQuantidadeBruta)
+                : Number(novaQuantidadeBruta.toFixed(2)));
         const novaQuantidadeEstoque = obterQuantidadeEstoqueParaVenda(produto, novaQuantidade, tipoVenda);
 
         if (!pdvNotificarEstoqueInsuficiente(produto, novaQuantidadeEstoque)) {
             return;
         }
 
-        // reavaliar preço atacado com a nova quantidade total
-            if (!tipoVendaEhUnidade(tipoVenda) && Number(produto.venda_atacado || 0) === 1) {
+        // reavaliar preço atacado com a nova quantidade total (nunca em etiqueta de balança)
+            if (!etiquetaBalanca && !tipoVendaEhUnidade(tipoVenda) && Number(produto.venda_atacado || 0) === 1) {
                 const atac = obterPrecoAtacado(produto.id, novaQuantidade, precoFinal);
                 precoFinal = atac.preco;
                 descontoAtacadoItem = atac.descontoAtacado;
@@ -2250,18 +2513,20 @@ function adicionarItemNoCarrinho(produto, quantidade, precoUnitario, mensagemExt
             : Number(produto.preco_venda || precoFinal);
         const descontoPercentual = precoBase > 0 ? Number(((1 - precoFinal / precoBase) * 100).toFixed(2)) : 0;
 
-        itemExistente.quantidade = tipoVendaEhUnidade(tipoVenda)
-            ? novaQuantidade
-            : Number(novaQuantidade.toFixed(2));
+        itemExistente.quantidade = novaQuantidade;
         itemExistente.preco_unitario = precoFinal;
         itemExistente.desconto_percentual = descontoPercentual;
         itemExistente.promocao_id = promocao?.id || null;
         itemExistente.desconto_atacado = descontoAtacadoItem;
         itemExistente.tipo_venda = tipoVenda;
-        itemExistente.subtotal = Number((itemExistente.quantidade * precoFinal).toFixed(2));
+        if (subtotalEtiquetaFixo != null && Number.isFinite(subtotalEtiquetaFixo)) {
+            itemExistente.subtotal = Number((Number(itemExistente.subtotal || 0) + subtotalEtiquetaFixo).toFixed(2));
+        } else {
+            itemExistente.subtotal = Number((itemExistente.quantidade * precoFinal).toFixed(2));
+        }
     } else {
-        // avaliar atacado para quantidade inicial
-            if (!tipoVendaEhUnidade(tipoVenda) && Number(produto.venda_atacado || 0) === 1) {
+        // avaliar atacado para quantidade inicial (nunca em etiqueta de balança)
+            if (!etiquetaBalanca && !tipoVendaEhUnidade(tipoVenda) && Number(produto.venda_atacado || 0) === 1) {
                 const atac = obterPrecoAtacado(produto.id, quantidade, precoFinal);
                 precoFinal = atac.preco;
                 descontoAtacadoItem = atac.descontoAtacado;
@@ -2272,26 +2537,45 @@ function adicionarItemNoCarrinho(produto, quantidade, precoUnitario, mensagemExt
                 : Number(produto.preco_venda || precoFinal);
             const descontoPercentual = precoBase > 0 ? Number(((1 - precoFinal / precoBase) * 100).toFixed(2)) : 0;
 
+            const qtdCarrinho = tipoVendaEhUnidade(tipoVenda)
+                ? quantidade
+                : (etiquetaBalanca ? normalizarQuantidadeEtiquetaPdv(quantidade) : Number(quantidade.toFixed(2)));
+            const subtotalCarrinho = (subtotalEtiquetaFixo != null && Number.isFinite(subtotalEtiquetaFixo))
+                ? Number(subtotalEtiquetaFixo.toFixed(2))
+                : Number((quantidade * precoFinal).toFixed(2));
+
             carrinho.push({
             id: produto.id,
             nome: produto.nome,
-            quantidade: tipoVendaEhUnidade(tipoVenda) ? quantidade : Number(quantidade.toFixed(2)),
+            quantidade: qtdCarrinho,
             preco_unitario: precoFinal,
             preco_base: precoBase,
             desconto_percentual: descontoPercentual,
             promocao_id: promocao?.id || null,
             desconto_atacado: descontoAtacadoItem,
                 tipo_preco: (Number(produto.venda_atacado || 0) === 1 && descontoAtacadoItem > 0) ? 'atacado' : 'varejo',
-            subtotal: Number((quantidade * precoFinal).toFixed(2)),
+            subtotal: subtotalCarrinho,
             item_fiscal: Number(produto.item_fiscal || 0),
             tipo_venda: tipoVenda
         });
     }
 
+    const idxDestaque = carrinho.findIndex((item) =>
+        Number(item.id) === Number(produto.id) && normalizarTipoVendaItem(item) === tipoVenda
+    );
+    // Nova venda após entrega configurada → volta o texto padrão do botão
+    if (window.PdvVendaEntrega && typeof PdvVendaEntrega.estaConfigurada === 'function'
+        && PdvVendaEntrega.estaConfigurada()) {
+        window.pdvEntregaConfigurada = false;
+        if (typeof PdvVendaEntrega.definirTipoVendaUi === 'function') {
+            PdvVendaEntrega.definirTipoVendaUi('BALCAO');
+        }
+    }
+    destacarLinhaCarrinho(idxDestaque);
     atualizarCarrinho();
     const msgDesconto = percentualPromocao > 0 ? ` (Promoção -${percentualPromocao}%)` : '';
     showNotification(`${produto.nome} adicionado ao carrinho${msgDesconto}${mensagemExtra}.`, 'success');
-    focarCampoCodigo();
+    focarCampoCodigo({ limpar: true });
 }
 
 function abrirModalModoVendaProduto(produto, callback) {
@@ -2341,6 +2625,7 @@ function abrirModalModoVendaProduto(produto, callback) {
     modalEl.addEventListener('hidden.bs.modal', function onHidden() {
         modalEl.removeEventListener('hidden.bs.modal', onHidden);
         $('#modalModoVendaProduto').remove();
+        focarCampoCodigo({ limpar: true });
     }, { once: true });
 }
 
@@ -2427,120 +2712,177 @@ function adicionarProdutoPorCodigo(codigo) {
 }
 
 /**
- * Caminho legado — parser local + cache produtosDisponiveis (fallback Sprint 09).
+ * Caminho legado — cache local (fallback Sprint 09).
+ * RC1: etiquetas de balança NUNCA passam pelo parser legado.
  */
 function adicionarProdutoPorCodigoLegado(codigoDigitado) {
-    // DEBUG 01
-    console.log('[PDV] Chamando fluxo legado | codigo=', codigoDigitado);
-
-    // 1) Código de balança
-    const dadosBalanca = interpretarCodigoBalanca(codigoDigitado);
-
-    if (dadosBalanca) {
-        console.log('[PDV DEBUG] Legado interpretou balança:', dadosBalanca);
-        const produtoBalanca = encontrarProdutoPorCodigoExato(dadosBalanca.codigoProduto);
-
-        if (!produtoBalanca) {
-            console.log('[PDV DEBUG] INTERRUPÇÃO legado: produto balança não encontrado no cache');
-            showNotification(`Produto da balança não encontrado. Código interno: ${dadosBalanca.codigoProduto}`, 'danger');
-            return;
-        }
-
-        if (!unidadeEhKg(produtoBalanca)) {
-            console.log('[PDV DEBUG] INTERRUPÇÃO legado: produto não é KG', produtoBalanca.nome);
-            showNotification(`O produto ${produtoBalanca.nome} não está cadastrado como KG.`, 'warning');
-            return;
-        }
-
-        const precoKg = Number(produtoBalanca.preco_venda || 0);
-
-        if (precoKg <= 0) {
-            console.log('[PDV DEBUG] INTERRUPÇÃO legado: preço KG inválido');
-            showNotification(`Preço por KG inválido para ${produtoBalanca.nome}.`, 'danger');
-            return;
-        }
-
-        const peso = dadosBalanca.valorTotal / precoKg;
-
-        console.log('[PDV DEBUG] Legado → carrinho (balança)', { id: produtoBalanca.id, nome: produtoBalanca.nome, peso });
-        buscarPromocaoAtivaProduto(produtoBalanca.id).then(promocao => {
-            adicionarItemNoCarrinho(
-                produtoBalanca,
-                peso,
-                precoKg,
-                ` - Peso: ${formatarQuantidadePdv(peso, { unidade: 'kg', produto_fracionado: 1 })} KG - Total: ${formatCurrency(dadosBalanca.valorTotal)}`,
-                promocao
-            );
-        });
-
+    // RC1 — etiquetas só pelo Motor de Equipamentos
+    if (codigoEhBalanca(codigoDigitado)) {
+        showNotification('Nenhuma balança configurada para o PDV.', 'warning');
         return;
     }
 
-    // 2) Produto normal — apenas código exato (barras/interno/id)
     const produto = encontrarProdutoPorCodigoExato(codigoDigitado);
 
     if (!produto) {
-        console.log('[PDV DEBUG] INTERRUPÇÃO legado: encontrarProdutoPorCodigoExato NÃO achou', codigoDigitado);
         showNotification(`Produto não encontrado: ${codigoDigitado}`, 'danger');
         return;
     }
 
-    console.log('[PDV DEBUG] Legado encontrou no cache:', { id: produto.id, nome: produto.nome, codigo: produto.codigo });
-
     const validacaoMinima = pdvValidarEstoqueVenda(produto, 1);
     if (!validacaoMinima.sucesso) {
-        console.log('[PDV DEBUG] INTERRUPÇÃO legado: estoque', validacaoMinima.mensagem);
         showNotification(validacaoMinima.mensagem, 'danger');
         return;
     }
 
-    console.log('[PDV DEBUG] Legado → iniciarFluxoAdicionarProdutoPdv (carrinho)');
     buscarPromocaoAtivaProduto(produto.id).then(promocao => {
         iniciarFluxoAdicionarProdutoPdv(produto, promocao);
     });
 }
 
 /**
- * Porta oficial MIP (Sprint 09). Se não encontrar (ou API falhar) → fallback legado.
+ * Porta oficial MIP + Motor Equipamentos (RC1).
+ * Etiqueta: Motor → layout ativo? → Parser → MIP(PLU) → carrinho
+ * Sem layout ativo: mensagem amigável e encerra (sem parser legado).
  */
 async function adicionarProdutoPorCodigoViaMip(codigoDigitado) {
-    let resultado;
+    let resultado = null;
+    let parseMotor = null;
+    let codigoParaMip = String(codigoDigitado || '').trim();
+    const ehEtiqueta = codigoEhBalanca(codigoParaMip);
+    const t0Total = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    let consultas = 0;
+    let tempoMotorMs = 0;
+    let tempoParserMs = 0;
+    let tempoMipMs = 0;
+
+    const nowMs = () => ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now());
+
     try {
-        resultado = await identificarProdutoViaMip(codigoDigitado);
-        // DEBUG 01 — resposta chegou ao PDV
-        console.log('[PDV DEBUG] Resposta MIP chegou ao PDV:', {
-            encontrado: resultado && resultado.encontrado,
-            produtoId: resultado && resultado.produtoId,
-            strategy: resultado && resultado.strategy,
-            fallbackLegado: resultado && resultado.fallbackLegado,
-            nome: resultado && resultado.produto && resultado.produto.nome
-        });
+        if (ehEtiqueta) {
+            consultas += 1;
+            const t0Motor = nowMs();
+            parseMotor = await interpretarEtiquetaViaMotorEquipamentos(codigoParaMip);
+            const metricas = parseMotor.metricas || {};
+            tempoMotorMs = Number(metricas.tempoMotorMs != null ? metricas.tempoMotorMs : (nowMs() - t0Motor));
+            tempoParserMs = Number(metricas.tempoParserMs || 0);
+
+            if (parseMotor.semLayoutAtivo) {
+                pdvAuditoriaEquipamentos('sem_layout_ativo', {
+                    codigo: codigoParaMip,
+                    resultado: 'BLOQUEADO',
+                    mensagem: parseMotor.mensagem,
+                    tempoMotorMs,
+                    tempoParserMs: 0,
+                    tempoMipMs: 0,
+                    tempoTotalMs: Number((nowMs() - t0Total).toFixed(3)),
+                    quantidadeConsultas: consultas,
+                    layoutUtilizado: null,
+                    pluExtraido: null
+                });
+                showNotification('Nenhuma balança configurada para o PDV.', 'warning');
+                return;
+            }
+
+            if (!parseMotor.sucesso || !parseMotor.resultado || !parseMotor.resultado.plu) {
+                pdvAuditoriaEquipamentos('parser_falhou', {
+                    codigo: codigoParaMip,
+                    resultado: 'FALHA_PARSER',
+                    mensagem: parseMotor.mensagem || null,
+                    tempoMotorMs,
+                    tempoParserMs,
+                    tempoMipMs: 0,
+                    tempoTotalMs: Number((nowMs() - t0Total).toFixed(3)),
+                    quantidadeConsultas: consultas,
+                    layoutUtilizado: parseMotor.layout && parseMotor.layout.preset_id
+                        ? parseMotor.layout.preset_id
+                        : null,
+                    pluExtraido: null
+                });
+                showNotification(
+                    parseMotor.mensagem || 'Não foi possível interpretar a etiqueta no Motor de Equipamentos.',
+                    'warning'
+                );
+                return;
+            }
+
+            codigoParaMip = String(parseMotor.resultado.plu);
+            consultas += 1;
+            const t0Mip = nowMs();
+            resultado = await identificarProdutoViaMip(codigoParaMip, { aposMotorEquipamentos: true });
+            tempoMipMs = Number((nowMs() - t0Mip).toFixed(3));
+        } else {
+            consultas += 1;
+            const t0Mip = nowMs();
+            resultado = await identificarProdutoViaMip(codigoParaMip);
+            tempoMipMs = Number((nowMs() - t0Mip).toFixed(3));
+        }
     } catch (err) {
-        console.error('[PDV DEBUG] INTERRUPÇÃO: falha HTTP/MIP → fallback legado:', err);
+        pdvAuditoriaEquipamentos('erro_fluxo', {
+            codigo: String(codigoDigitado || ''),
+            resultado: 'ERRO',
+            mensagem: err && err.message ? err.message : String(err),
+            tempoMotorMs,
+            tempoParserMs,
+            tempoMipMs,
+            tempoTotalMs: Number((nowMs() - t0Total).toFixed(3)),
+            quantidadeConsultas: consultas,
+            layoutUtilizado: parseMotor && parseMotor.layout ? parseMotor.layout.preset_id : null,
+            pluExtraido: parseMotor && parseMotor.resultado ? parseMotor.resultado.plu : null
+        });
+        if (ehEtiqueta) {
+            showNotification(
+                (err && err.message) || 'Falha ao processar etiqueta no Motor de Equipamentos.',
+                'danger'
+            );
+            return;
+        }
         adicionarProdutoPorCodigoLegado(codigoDigitado);
         return;
     }
 
-    // Payload antigo / desabilitado → legado
+    const layoutId = (parseMotor && parseMotor.layout && parseMotor.layout.preset_id)
+        || (parseMotor && parseMotor.resultado && parseMotor.resultado.layoutId)
+        || null;
+    const pluExtraido = parseMotor && parseMotor.resultado ? parseMotor.resultado.plu : null;
+
     if (resultado && resultado.habilitado === false) {
-        console.log('[PDV DEBUG] MIP retornou habilitado=false → fallback legado');
+        if (ehEtiqueta) {
+            showNotification(`Produto não encontrado: PLU ${codigoParaMip}`, 'danger');
+            pdvAuditoriaEquipamentos('mip_desabilitado', {
+                codigo: String(codigoDigitado || ''),
+                resultado: 'MIP_OFF',
+                tempoMotorMs, tempoParserMs, tempoMipMs,
+                tempoTotalMs: Number((nowMs() - t0Total).toFixed(3)),
+                quantidadeConsultas: consultas,
+                layoutUtilizado: layoutId,
+                pluExtraido
+            });
+            return;
+        }
         adicionarProdutoPorCodigoLegado(codigoDigitado);
         return;
     }
 
-    // MIP não encontrou → fallback legado (fluxo oficial Sprint 09)
     if (!resultado || !resultado.encontrado) {
-        console.log('[PDV DEBUG] MIP não encontrou produto → fallback legado');
+        pdvAuditoriaEquipamentos('produto_nao_encontrado', {
+            codigo: String(codigoDigitado || ''),
+            resultado: 'NAO_ENCONTRADO',
+            tempoMotorMs, tempoParserMs, tempoMipMs,
+            tempoTotalMs: Number((nowMs() - t0Total).toFixed(3)),
+            quantidadeConsultas: consultas,
+            layoutUtilizado: layoutId,
+            pluExtraido
+        });
+        if (ehEtiqueta) {
+            showNotification(`Produto não encontrado: PLU ${codigoParaMip}`, 'danger');
+            return;
+        }
         adicionarProdutoPorCodigoLegado(codigoDigitado);
         return;
     }
 
-    console.log('[PDV DEBUG] MIP encontrou — buscando no cache local produtosDisponiveis id=', resultado.produtoId);
     const noCache = encontrarProdutoPorIdPdv(resultado.produtoId);
-    console.log('[PDV DEBUG] Cache local por id:', noCache
-        ? { id: noCache.id, nome: noCache.nome }
-        : 'NÃO ENCONTRADO no cache');
-
     const produto = noCache
         || (resultado.produto && resultado.produto.id
             ? encontrarProdutoPorIdPdv(resultado.produto.id)
@@ -2548,77 +2890,82 @@ async function adicionarProdutoPorCodigoViaMip(codigoDigitado) {
         || resultado.produto;
 
     if (!produto || !produto.id) {
-        console.log('[PDV DEBUG] INTERRUPÇÃO: MIP achou id mas produto inválido no PDV → fallback legado', {
-            produtoId: resultado.produtoId,
-            produtoPayload: resultado.produto
-        });
+        if (ehEtiqueta) {
+            showNotification(`Produto não encontrado: PLU ${codigoParaMip}`, 'danger');
+            return;
+        }
         adicionarProdutoPorCodigoLegado(codigoDigitado);
         return;
     }
 
-    console.log('[PDV DEBUG] Produto resolvido no PDV:', { id: produto.id, nome: produto.nome });
+    const veioDoMotor = Boolean(parseMotor && parseMotor.resultado);
 
-    if (resultado.etiquetaBalanca || resultado.strategy === 'ETIQUETA_BALANCA') {
-        console.log('[PDV DEBUG] Caminho etiqueta balança → carrinho');
+    if (veioDoMotor) {
         if (!unidadeEhKg(produto)) {
-            console.log('[PDV DEBUG] INTERRUPÇÃO carrinho: unidade não KG');
             showNotification(`O produto ${produto.nome} não está cadastrado como KG.`, 'warning');
             return;
         }
 
-        const precoKg = Number(produto.preco_venda || 0);
-        if (precoKg <= 0) {
-            console.log('[PDV DEBUG] INTERRUPÇÃO carrinho: preço KG inválido');
-            showNotification(`Preço por KG inválido para ${produto.nome}.`, 'danger');
+        const calc = calcularItemEtiquetaBalancaPdv(produto, parseMotor.resultado || {});
+        if (!calc.ok) {
+            showNotification(calc.mensagem, 'danger');
             return;
         }
 
-        const meta = resultado.meta || {};
-        let peso = meta.peso != null ? Number(meta.peso) : null;
-        const valorTotal = meta.valorTotal != null ? Number(meta.valorTotal) : null;
-
-        if ((peso == null || !Number.isFinite(peso) || peso <= 0) && valorTotal != null && valorTotal > 0) {
-            peso = valorTotal / precoKg;
-        }
-
-        if (!Number.isFinite(peso) || peso <= 0) {
-            console.log('[PDV DEBUG] INTERRUPÇÃO carrinho: peso inválido', { peso, valorTotal, meta });
-            showNotification(`Não foi possível calcular o peso da etiqueta para ${produto.nome}.`, 'danger');
-            return;
-        }
-
-        const sufixoValor = valorTotal != null && Number.isFinite(valorTotal)
-            ? ` - Total: ${formatCurrency(valorTotal)}`
-            : '';
-
-        console.log('[PDV DEBUG] → adicionarItemNoCarrinho (balança)', { id: produto.id, peso });
-        buscarPromocaoAtivaProduto(produto.id).then(function(promocao) {
-            adicionarItemNoCarrinho(
-                produto,
-                peso,
-                precoKg,
-                ` - Peso: ${formatarQuantidadePdv(peso, { unidade: 'kg', produto_fracionado: 1 })} KG${sufixoValor}`,
-                promocao
-            );
-            console.log('[PDV DEBUG] Carrinho: item balança enviado');
+        pdvAuditoriaEquipamentos('carrinho_etiqueta', {
+            codigo: String(codigoDigitado || ''),
+            resultado: 'OK',
+            produtoId: produto.id,
+            produtoNome: produto.nome,
+            tipoPayload: calc.tipoPayload,
+            quantidade: calc.quantidade,
+            valorTotal: calc.subtotal,
+            precoUnitario: calc.precoUnitario,
+            tempoMotorMs,
+            tempoParserMs,
+            tempoMipMs,
+            tempoTotalMs: Number((nowMs() - t0Total).toFixed(3)),
+            quantidadeConsultas: consultas,
+            layoutUtilizado: layoutId,
+            pluExtraido
         });
+
+        // Sem promoção/atacado: total da etiqueta (VALOR) ou peso × preço (PESO)
+        adicionarItemNoCarrinho(
+            produto,
+            calc.quantidade,
+            calc.precoUnitario,
+            calc.mensagemExtra,
+            null,
+            {
+                etiquetaBalanca: {
+                    tipoPayload: calc.tipoPayload,
+                    subtotalFixo: calc.tipoPayload === 'VALOR' ? calc.subtotal : null
+                }
+            }
+        );
         return;
     }
 
     const validacaoMinima = pdvValidarEstoqueVenda(produto, 1);
     if (!validacaoMinima.sucesso) {
-        console.log('[PDV DEBUG] INTERRUPÇÃO carrinho: estoque', validacaoMinima.mensagem);
         showNotification(validacaoMinima.mensagem, 'danger');
         return;
     }
 
-    console.log('[PDV DEBUG] → iniciarFluxoAdicionarProdutoPdv (produto normal)', {
-        id: produto.id,
-        nome: produto.nome
+    pdvAuditoriaEquipamentos('carrinho_normal', {
+        codigo: String(codigoDigitado || ''),
+        resultado: 'OK',
+        produtoId: produto.id,
+        tempoMipMs,
+        tempoTotalMs: Number((nowMs() - t0Total).toFixed(3)),
+        quantidadeConsultas: consultas,
+        layoutUtilizado: null,
+        pluExtraido: null
     });
+
     buscarPromocaoAtivaProduto(produto.id).then(function(promocao) {
         iniciarFluxoAdicionarProdutoPdv(produto, promocao);
-        console.log('[PDV DEBUG] Carrinho: fluxo de adição iniciado');
     });
 }
 
@@ -2694,7 +3041,9 @@ function atualizarQuantidade(index, quantidade) {
         : Number(item.preco_base || produto?.preco_venda || item.preco_unitario || 0);
     item.desconto_percentual = precoBase > 0 ? Number(((1 - precoAplicado / precoBase) * 100).toFixed(2)) : 0;
     item.subtotal = Number((item.preco_unitario * novaQuantidade).toFixed(2));
+    animarTotalLinhaCarrinho(index);
     atualizarCarrinho();
+    focarCampoCodigo({ limpar: true });
 }
 
 function atualizarPercentual(index, percentual) {
@@ -2710,7 +3059,9 @@ function atualizarPercentual(index, percentual) {
     item.preco_unitario = precoAplicado > 0 ? precoAplicado : 0.01;
     item.preco_base = precoBase;
     item.subtotal = Number((item.preco_unitario * Number(item.quantidade || 0)).toFixed(2));
+    animarTotalLinhaCarrinho(index);
     atualizarCarrinho();
+    focarCampoCodigo({ limpar: true });
 }
 
 function atualizarPrecoUnitario(index, valor) {
@@ -2729,19 +3080,39 @@ function atualizarPrecoUnitario(index, valor) {
     item.preco_unitario = precoUnitario;
     item.preco_base = precoBase;
     item.subtotal = Number((precoUnitario * Number(item.quantidade || 0)).toFixed(2));
+    animarTotalLinhaCarrinho(index);
     atualizarCarrinho();
+    focarCampoCodigo({ limpar: true });
 }
 
 function removerItemCarrinho(index) {
     const item = carrinho[index];
     if (!item) return;
-    carrinho.splice(index, 1);
-    atualizarCarrinho();
-    showNotification(`${item.nome} removido do carrinho.`, 'info');
+
+    const finish = () => {
+        carrinho.splice(index, 1);
+        atualizarCarrinho();
+        showNotification(`${item.nome} removido do carrinho.`, 'info');
+        focarCampoCodigo({ limpar: true });
+    };
+
+    const $tr = $(`#tabelaItensVendaPdv tr[data-item-index="${index}"]`);
+    if ($tr.length && !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) {
+        $tr.addClass('pdv-item-removido');
+        setTimeout(finish, 200);
+        return;
+    }
+    finish();
 }
 
 function limparCarrinho() {
-    if (carrinho.length === 0) return;
+    if (carrinho.length === 0) {
+        if (window.PdvVendaEntrega && typeof PdvVendaEntrega.limparEstadoEntregaUi === 'function') {
+            PdvVendaEntrega.limparEstadoEntregaUi();
+        }
+        focarCampoCodigo({ limpar: true });
+        return;
+    }
     if (!window.confirm('Tem certeza que deseja limpar todo o carrinho?')) return;
 
     carrinho = [];
@@ -2753,12 +3124,16 @@ function limparCarrinho() {
     $('#pdvClienteBox').hide();
     $('#pdvDinheiroBox').hide();
     limparCamposPrazo();
+    if (window.PdvVendaEntrega && typeof PdvVendaEntrega.limparEstadoEntregaUi === 'function') {
+        PdvVendaEntrega.limparEstadoEntregaUi();
+    }
     atualizarCarrinho();
-    focarCampoCodigo();
+    focarCampoCodigo({ limpar: true });
     showNotification('Carrinho limpo com sucesso.', 'info');
 }
 
 function atualizarCarrinho() {
+    sincronizarCarrinhoGlobalPdv();
     const tbody = $('#tabelaItensVendaPdv');
     if (tbody.length) {
         tbody.html(renderCarrinhoItens());
@@ -2807,6 +3182,9 @@ function atualizarCarrinho() {
     // Só habilita finalizar se caixa aberto E houver itens no carrinho
     $('#btnFinalizarVendaPdv').prop('disabled', !caixaAberto || carrinho.length === 0 || total <= 0);
     $('#btnCancelarVendaPdv').prop('disabled', carrinho.length === 0);
+    if (window.PdvVendaEntrega && typeof PdvVendaEntrega.atualizarBotaoEntrega === 'function') {
+        PdvVendaEntrega.atualizarBotaoEntrega();
+    }
 }
 
 function calcularSubtotal() {
@@ -4012,6 +4390,7 @@ function finalizarPosVenda() {
     pagamentosMistos = [];
     supervisorAuthToken = null;
     pdvEmitirFiscalNaVenda = null;
+    window.pdvTipoVenda = 'BALCAO';
     $('#descontoPdv').val(0);
     $('#formaPagamentoPdv').val('');
     $('#valorRecebidoPDV').val('');
@@ -4019,7 +4398,7 @@ function finalizarPosVenda() {
     aoAlterarFormaPagamento();
     removerClienteSelecionado();
     atualizarCarrinho();
-    focarCampoCodigo();
+    focarCampoCodigo({ limpar: true });
 
     $.ajax({
         url: urlProdutosPdv(),
@@ -4037,7 +4416,16 @@ function finalizarPosVenda() {
 
 async function cancelarVendaAtual() {
     if (carrinho.length === 0) {
+        if (window.PdvVendaEntrega && typeof PdvVendaEntrega.estaConfigurada === 'function'
+            && PdvVendaEntrega.estaConfigurada()
+            && typeof PdvVendaEntrega.limparEstadoEntregaUi === 'function') {
+            PdvVendaEntrega.limparEstadoEntregaUi();
+            showNotification('Estado de entrega limpo.', 'info');
+            focarCampoCodigo({ limpar: true });
+            return;
+        }
         showNotification('Não há venda em andamento para cancelar.', 'info');
+        focarCampoCodigo({ limpar: true });
         return;
     }
 
@@ -4074,8 +4462,11 @@ async function cancelarVendaAtual() {
     $('#trocoPDV').text('R$ 0,00');
     aoAlterarFormaPagamento();
     removerClienteSelecionado();
+    if (window.PdvVendaEntrega && typeof PdvVendaEntrega.limparEstadoEntregaUi === 'function') {
+        PdvVendaEntrega.limparEstadoEntregaUi();
+    }
     atualizarCarrinho();
-    focarCampoCodigo();
+    focarCampoCodigo({ limpar: true });
     showNotification('Venda cancelada.', 'info');
 }
 
@@ -4438,6 +4829,7 @@ function abrirModalQuantidadeProduto(produto, callback, opcoes = {}) {
 
     modalEl.addEventListener('hidden.bs.modal', function () {
         $('#modalQuantidadeProduto').remove();
+        focarCampoCodigo({ limpar: true });
     });
 }
 
@@ -4487,6 +4879,11 @@ function confirmarQuantidadeProduto(produto, callback, modal, opcoes = {}) {
 }
 
 function abrirTelaPagamento() {
+    // Alias preservado: fluxo balcão original (Sprint 2 não altera este caminho)
+    return abrirTelaPagamentoBalcao();
+}
+
+function abrirTelaPagamentoBalcao() {
     const totalVenda = obterTotalVendaPDV();
 
     $('#modal-container').html(`
@@ -5241,7 +5638,7 @@ function abrirConsultaProdutosPDV() {
 
     modalEl.addEventListener('hidden.bs.modal', function () {
         $('#modalConsultaProdutosPDV').remove();
-        focarCampoCodigo();
+        focarCampoCodigo({ limpar: true });
     });
 }
 
@@ -5555,10 +5952,7 @@ document.addEventListener("keydown", (e) => {
     abrirFechamentoCaixa();
   }
 
-  if (e.key === "F10") {
-    e.preventDefault();
-    document.getElementById("btnFinalizarVendaPdv")?.click();
-  }
+  // F10: tratado no keydown do PDV (btnFinalizarVendaPdv) para evitar disparo duplo
 
   if (e.key === "Escape") {
     e.preventDefault();
@@ -5640,6 +6034,11 @@ $(document).on('hidden.bs.modal', '.modal', function () {
     if ($('.modal.show').length === 0) {
         $('body').removeClass('modal-open');
         $('body').css('padding-right', '');
+
+        // UX-03.3: devolver o teclado à barra de pesquisa do PDV
+        if (typeof currentPage !== 'undefined' && currentPage === 'pdv' && $('#buscaProdutoPdv').length) {
+            focarCampoCodigo({ limpar: true });
+        }
     }
 });
 

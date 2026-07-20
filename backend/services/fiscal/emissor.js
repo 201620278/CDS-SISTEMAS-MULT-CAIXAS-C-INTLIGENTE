@@ -360,16 +360,32 @@ async function emitirPorVendaId(vendaId) {
       `DigestValue: ${assinatura.digestValue || ''}`
     ].join('\n'));
 
+    const consultaUrlQr = String(config.urls?.consultaQr || '').trim();
+    if (!consultaUrlQr) {
+      throw new Error(
+        Number(config.ambiente) === 1
+          ? 'URL de consulta QR Code em PRODUÇÃO não configurada (fiscal_csc_qrcode_url_producao).'
+          : 'URL de consulta QR Code em HOMOLOGAÇÃO não configurada (fiscal_csc_qrcode_url_homologacao).'
+      );
+    }
+
     qrCodeUrl = gerarQRCodeNFCe({
       chave: xmlBase.chave,
       ambiente: config.ambiente,
       idCSC: config.idCSC,
-      CSC: config.tokenCSC
+      CSC: config.tokenCSC,
+      consultaUrl: consultaUrlQr,
+      uf: config.uf
     });
 
-    const urlConsulta = Number(config.ambiente) === 1
-      ? 'https://nfce.sefaz.ce.gov.br/pages/consultaNota.jsf'
-      : 'https://nfceh.sefaz.ce.gov.br/pages/consultaNota.jsf';
+    const urlConsulta = String(config.urls?.consultaChave || '').trim();
+    if (!urlConsulta) {
+      throw new Error(
+        Number(config.ambiente) === 1
+          ? 'URL de consulta por chave em PRODUÇÃO não configurada (fiscal_consulta_chave_url_producao).'
+          : 'URL de consulta por chave em HOMOLOGAÇÃO não configurada (fiscal_consulta_chave_url_homologacao).'
+      );
+    }
 
     const infNFeSupl = `<infNFeSupl><qrCode><![CDATA[${qrCodeUrl}]]></qrCode><urlChave>${urlConsulta}</urlChave></infNFeSupl>`;
 

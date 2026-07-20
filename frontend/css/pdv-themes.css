@@ -346,7 +346,7 @@ html[data-pdv-theme] .total-pdv strong {
 html[data-pdv-theme] .btn-finalizar {
   background: var(--pdv-success);
   color: #fff;
-  font-size: calc(15px * var(--pdv-font-mult));
+  font-size: calc(13px * var(--pdv-font-mult));
   box-shadow: var(--pdv-shadow);
   border: var(--pdv-border-w) solid transparent;
 }

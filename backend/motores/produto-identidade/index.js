@@ -29,7 +29,11 @@ const LegadoCdsValor56Layout = require('./layouts/LegadoCdsValor56Layout');
 const ToledoPrix4Valor55Layout = require('./layouts/ToledoPrix4Valor55Layout');
 const ToledoPrix4PesoLayout = require('./layouts/ToledoPrix4PesoLayout');
 const { LAYOUT_IDS, LAYOUT_DEFAULT, CONFIG_CHAVE_STRATEGY } = require('./layouts/layoutIds');
-const { resolverLayoutId } = require('./config/etiquetaBalancaConfig');
+const { resolverLayoutId, resolverLayoutConfig } = require('./config/etiquetaBalancaConfig');
+const { parseEtiquetaComLayout } = require('../equipamentos/layouts/ConfiguravelEtiquetaParser');
+const { normalizarLayoutEtiqueta } = require('../equipamentos/layouts/LayoutEtiquetaNormalizer');
+const { listarPresets: listarPresetsEtiqueta, obterPreset } = require('../equipamentos/layouts/presetsEtiqueta');
+const layoutEtiquetaService = require('../equipamentos/services/LayoutEtiquetaService');
 const {
   FLAG_CHAVE,
   isProdutoIdentidadeEnabled,
@@ -126,6 +130,12 @@ module.exports = {
   LAYOUT_DEFAULT,
   CONFIG_CHAVE_STRATEGY,
   resolverLayoutId,
+  resolverLayoutConfig,
+  parseEtiquetaComLayout,
+  normalizarLayoutEtiqueta,
+  listarPresetsEtiqueta,
+  obterPreset,
+  layoutEtiquetaService,
   validarPluOpcional,
   resolverFlagProdutoPesavel,
   extrairCandidatosCodigo,

@@ -1,12 +1,11 @@
 /**
- * Legado CDS — 2 + 5 (código) + 6 (valor centavos) + DV
- * Compatível com frontend/pdv/js/pdv.js interpretarCodigoBalanca
- * Ex.: 2000010014890 → produto 00001, valor R$ 14,89
+ * Adapter legado — delega ao parser configurável (preset Legado CDS 5+6).
  */
 
 const EtiquetaLayoutBase = require('./EtiquetaLayoutBase');
 const { LAYOUT_IDS } = require('./layoutIds');
-const { normalizarPlu } = require('../utils/normalizarPlu');
+const { obterPreset } = require('../../equipamentos/layouts/presetsEtiqueta');
+const { parseEtiquetaComLayout } = require('../../equipamentos/layouts/ConfiguravelEtiquetaParser');
 
 class LegadoCdsValor56Layout extends EtiquetaLayoutBase {
   get id() {
@@ -18,21 +17,9 @@ class LegadoCdsValor56Layout extends EtiquetaLayoutBase {
   }
 
   parse(codigo13) {
-    const limpo = String(codigo13 || '').replace(/\D/g, '');
-    if (!/^2\d{12}$/.test(limpo)) return null;
-
-    const pluRaw = limpo.substring(1, 6);
-    const valorTotal = Number(limpo.substring(6, 12)) / 100;
-
-    return {
-      plu: normalizarPlu(pluRaw),
-      pluRaw,
-      valorTotal,
-      peso: null,
-      tipoPayload: 'VALOR',
-      codigoOriginal: limpo,
-      layoutId: this.id
-    };
+    const parsed = parseEtiquetaComLayout(codigo13, obterPreset('legado_cds_valor_56'));
+    if (!parsed) return null;
+    return { ...parsed, layoutId: this.id };
   }
 }
 

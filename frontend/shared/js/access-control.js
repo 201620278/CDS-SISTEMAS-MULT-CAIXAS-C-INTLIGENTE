@@ -16,6 +16,7 @@ const PERMISSOES_PAGINAS = {
     'central-diagnostico': 'compras',
     fornecedores: 'fornecedores',
     vendas: 'vendas',
+    entregas: 'vendas',
     consulta: 'pdv',
     reimpressao: 'vendas',
     financeiro: 'financeiro',

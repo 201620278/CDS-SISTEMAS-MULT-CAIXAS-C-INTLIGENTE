@@ -57,6 +57,10 @@ function loadPage(page) {
             return typeof loadVendas === 'function'
                 ? loadVendas()
                 : $('#page-content').html('<div class="alert alert-danger">Erro ao carregar reimpressão.</div>');
+        case 'entregas':
+            return typeof loadEntregas === 'function'
+                ? loadEntregas()
+                : $('#page-content').html('<div class="alert alert-danger">Erro ao carregar entregas.</div>');
         case 'tef':
             showNotification('TEF integrado ao fluxo de venda. Para reimprimir comprovantes, use Reimpressão de Cupom.', 'info');
             return loadPage('reimpressao');

@@ -61,6 +61,10 @@ function loadPage(page) {
             return typeof loadVendas === 'function'
                 ? loadVendas()
                 : $('#page-content').html('<div class="alert alert-danger">Erro ao carregar histórico de vendas.</div>');
+        case 'entregas':
+            return typeof loadEntregas === 'function'
+                ? loadEntregas()
+                : $('#page-content').html('<div class="alert alert-danger">Erro ao carregar vendas para entrega.</div>');
         case 'financeiro':
             return carregarPaginaHtml('financeiro.html', function () {
                 if (typeof initFinanceiro === 'function') initFinanceiro();

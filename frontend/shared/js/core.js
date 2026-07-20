@@ -98,6 +98,13 @@ function aplicarRecursosImplantacao() {
 
     $('[data-recurso="fiscal"]').toggle(!!recursos.fiscal);
     $('[data-recurso="multiCaixa"]').toggle(!!recursos.multiCaixa);
+    $('[data-recurso="vendasEntrega"]').toggle(!!recursos.vendasEntrega);
+
+    document.body.classList.toggle('modulo-vendas-entrega', !!recursos.vendasEntrega);
+
+    if (window.PdvVendaEntrega && typeof window.PdvVendaEntrega.atualizarBotaoEntrega === 'function') {
+        window.PdvVendaEntrega.atualizarBotaoEntrega();
+    }
 
     if (!recursos.fiscal) {
         localStorage.setItem('pdv_modo_fiscal_ativo', '0');
@@ -118,6 +125,13 @@ function paginaPermitidaPorImplantacao(page) {
     if (page === 'central-entradas' && !implantacaoPermiteFiscal()) return false;
     if (page === 'central-diagnostico' && !implantacaoPermiteFiscal()) return false;
     if (page === 'caixas' && !implantacaoPermiteMultiCaixa()) return false;
+    if (page === 'entregas') {
+        try {
+            return obterRecursosImplantacao().vendasEntrega === true;
+        } catch (_) {
+            return false;
+        }
+    }
     return true;
 }
 

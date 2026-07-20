@@ -174,10 +174,10 @@ function renderConfiguracoes(configuracoes) {
             </div>
             <div class="card-body">
                 <p class="text-muted small mb-3">
-                    Cadastre balanças, configure IP/porta TCP, teste conexão e visualize status em tempo real.
+                    Motor de Equipamentos: cadastre balanças, configure o layout oficial da etiqueta (PLU/peso/valor) e teste conexão TCP.
                 </p>
                 <button type="button" class="btn btn-primary" onclick="loadPage('equipamentos')">
-                    <i class="fas fa-weight"></i> Gerenciar Balanças
+                    <i class="fas fa-weight"></i> Motor de Equipamentos — Balanças
                 </button>
                 <button type="button" class="btn btn-outline-primary ms-2" onclick="loadPage('laboratorio-equipamentos')">
                     <i class="fas fa-flask"></i> Laboratório de Engenharia
@@ -1378,6 +1378,24 @@ async function salvarConfiguracoesAvancadas() {
             tipoImplantacao,
             modo_confirmacao_fiscal: modoConfirmacaoFiscal,
             porta,
+            habilitar_vendas_entrega: $('#cfgHabilitarVendasEntrega').length
+                ? $('#cfgHabilitarVendasEntrega').is(':checked')
+                : !!(servidorAtual.habilitar_vendas_entrega || (servidorAtual.recursos && servidorAtual.recursos.vendasEntrega)),
+            imprimir_comprovante_entrega: $('#cfgImpComprovanteEntrega').length
+                ? $('#cfgImpComprovanteEntrega').is(':checked')
+                : servidorAtual.imprimir_comprovante_entrega !== false,
+            imprimir_comprovante_prestacao: $('#cfgImpComprovantePrestacao').length
+                ? $('#cfgImpComprovantePrestacao').is(':checked')
+                : servidorAtual.imprimir_comprovante_prestacao !== false,
+            imprimir_danfe_nfce_entrega: $('#cfgImpDanfeEntrega').length
+                ? $('#cfgImpDanfeEntrega').is(':checked')
+                : servidorAtual.imprimir_danfe_nfce_entrega !== false,
+            imprimir_cupom_nao_fiscal_entrega: $('#cfgImpCupomNaoFiscalEntrega').length
+                ? $('#cfgImpCupomNaoFiscalEntrega').is(':checked')
+                : !!servidorAtual.imprimir_cupom_nao_fiscal_entrega,
+            entrega_alerta_horas_aguardando: Number($('#cfgAlertaAguardando').val() || servidorAtual.entrega_alerta_horas_aguardando || 2),
+            entrega_alerta_horas_reserva: Number($('#cfgAlertaReserva').val() || servidorAtual.entrega_alerta_horas_reserva || 4),
+            entrega_alerta_horas_parado: Number($('#cfgAlertaParado').val() || servidorAtual.entrega_alerta_horas_parado || 3),
             modoOperacao: estacaoCliente
                 ? String(servidorAtual.modoOperacao || 'LOCAL').toUpperCase()
                 : modoOperacao,

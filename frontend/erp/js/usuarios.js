@@ -238,7 +238,13 @@ async function showModalNovoUsuario(usuario = null) {
         fornecedores: 'Fornecedores', financeiro: 'Financeiro', caixa: 'Caixa',
         abrir_caixa: 'Abrir caixa', sangria_caixa: 'Sangria', suprimento_caixa: 'Adicionar dinheiro (suprimento)',
         fiscal: 'Fiscal', configuracoes: 'Configurações', usuarios: 'Usuários', relatorios: 'Relatórios',
-        categorias: 'Categorias', auditoria: 'Auditoria', gerenciar_faixa_atacado: 'Gerenciar Faixa Atacado'
+        categorias: 'Categorias', auditoria: 'Auditoria', gerenciar_faixa_atacado: 'Gerenciar Faixa Atacado',
+        entrega_visualizar: 'Entrega — Visualizar',
+        entrega_criar: 'Entrega — Criar',
+        entrega_prestacao: 'Entrega — Prestação de Contas',
+        entrega_cancelar: 'Entrega — Cancelar',
+        entrega_reabrir: 'Entrega — Reabrir',
+        entrega_alterar_pagamento: 'Entrega — Alterar Pagamento'
     };
 
     const fallback = Object.entries(labelMap).map(([k, v]) => [k, v]);

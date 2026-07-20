@@ -304,7 +304,21 @@ function aplicarAlteracoesPosCriacao() {
     `ALTER TABLE vendas ADD COLUMN desconto_autorizado_por TEXT`,
     `ALTER TABLE vendas ADD COLUMN desconto_autorizado_em DATETIME`,
     `ALTER TABLE vendas ADD COLUMN valor_fiscal REAL DEFAULT 0`,
-    `ALTER TABLE vendas ADD COLUMN valor_nao_fiscal REAL DEFAULT 0`
+    `ALTER TABLE vendas ADD COLUMN valor_nao_fiscal REAL DEFAULT 0`,
+    // Sprint 1 — Vendas para Entrega (somente estrutura; sem regras)
+    `ALTER TABLE vendas ADD COLUMN tipo_venda TEXT DEFAULT 'BALCAO'`,
+    `ALTER TABLE vendas ADD COLUMN status_entrega TEXT`,
+    `ALTER TABLE vendas ADD COLUMN pagamento_previsto TEXT DEFAULT 'NAO_INFORMADO'`,
+    `ALTER TABLE vendas ADD COLUMN entregador TEXT`,
+    `ALTER TABLE vendas ADD COLUMN endereco_entrega TEXT`,
+    `ALTER TABLE vendas ADD COLUMN referencia_entrega TEXT`,
+    `ALTER TABLE vendas ADD COLUMN observacao_entrega TEXT`,
+    `ALTER TABLE vendas ADD COLUMN taxa_entrega DECIMAL(10,2) DEFAULT 0`,
+    `ALTER TABLE vendas ADD COLUMN leva_maquineta INTEGER DEFAULT 0`,
+    `ALTER TABLE vendas ADD COLUMN troco_para DECIMAL(10,2) DEFAULT 0`,
+    `ALTER TABLE vendas ADD COLUMN prestacao_realizada INTEGER DEFAULT 0`,
+    `ALTER TABLE vendas ADD COLUMN prestado_por INTEGER`,
+    `ALTER TABLE vendas ADD COLUMN prestado_em DATETIME`
   ];
 
   const alteracoesContasReceber = [
@@ -357,6 +371,37 @@ function aplicarAlteracoesPosCriacao() {
   aplicarAlteracaoSegura('equipamentos', `ALTER TABLE equipamentos ADD COLUMN timeout_ms INTEGER DEFAULT 5000`);
   aplicarAlteracaoSegura('equipamentos', `ALTER TABLE equipamentos ADD COLUMN reconnect_auto INTEGER DEFAULT 1`);
   aplicarAlteracaoSegura('equipamentos', `ALTER TABLE equipamentos ADD COLUMN ultima_comunicacao DATETIME`);
+
+  // Sprint 2 — Vendas para Entrega: reserva de estoque (sem baixa definitiva)
+  aplicarAlteracaoSegura('produtos', `ALTER TABLE produtos ADD COLUMN reservado_fiscal REAL DEFAULT 0`);
+  aplicarAlteracaoSegura('produtos', `ALTER TABLE produtos ADD COLUMN reservado_nao_fiscal REAL DEFAULT 0`);
+  aplicarAlteracaoSegura('vendas', `ALTER TABLE vendas ADD COLUMN telefone_entrega TEXT`);
+  aplicarAlteracaoSegura('venda_estoque_reservas', `ALTER TABLE venda_estoque_reservas ADD COLUMN atualizado_em DATETIME`);
+
+  // Sprint 2.1 — status da venda independente do status da entrega
+  aplicarAlteracaoSegura('vendas', `ALTER TABLE vendas ADD COLUMN status_venda TEXT DEFAULT 'ABERTA'`);
+
+  // Sprint 3.1 — índices de performance (entregas / reservas / auditoria)
+  aplicarAlteracaoSegura(
+    'vendas',
+    `CREATE INDEX IF NOT EXISTS idx_vendas_tipo_status_entrega ON vendas(tipo_venda, status_entrega)`
+  );
+  aplicarAlteracaoSegura(
+    'vendas',
+    `CREATE INDEX IF NOT EXISTS idx_vendas_tipo_prestacao ON vendas(tipo_venda, prestacao_realizada, status_venda)`
+  );
+  aplicarAlteracaoSegura(
+    'venda_estoque_reservas',
+    `CREATE INDEX IF NOT EXISTS idx_reservas_venda_status ON venda_estoque_reservas(venda_id, status)`
+  );
+  aplicarAlteracaoSegura(
+    'venda_estoque_reservas',
+    `CREATE INDEX IF NOT EXISTS idx_reservas_produto_status ON venda_estoque_reservas(produto_id, status)`
+  );
+  aplicarAlteracaoSegura(
+    'auditoria',
+    `CREATE INDEX IF NOT EXISTS idx_auditoria_modulo_ref ON auditoria(modulo, referencia_id)`
+  );
   aplicarAlteracaoSegura('equipamentos', `ALTER TABLE equipamentos ADD COLUMN ultimo_erro TEXT`);
 
   // Sprint 13A — Homologação Toledo: metadados de firmware e comunicação (nullable até homologação física)
@@ -1712,6 +1757,26 @@ function criarTabelas() {
     `, (err) => {
       if (err) console.error('Erro ao criar tabela venda_recebimentos:', err);
       else console.log('Tabela venda_recebimentos criada/verificada');
+    });
+
+    // Sprint 2 — reservas de estoque (Vendas para Entrega)
+    db.run(`
+      CREATE TABLE IF NOT EXISTS venda_estoque_reservas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        venda_id INTEGER NOT NULL,
+        venda_item_id INTEGER,
+        produto_id INTEGER NOT NULL,
+        quantidade_fiscal REAL DEFAULT 0,
+        quantidade_nao_fiscal REAL DEFAULT 0,
+        status TEXT DEFAULT 'ATIVA',
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+        atualizado_em DATETIME,
+        FOREIGN KEY (venda_id) REFERENCES vendas(id) ON DELETE CASCADE,
+        FOREIGN KEY (produto_id) REFERENCES produtos(id)
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela venda_estoque_reservas:', err);
+      else console.log('Tabela venda_estoque_reservas criada/verificada');
     });
 
     // Usuários do sistema (login)

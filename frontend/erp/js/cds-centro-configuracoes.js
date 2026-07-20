@@ -18,7 +18,7 @@
     { id: 'performance', icon: 'fa-tachometer-alt', label: 'Performance', keywords: 'timeout retry sync performance' },
     { id: 'backup', icon: 'fa-database', label: 'Backup', keywords: 'backup restauração' },
     { id: 'aparencia', icon: 'fa-palette', label: 'Aparência', keywords: 'tema aparência pdv visual' },
-    { id: 'avancado', icon: 'fa-cog', label: 'Avançado', keywords: 'rede ip porta cliente servidor local' }
+    { id: 'avancado', icon: 'fa-cog', label: 'Avançado', keywords: 'rede ip porta cliente servidor local módulos vendas entrega' }
   ]);
 
   let estadoExecutivo = {
@@ -121,6 +121,8 @@
     const ipServidor = config.ipServidor || '';
     const porta = Number(config.porta) > 0 ? Number(config.porta) : 3001;
     const clienteServidorDisponivel = tipo === 'ERP_MULTICAIXA';
+    const vendasEntregaOn = config.habilitar_vendas_entrega === true
+      || (config.recursos && config.recursos.vendasEntrega === true);
 
     return `
       <div class="cds-cfg-pane is-active" data-cfg-pane="geral">
@@ -389,6 +391,26 @@
             </button>
           </div>
         `, 'rede ip porta cliente servidor')}
+        ${card('<i class="fas fa-puzzle-piece"></i> Módulos', `
+          <p class="cds-cfg-hint mb-3">Módulos opcionais. Desabilitados por padrão — sem impacto no PDV até ativação.</p>
+          <div class="form-check" data-cfg-search="vendas para entrega módulo opcional">
+            <input class="form-check-input" type="checkbox" id="cfgHabilitarVendasEntrega" ${vendasEntregaOn ? 'checked' : ''}>
+            <label class="form-check-label" for="cfgHabilitarVendasEntrega">Habilitar Vendas para Entrega</label>
+          </div>
+          <div class="mt-3 ${vendasEntregaOn ? '' : 'opacity-50'}" id="cfgEntregaImpressaoBox">
+            <div class="fw-semibold mb-2">Impressão automática (Entrega)</div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="cfgImpComprovanteEntrega" ${config.imprimir_comprovante_entrega !== false ? 'checked' : ''}><label class="form-check-label" for="cfgImpComprovanteEntrega">Comprovante de Entrega</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="cfgImpComprovantePrestacao" ${config.imprimir_comprovante_prestacao !== false ? 'checked' : ''}><label class="form-check-label" for="cfgImpComprovantePrestacao">Comprovante de Prestação</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="cfgImpDanfeEntrega" ${config.imprimir_danfe_nfce_entrega !== false ? 'checked' : ''}><label class="form-check-label" for="cfgImpDanfeEntrega">DANFE NFC-e</label></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="cfgImpCupomNaoFiscalEntrega" ${config.imprimir_cupom_nao_fiscal_entrega === true ? 'checked' : ''}><label class="form-check-label" for="cfgImpCupomNaoFiscalEntrega">Cupom Não Fiscal</label></div>
+            <div class="row g-2 mt-2">
+              <div class="col-4"><label class="form-label small">Alerta aguardando (h)</label><input type="number" min="1" class="form-control form-control-sm" id="cfgAlertaAguardando" value="${Number(config.entrega_alerta_horas_aguardando || 2)}"></div>
+              <div class="col-4"><label class="form-label small">Alerta reserva (h)</label><input type="number" min="1" class="form-control form-control-sm" id="cfgAlertaReserva" value="${Number(config.entrega_alerta_horas_reserva || 4)}"></div>
+              <div class="col-4"><label class="form-label small">Alerta parado (h)</label><input type="number" min="1" class="form-control form-control-sm" id="cfgAlertaParado" value="${Number(config.entrega_alerta_horas_parado || 3)}"></div>
+            </div>
+          </div>
+          <small class="cds-cfg-hint d-block mt-2">Quando desabilitado, rotinas e widgets do módulo não são carregados.</small>
+        `, 'módulos vendas entrega impressão alertas')}
       </div>
     `;
   }

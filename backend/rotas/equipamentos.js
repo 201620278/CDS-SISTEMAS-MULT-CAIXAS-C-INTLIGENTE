@@ -7,9 +7,17 @@ router.get('/drivers', equipamentosController.listarDrivers);
 router.post('/testar', equipamentosController.testar);
 router.post('/diagnostico', equipamentosController.diagnostico);
 
+router.get('/layouts/presets', equipamentosController.listarPresetsLayout);
+router.get('/layouts/ativo', equipamentosController.obterLayoutAtivo);
+router.put('/layouts/ativo', equipamentosController.definirLayoutAtivo);
+router.post('/layouts/testar', equipamentosController.testarParseLayout);
+router.post('/etiquetas/interpretar', equipamentosController.interpretarEtiqueta);
+
 router.get('/', equipamentosController.listar);
 router.post('/', equipamentosController.criar);
 
+router.get('/:id/layout', equipamentosController.obterLayoutEquipamento);
+router.put('/:id/layout', equipamentosController.salvarLayoutEquipamento);
 router.get('/:id/conexao', equipamentosController.conexao);
 router.get('/:id/logs', equipamentosController.logs);
 router.get('/:id/diagnostico', equipamentosController.diagnostico);

@@ -179,6 +179,92 @@ async function logs(req, res) {
   }
 }
 
+async function listarPresetsLayout(req, res) {
+  try {
+    const presets = equipamentosService.listarPresetsLayout();
+    res.json({ success: true, presets });
+  } catch (error) {
+    responderErro(res, error, 'Erro ao listar presets de layout.');
+  }
+}
+
+async function obterLayoutAtivo(req, res) {
+  try {
+    const layout = await equipamentosService.obterLayoutAtivo();
+    res.json({
+      success: true,
+      layout: layout || null,
+      configurado: Boolean(layout)
+    });
+  } catch (error) {
+    responderErro(res, error, 'Erro ao obter layout ativo.');
+  }
+}
+
+async function definirLayoutAtivo(req, res) {
+  try {
+    const layout = await equipamentosService.definirLayoutAtivo(req.body?.layout || req.body || {});
+    res.json({ success: true, message: 'Layout ativo atualizado.', layout });
+  } catch (error) {
+    responderErro(res, error, 'Erro ao definir layout ativo.', error.statusCode || 400);
+  }
+}
+
+async function obterLayoutEquipamento(req, res) {
+  try {
+    const layout = await equipamentosService.obterLayoutEquipamento(req.params.id);
+    res.json({ success: true, layout: layout || null });
+  } catch (error) {
+    responderErro(res, error, 'Erro ao obter layout do equipamento.');
+  }
+}
+
+async function salvarLayoutEquipamento(req, res) {
+  try {
+    const definirComoAtivo = req.body?.layout_ativo === true
+      || req.body?.layout_ativo === 1
+      || req.body?.definir_como_ativo === true;
+    const layoutBruto = req.body?.layout || req.body;
+    const layout = await equipamentosService.salvarLayoutEquipamento(
+      req.params.id,
+      layoutBruto,
+      { definirComoAtivo }
+    );
+    res.json({ success: true, message: 'Layout salvo.', layout });
+  } catch (error) {
+    responderErro(res, error, 'Erro ao salvar layout.', error.statusCode || 400);
+  }
+}
+
+async function testarParseLayout(req, res) {
+  try {
+    const codigo = req.body?.codigo;
+    const layout = req.body?.layout || null;
+    const resultado = await Promise.resolve(
+      equipamentosService.testarParseLayout(codigo, layout)
+    );
+    res.json({ success: true, ...resultado });
+  } catch (error) {
+    responderErro(res, error, 'Erro ao testar parse de etiqueta.', error.statusCode || 400);
+  }
+}
+
+async function interpretarEtiqueta(req, res) {
+  try {
+    const codigo = req.body?.codigo;
+    if (!codigo) {
+      return res.status(400).json({ success: false, error: 'codigo é obrigatório' });
+    }
+    const resultado = await equipamentosService.interpretarEtiqueta(codigo, {
+      equipamentoId: req.body?.equipamento_id || req.body?.equipamentoId || null,
+      layout: req.body?.layout || null
+    });
+    res.json({ success: true, ...resultado });
+  } catch (error) {
+    responderErro(res, error, 'Erro ao interpretar etiqueta.', error.statusCode || 400);
+  }
+}
+
 module.exports = {
   listar,
   buscarPorId,
@@ -193,5 +279,12 @@ module.exports = {
   diagnostico,
   resumo,
   conexao,
-  logs
+  logs,
+  listarPresetsLayout,
+  obterLayoutAtivo,
+  definirLayoutAtivo,
+  obterLayoutEquipamento,
+  salvarLayoutEquipamento,
+  testarParseLayout,
+  interpretarEtiqueta
 };

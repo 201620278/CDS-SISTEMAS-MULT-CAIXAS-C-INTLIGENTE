@@ -1,9 +1,11 @@
 /**
- * Configurações → Equipamentos → Balanças (Sprint 9)
+ * Configurações → Motor de Equipamentos → Balanças (Sprint EQUIPAMENTOS 02)
  */
 
 let equipamentosCache = [];
 let driversCache = [];
+let presetsLayoutCache = [];
+let layoutAtivoCache = null;
 let filtrosEquipamentos = { tipo: 'balanca', busca: '', status: '', ativo: '' };
 
 function escapeHtmlEquipamentos(texto) {
@@ -52,25 +54,33 @@ async function carregarEquipamentosDados() {
     const apiUrl = apiUrlEquipamentos();
     const query = montarQueryFiltros();
 
-    const [respLista, respDrivers, respResumo] = await Promise.all([
+    const [respLista, respDrivers, respResumo, respPresets, respLayoutAtivo] = await Promise.all([
         fetch(`${apiUrl}/equipamentos?${query}`, { headers: headersEquipamentos() }),
         fetch(`${apiUrl}/equipamentos/drivers`, { headers: headersEquipamentos() }),
-        fetch(`${apiUrl}/equipamentos/resumo`, { headers: headersEquipamentos() })
+        fetch(`${apiUrl}/equipamentos/resumo`, { headers: headersEquipamentos() }),
+        fetch(`${apiUrl}/equipamentos/layouts/presets`, { headers: headersEquipamentos() }),
+        fetch(`${apiUrl}/equipamentos/layouts/ativo`, { headers: headersEquipamentos() })
     ]);
 
     const lista = await respLista.json();
     const drivers = await respDrivers.json();
     const resumo = await respResumo.json();
+    const presets = await respPresets.json().catch(() => ({ presets: [] }));
+    const layoutAtivo = await respLayoutAtivo.json().catch(() => ({ layout: null }));
 
     if (!respLista.ok) throw new Error(lista.error || 'Erro ao carregar equipamentos');
     if (!respDrivers.ok) throw new Error(drivers.error || 'Erro ao carregar drivers');
 
     equipamentosCache = lista.equipamentos || [];
     driversCache = drivers.drivers || [];
+    presetsLayoutCache = presets.presets || [];
+    layoutAtivoCache = layoutAtivo.layout || null;
 
     return {
         equipamentos: equipamentosCache,
         drivers: driversCache,
+        presets: presetsLayoutCache,
+        layoutAtivo: layoutAtivoCache,
         resumo: resumo.resumo || { quantidade: 0, online: 0, offline: 0, fila: 0, pendentes: 0 }
     };
 }
@@ -115,13 +125,16 @@ function renderTabelaEquipamentos(equipamentos) {
 }
 
 function renderPaginaEquipamentos(dados) {
-    const { equipamentos, resumo } = dados;
+    const { equipamentos, resumo, layoutAtivo } = dados;
+    const layoutResumo = layoutAtivo
+        ? `${escapeHtmlEquipamentos(layoutAtivo.preset_id || 'custom')} · PLU ${layoutAtivo.digitos_plu} · ${layoutAtivo.tipo_variavel} ${layoutAtivo.digitos_variavel}`
+        : 'Não configurado (padrão legado)';
 
     const html = `
         <nav aria-label="breadcrumb" class="mb-2">
             <ol class="breadcrumb mb-0">
                 <li class="breadcrumb-item"><a href="#" onclick="loadPage('configuracoes'); return false;">Configurações</a></li>
-                <li class="breadcrumb-item">Equipamentos</li>
+                <li class="breadcrumb-item">Motor de Equipamentos</li>
                 <li class="breadcrumb-item active">Balanças</li>
             </ol>
         </nav>
@@ -129,11 +142,23 @@ function renderPaginaEquipamentos(dados) {
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
             <div>
                 <h3 class="mb-0"><i class="fas fa-weight"></i> Balanças</h3>
-                <small class="text-muted">Cadastro e teste de conexão TCP — Motor Equipamentos</small>
+                <small class="text-muted">Cadastro, layout de etiqueta e conexão TCP — fonte oficial do PDV/MIP</small>
             </div>
             <div>
                 <button class="btn btn-outline-secondary me-2" onclick="diagnosticarEquipamento()"><i class="fas fa-stethoscope"></i> Diagnóstico geral</button>
                 <button class="btn btn-primary" onclick="abrirModalEquipamento()"><i class="fas fa-plus"></i> Nova balança</button>
+            </div>
+        </div>
+
+        <div class="alert alert-light border mb-3">
+            <div class="d-flex flex-wrap justify-content-between gap-2 align-items-center">
+                <div>
+                    <strong>Layout ativo (PDV)</strong>
+                    <div class="small text-muted">${layoutResumo}</div>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="abrirModalLayoutAtivo()">
+                    <i class="fas fa-barcode"></i> Configurar layout ativo
+                </button>
             </div>
         </div>
 
@@ -246,9 +271,182 @@ function loadEquipamentos() {
         });
 }
 
-function abrirModalEquipamento(equipamento = null) {
+function layoutPadraoFormulario() {
+    const preset = presetsLayoutCache.find((p) => p.id === 'toledo_prix4_uno_valor')
+        || presetsLayoutCache[0];
+    return preset?.layout || {
+        preset_id: 'toledo_prix4_uno_valor',
+        prefixo: '2',
+        digitos_plu: 6,
+        tipo_variavel: 'VALOR',
+        posicao_inicial: 8,
+        posicao_final: 12,
+        digitos_variavel: 5,
+        tamanho_total: 13,
+        digito_verificador: true
+    };
+}
+
+function htmlCamposLayoutEtiqueta(layout, prefixoId = 'eq') {
+    const L = layout || layoutPadraoFormulario();
+    const tipo = String(L.tipo_variavel || 'VALOR').toUpperCase();
+    const optionsPresets = presetsLayoutCache.map((p) =>
+        `<option value="${escapeHtmlEquipamentos(p.id)}" ${L.preset_id === p.id ? 'selected' : ''}>${escapeHtmlEquipamentos(p.nome)}</option>`
+    ).join('');
+
+    return `
+        <hr class="my-3">
+        <h6 class="mb-2"><i class="fas fa-barcode"></i> Configuração do Layout da Etiqueta</h6>
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <label class="form-label fw-bold">Modelo de layout</label>
+                <select class="form-select" id="${prefixoId}LayoutPreset" onchange="aplicarPresetLayoutFormulario('${prefixoId}')">
+                    ${optionsPresets || '<option value="outro">Outro</option>'}
+                </select>
+                <small class="text-muted">Exemplos: Toledo Prix IV Uno, Prix V, Filizola, Urano, Elgin, Outro</small>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="form-label fw-bold">Prefixo</label>
+                <input type="text" class="form-control" id="${prefixoId}LayoutPrefixo" value="${escapeHtmlEquipamentos(L.prefixo || '2')}" placeholder="2">
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="form-label fw-bold">Dígitos do PLU</label>
+                <input type="number" min="1" max="10" class="form-control" id="${prefixoId}LayoutDigitosPlu" value="${Number(L.digitos_plu || 6)}">
+            </div>
+            <div class="col-md-6 mb-3">
+                <label class="form-label fw-bold d-block">Tipo da informação variável</label>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="${prefixoId}LayoutTipo" id="${prefixoId}LayoutTipoPeso" value="PESO" ${tipo === 'PESO' ? 'checked' : ''}>
+                    <label class="form-check-label" for="${prefixoId}LayoutTipoPeso">Peso</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="${prefixoId}LayoutTipo" id="${prefixoId}LayoutTipoValor" value="VALOR" ${tipo !== 'PESO' ? 'checked' : ''}>
+                    <label class="form-check-label" for="${prefixoId}LayoutTipoValor">Valor</label>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="form-label fw-bold">Posição inicial</label>
+                <input type="number" min="1" class="form-control" id="${prefixoId}LayoutPosIni" value="${Number(L.posicao_inicial || 8)}">
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="form-label fw-bold">Posição final</label>
+                <input type="number" min="1" class="form-control" id="${prefixoId}LayoutPosFim" value="${Number(L.posicao_final || 12)}">
+            </div>
+            <div class="col-md-4 mb-3">
+                <label class="form-label fw-bold">Dígitos da informação variável</label>
+                <input type="number" min="1" max="10" class="form-control" id="${prefixoId}LayoutDigitosVar" value="${Number(L.digitos_variavel || 5)}">
+            </div>
+            <div class="col-md-4 mb-3">
+                <label class="form-label fw-bold">Tamanho total do código</label>
+                <input type="number" min="8" max="18" class="form-control" id="${prefixoId}LayoutTamanho" value="${Number(L.tamanho_total || 13)}">
+            </div>
+            <div class="col-md-4 mb-3">
+                <label class="form-label fw-bold">Dígito verificador</label>
+                <select class="form-select" id="${prefixoId}LayoutDv">
+                    <option value="1" ${L.digito_verificador !== false ? 'selected' : ''}>Sim</option>
+                    <option value="0" ${L.digito_verificador === false ? 'selected' : ''}>Não</option>
+                </select>
+            </div>
+            <div class="col-md-8 mb-3">
+                <label class="form-label">Testar etiqueta</label>
+                <div class="input-group">
+                    <input type="text" class="form-control" id="${prefixoId}LayoutTesteCodigo" placeholder="Ex.: 2000067010019" value="2000067010019">
+                    <button type="button" class="btn btn-outline-secondary" onclick="testarParseLayoutFormulario('${prefixoId}')">Testar</button>
+                </div>
+                <small class="text-muted" id="${prefixoId}LayoutTesteResultado">Aceite: 2000067010019 → PLU 67 (Toledo 6+5)</small>
+            </div>
+            <div class="col-md-4 mb-3 d-flex align-items-end">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="${prefixoId}LayoutAtivoPdv" ${prefixoId === 'ativo' ? 'checked' : ''}>
+                    <label class="form-check-label" for="${prefixoId}LayoutAtivoPdv">Usar como layout ativo no PDV</label>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function coletarLayoutDoFormulario(prefixoId = 'eq') {
+    const tipoEl = document.querySelector(`input[name="${prefixoId}LayoutTipo"]:checked`);
+    return {
+        preset_id: document.getElementById(`${prefixoId}LayoutPreset`)?.value || 'outro',
+        prefixo: document.getElementById(`${prefixoId}LayoutPrefixo`)?.value?.trim() || '2',
+        digitos_plu: Number(document.getElementById(`${prefixoId}LayoutDigitosPlu`)?.value || 0),
+        tipo_variavel: tipoEl?.value || 'VALOR',
+        posicao_inicial: Number(document.getElementById(`${prefixoId}LayoutPosIni`)?.value || 0),
+        posicao_final: Number(document.getElementById(`${prefixoId}LayoutPosFim`)?.value || 0),
+        digitos_variavel: Number(document.getElementById(`${prefixoId}LayoutDigitosVar`)?.value || 0),
+        tamanho_total: Number(document.getElementById(`${prefixoId}LayoutTamanho`)?.value || 13),
+        digito_verificador: document.getElementById(`${prefixoId}LayoutDv`)?.value !== '0'
+    };
+}
+
+function aplicarPresetLayoutFormulario(prefixoId = 'eq') {
+    const presetId = document.getElementById(`${prefixoId}LayoutPreset`)?.value;
+    const preset = presetsLayoutCache.find((p) => p.id === presetId);
+    if (!preset?.layout) return;
+    const L = preset.layout;
+    document.getElementById(`${prefixoId}LayoutPrefixo`).value = L.prefixo || '2';
+    document.getElementById(`${prefixoId}LayoutDigitosPlu`).value = L.digitos_plu || 6;
+    document.getElementById(`${prefixoId}LayoutPosIni`).value = L.posicao_inicial || 8;
+    document.getElementById(`${prefixoId}LayoutPosFim`).value = L.posicao_final || 12;
+    document.getElementById(`${prefixoId}LayoutDigitosVar`).value = L.digitos_variavel || 5;
+    document.getElementById(`${prefixoId}LayoutTamanho`).value = L.tamanho_total || 13;
+    document.getElementById(`${prefixoId}LayoutDv`).value = L.digito_verificador === false ? '0' : '1';
+    const tipo = String(L.tipo_variavel || 'VALOR').toUpperCase();
+    const peso = document.getElementById(`${prefixoId}LayoutTipoPeso`);
+    const valor = document.getElementById(`${prefixoId}LayoutTipoValor`);
+    if (peso && valor) {
+        peso.checked = tipo === 'PESO';
+        valor.checked = tipo !== 'PESO';
+    }
+    if (preset.fabricante && document.getElementById('eqFabricante') && !document.getElementById('eqFabricante').value) {
+        document.getElementById('eqFabricante').value = preset.fabricante;
+    }
+    if (preset.modelo && document.getElementById('eqModelo') && !document.getElementById('eqModelo').value) {
+        document.getElementById('eqModelo').value = preset.modelo;
+    }
+}
+
+async function testarParseLayoutFormulario(prefixoId = 'eq') {
+    const codigo = document.getElementById(`${prefixoId}LayoutTesteCodigo`)?.value?.trim();
+    const layout = coletarLayoutDoFormulario(prefixoId);
+    const el = document.getElementById(`${prefixoId}LayoutTesteResultado`);
+    try {
+        const resp = await fetch(`${apiUrlEquipamentos()}/equipamentos/layouts/testar`, {
+            method: 'POST',
+            headers: headersEquipamentos(),
+            body: JSON.stringify({ codigo, layout })
+        });
+        const body = await resp.json();
+        if (!resp.ok) throw new Error(body.error || 'Falha no teste');
+        if (!body.sucesso || !body.resultado) {
+            if (el) el.textContent = 'Não foi possível interpretar o código com este layout.';
+            return;
+        }
+        const r = body.resultado;
+        const extra = r.tipoPayload === 'VALOR'
+            ? ` · R$ ${Number(r.valorTotal || 0).toFixed(2)}`
+            : ` · ${Number(r.peso || 0).toFixed(3)} kg`;
+        if (el) el.textContent = `PLU = ${r.plu}${extra}`;
+    } catch (err) {
+        if (el) el.textContent = err.message;
+        showNotification(err.message, 'danger');
+    }
+}
+
+async function abrirModalEquipamento(equipamento = null) {
     const isEdicao = Boolean(equipamento);
-    const eq = equipamento || {};
+    let eq = equipamento || {};
+
+    if (isEdicao && eq.id) {
+        try {
+            const resp = await fetch(`${apiUrlEquipamentos()}/equipamentos/${eq.id}`, { headers: headersEquipamentos() });
+            const body = await resp.json();
+            if (resp.ok && body.equipamento) eq = body.equipamento;
+        } catch (_) { /* usa cache */ }
+    }
+
+    const layout = eq.layout_etiqueta || layoutPadraoFormulario();
 
     const optionsDrivers = driversCache.map((d) =>
         `<option value="${escapeHtmlEquipamentos(d.codigo)}" data-id="${d.id}" data-fab="${escapeHtmlEquipamentos(d.fabricante)}" data-mod="${escapeHtmlEquipamentos(d.modelo)}" ${eq.driver_codigo === d.codigo ? 'selected' : ''}>${escapeHtmlEquipamentos(d.nome_exibicao)}</option>`
@@ -256,7 +454,7 @@ function abrirModalEquipamento(equipamento = null) {
 
     $('#modal-container').html(`
         <div class="modal fade" id="modalEquipamento" tabindex="-1">
-            <div class="modal-dialog modal-lg">
+            <div class="modal-dialog modal-xl modal-dialog-scrollable">
                 <div class="modal-content">
                     <div class="modal-header">
                         <h5 class="modal-title">${isEdicao ? 'Editar' : 'Nova'} balança</h5>
@@ -283,6 +481,12 @@ function abrirModalEquipamento(equipamento = null) {
                             <div class="col-md-4 mb-3">
                                 <label class="form-label">Modelo</label>
                                 <input type="text" class="form-control" id="eqModelo" value="${escapeHtmlEquipamentos(eq.modelo || '')}">
+                            </div>
+                            <div class="col-md-4 mb-3 d-flex align-items-end">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="eqAtivo" ${eq.ativo !== false ? 'checked' : ''}>
+                                    <label class="form-check-label" for="eqAtivo">Ativa</label>
+                                </div>
                             </div>
                             <div class="col-md-4 mb-3">
                                 <label class="form-label fw-bold">Transporte</label>
@@ -315,17 +519,12 @@ function abrirModalEquipamento(equipamento = null) {
                                     <label class="form-check-label" for="eqReconnectAuto">Reconectar automaticamente</label>
                                 </div>
                             </div>
-                            <div class="col-md-4 mb-3 d-flex align-items-end">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" id="eqAtivo" ${eq.ativo !== false ? 'checked' : ''}>
-                                    <label class="form-check-label" for="eqAtivo">Ativo</label>
-                                </div>
-                            </div>
                             <div class="col-12 mb-3">
                                 <label class="form-label">Observações</label>
                                 <textarea class="form-control" id="eqObservacao" rows="2">${escapeHtmlEquipamentos(eq.observacao || '')}</textarea>
                             </div>
                         </div>
+                        ${htmlCamposLayoutEtiqueta(layout, 'eq')}
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -337,6 +536,53 @@ function abrirModalEquipamento(equipamento = null) {
     `);
 
     new bootstrap.Modal(document.getElementById('modalEquipamento')).show();
+}
+
+function abrirModalLayoutAtivo() {
+    const layout = layoutAtivoCache || layoutPadraoFormulario();
+    $('#modal-container').html(`
+        <div class="modal fade" id="modalLayoutAtivo" tabindex="-1">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title"><i class="fas fa-barcode"></i> Layout ativo — PDV / MIP</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        ${htmlCamposLayoutEtiqueta(layout, 'ativo')}
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="button" class="btn btn-primary" onclick="salvarLayoutAtivoGlobal()">Salvar layout ativo</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `);
+    const chk = document.getElementById('ativoLayoutAtivoPdv');
+    if (chk) {
+        chk.checked = true;
+        chk.disabled = true;
+    }
+    new bootstrap.Modal(document.getElementById('modalLayoutAtivo')).show();
+}
+
+async function salvarLayoutAtivoGlobal() {
+    try {
+        const layout = coletarLayoutDoFormulario('ativo');
+        const resp = await fetch(`${apiUrlEquipamentos()}/equipamentos/layouts/ativo`, {
+            method: 'PUT',
+            headers: headersEquipamentos(),
+            body: JSON.stringify({ layout })
+        });
+        const body = await resp.json();
+        if (!resp.ok) throw new Error(body.error || 'Erro ao salvar');
+        bootstrap.Modal.getInstance(document.getElementById('modalLayoutAtivo'))?.hide();
+        showNotification(body.message || 'Layout ativo salvo', 'success');
+        loadEquipamentos();
+    } catch (err) {
+        showNotification(err.message, 'danger');
+    }
 }
 
 function preencherFabricanteModeloDriver() {
@@ -364,7 +610,9 @@ function coletarDadosFormEquipamento() {
         timeout_ms: document.getElementById('eqTimeout').value ? Number(document.getElementById('eqTimeout').value) : 5000,
         reconnect_auto: document.getElementById('eqReconnectAuto').checked,
         ativo: document.getElementById('eqAtivo').checked,
-        observacao: document.getElementById('eqObservacao').value.trim() || null
+        observacao: document.getElementById('eqObservacao').value.trim() || null,
+        layout_etiqueta: coletarLayoutDoFormulario('eq'),
+        layout_ativo: document.getElementById('eqLayoutAtivoPdv')?.checked === true
     };
 }
 

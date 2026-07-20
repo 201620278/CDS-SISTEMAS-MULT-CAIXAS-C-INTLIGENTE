@@ -1,15 +1,11 @@
 /**
- * Toledo Prix 4 Uno — transmissão de VALOR
- * 2 + 6 (PLU) + 5 (valor centavos) + DV
- *
- * Casos reais (cliente):
- * 2000067012631 → PLU 67, R$ 12,63
- * 2000052018945 → PLU 52, R$ 18,94
+ * Adapter Toledo Prix 4 Valor — delega ao parser configurável.
  */
 
 const EtiquetaLayoutBase = require('./EtiquetaLayoutBase');
 const { LAYOUT_IDS } = require('./layoutIds');
-const { normalizarPlu } = require('../utils/normalizarPlu');
+const { obterPreset } = require('../../equipamentos/layouts/presetsEtiqueta');
+const { parseEtiquetaComLayout } = require('../../equipamentos/layouts/ConfiguravelEtiquetaParser');
 
 class ToledoPrix4Valor55Layout extends EtiquetaLayoutBase {
   get id() {
@@ -21,21 +17,9 @@ class ToledoPrix4Valor55Layout extends EtiquetaLayoutBase {
   }
 
   parse(codigo13) {
-    const limpo = String(codigo13 || '').replace(/\D/g, '');
-    if (!/^2\d{12}$/.test(limpo)) return null;
-
-    const pluRaw = limpo.substring(1, 7);
-    const valorTotal = Number(limpo.substring(7, 12)) / 100;
-
-    return {
-      plu: normalizarPlu(pluRaw),
-      pluRaw,
-      valorTotal,
-      peso: null,
-      tipoPayload: 'VALOR',
-      codigoOriginal: limpo,
-      layoutId: this.id
-    };
+    const parsed = parseEtiquetaComLayout(codigo13, obterPreset('toledo_prix4_uno_valor'));
+    if (!parsed) return null;
+    return { ...parsed, layoutId: this.id };
   }
 }
 

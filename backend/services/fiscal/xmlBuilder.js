@@ -10,7 +10,6 @@ const {
   xmlEscape
 } = require('./utils');
 
-const { gerarQRCodeNFCe } = require('./qrcode');
 const { extrairNomeEmpresaDoCertificado } = require('./certificateService');
 const { normalizarUnidadeComercialFiscal } = require('./unidadeFiscal');
 

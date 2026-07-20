@@ -278,6 +278,73 @@ function tituloColunaEstoqueLista() {
     return 'Estoque';
 }
 
+function formatarEstoqueCompletoProduto(p) {
+    const unidade = p?.unidade || '';
+    const opcoesFormato = { produtoFracionado: produtoUsaConversaoUnidades(p) };
+    const fiscal = Number(p.saldo_fiscal ?? 0);
+    const naoFiscal = Number(p.saldo_nao_fiscal ?? 0);
+    const resF = Number(p.reservado_fiscal ?? 0);
+    const resNf = Number(p.reservado_nao_fiscal ?? 0);
+    const dispF = Math.max(0, fiscal - resF);
+    const dispNf = Math.max(0, naoFiscal - resNf);
+    const total = Number(p.estoque_atual ?? (fiscal + naoFiscal));
+    const resTotal = resF + resNf;
+    const dispTotal = dispF + dispNf;
+    const fmt = (v) => formatarEstoqueProduto(v, unidade, opcoesFormato);
+
+    return `
+      <div class="small estoque-reserva-box" data-produto-id="${p.id}">
+        <div>Fiscal: ${fmt(fiscal)} · Res. F: <a href="#" class="link-reservas-produto" data-id="${p.id}">${fmt(resF)}</a> · Disp. F: ${fmt(dispF)}</div>
+        <div>Não Fiscal: ${fmt(naoFiscal)} · Res. NF: <a href="#" class="link-reservas-produto" data-id="${p.id}">${fmt(resNf)}</a> · Disp. NF: ${fmt(dispNf)}</div>
+        <div class="fw-semibold">Total: ${fmt(total)} · Res. Σ: <a href="#" class="link-reservas-produto" data-id="${p.id}">${fmt(resTotal)}</a> · Disp. Σ: ${fmt(dispTotal)}</div>
+      </div>`;
+}
+
+async function abrirModalReservasProduto(produtoId) {
+    try {
+        const resp = await fetch(`${API_URL}/vendas/entregas/reservas-produto/${produtoId}`, {
+            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.error || 'Falha ao carregar reservas.');
+        const items = data.items || [];
+        const linhas = items.length
+            ? items.map((r) => `
+                <tr>
+                  <td>#${r.venda_id}</td>
+                  <td>${escapeHtml(r.cliente_nome || '—')}</td>
+                  <td>${escapeHtml(r.entregador || '—')}</td>
+                  <td>${Number(r.quantidade_fiscal || 0)}</td>
+                  <td>${Number(r.quantidade_nao_fiscal || 0)}</td>
+                  <td>${escapeHtml(r.status_entrega || '')}</td>
+                </tr>`).join('')
+            : '<tr><td colspan="6" class="text-center text-muted">Nenhuma reserva ativa.</td></tr>';
+
+        $('#modal-container').html(`
+          <div class="modal fade" id="modalReservasProduto" tabindex="-1">
+            <div class="modal-dialog modal-lg modal-dialog-centered">
+              <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">Reservas do produto #${produtoId}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body table-responsive">
+                  <table class="table table-sm"><thead><tr>
+                    <th>Pedido</th><th>Cliente</th><th>Entregador</th><th>Res. Fiscal</th><th>Res. NF</th><th>Status</th>
+                  </tr></thead><tbody>${linhas}</tbody></table>
+                </div>
+              </div>
+            </div>
+          </div>`);
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('modalReservasProduto')).show();
+    } catch (err) {
+        if (typeof showNotification === 'function') showNotification(err.message || 'Erro', 'danger');
+    }
+}
+
+$(document).on('click', '.link-reservas-produto', function (e) {
+    e.preventDefault();
+    abrirModalReservasProduto($(this).data('id'));
+});
+
 function formatarEstoqueDetalheProduto(produto) {
     const unidade = produto.unidade || '';
     const opcoesFormato = { produtoFracionado: produtoUsaConversaoUnidades(produto) };
@@ -285,6 +352,12 @@ function formatarEstoqueDetalheProduto(produto) {
     if (typeof isModoFiscalVisualizacaoAtivo === 'function' && isModoFiscalVisualizacaoAtivo()) {
         const fiscal = Number(produto.saldo_fiscal ?? 0);
         return `<p><strong>Estoque Fiscal:</strong> ${formatarEstoqueProduto(fiscal, unidade, opcoesFormato)}</p>`;
+    }
+
+    // Com módulo entrega: exibe reservado/disponível
+    if (Number(produto.reservado_fiscal || 0) > 0 || Number(produto.reservado_nao_fiscal || 0) > 0
+        || (typeof obterRecursosImplantacao === 'function' && obterRecursosImplantacao().vendasEntrega)) {
+        return formatarEstoqueCompletoProduto(produto);
     }
 
     const fiscal = Number(produto.saldo_fiscal ?? 0);
@@ -565,6 +638,11 @@ function formatarColunaEstoqueLista(p) {
 
     if (typeof isModoFiscalVisualizacaoAtivo === 'function' && isModoFiscalVisualizacaoAtivo()) {
         return formatarEstoqueProduto(Number(p.saldo_fiscal ?? 0), unidade, opcoesFormato);
+    }
+
+    if (Number(p.reservado_fiscal || 0) > 0 || Number(p.reservado_nao_fiscal || 0) > 0
+        || (typeof obterRecursosImplantacao === 'function' && obterRecursosImplantacao().vendasEntrega)) {
+        return formatarEstoqueCompletoProduto(p);
     }
 
     const fiscal = Number(p.saldo_fiscal ?? 0);

@@ -28,7 +28,14 @@ const PERMISSOES_DISPONIVEIS = [
   'relatorios',
   'auditoria',
   'categorias',
-  'gerenciar_faixa_atacado'
+  'gerenciar_faixa_atacado',
+  // Sprint 1 — Vendas para Entrega
+  'entrega_visualizar',
+  'entrega_criar',
+  'entrega_prestacao',
+  'entrega_cancelar',
+  'entrega_reabrir',
+  'entrega_alterar_pagamento'
 ];
 
 function extrairToken(req) {

@@ -1,14 +1,11 @@
 /**
- * Toledo Prix 4 — transmissão de PESO
- * 2 + 6 (PLU) + 5 (peso em gramas) + DV
- * Peso kg = gramas / 1000
- *
- * Ex.: 2000067012640 → PLU 67, peso 1,264 kg
+ * Adapter Toledo Prix 4 Peso — delega ao parser configurável.
  */
 
 const EtiquetaLayoutBase = require('./EtiquetaLayoutBase');
 const { LAYOUT_IDS } = require('./layoutIds');
-const { normalizarPlu } = require('../utils/normalizarPlu');
+const { obterPreset } = require('../../equipamentos/layouts/presetsEtiqueta');
+const { parseEtiquetaComLayout } = require('../../equipamentos/layouts/ConfiguravelEtiquetaParser');
 
 class ToledoPrix4PesoLayout extends EtiquetaLayoutBase {
   get id() {
@@ -20,22 +17,9 @@ class ToledoPrix4PesoLayout extends EtiquetaLayoutBase {
   }
 
   parse(codigo13) {
-    const limpo = String(codigo13 || '').replace(/\D/g, '');
-    if (!/^2\d{12}$/.test(limpo)) return null;
-
-    const pluRaw = limpo.substring(1, 7);
-    const gramas = Number(limpo.substring(7, 12));
-    const peso = gramas / 1000;
-
-    return {
-      plu: normalizarPlu(pluRaw),
-      pluRaw,
-      valorTotal: null,
-      peso,
-      tipoPayload: 'PESO',
-      codigoOriginal: limpo,
-      layoutId: this.id
-    };
+    const parsed = parseEtiquetaComLayout(codigo13, obterPreset('toledo_prix4_uno_peso'));
+    if (!parsed) return null;
+    return { ...parsed, layoutId: this.id };
   }
 }
 

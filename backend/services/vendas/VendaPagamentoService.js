@@ -506,6 +506,12 @@ function criarVenda(req, res) {
 console.log('ENTROU NA ROTA DE EMISSAO NFC-E');
 console.log('DADOS RECEBIDOS PARA EMISSAO:', req.body);
 
+const tipoVendaCanal = String(req.body?.tipo_venda || 'BALCAO').toUpperCase();
+if (tipoVendaCanal === 'ENTREGA') {
+  const { criarVendaEntrega } = require('../entrega/CriarVendaEntregaService');
+  return criarVendaEntrega(req, res);
+}
+
 const {
   cliente_id,
   total,
@@ -604,7 +610,9 @@ db.all(`
     nome,
     saldo_fiscal,
     saldo_nao_fiscal,
-    estoque_atual
+    estoque_atual,
+    COALESCE(reservado_fiscal, 0) AS reservado_fiscal,
+    COALESCE(reservado_nao_fiscal, 0) AS reservado_nao_fiscal
   FROM produtos
   WHERE id IN (${produtoIds.map(() => '?').join(',')})
 `, produtoIds, (err, produtos) => {
@@ -612,6 +620,8 @@ db.all(`
     res.status(500).json({ error: err.message });
     return;
   }
+
+  const { calcularEstoqueProduto } = require('../estoque/EstoqueDisponivelService');
 
   const produtoMap = produtos.reduce((map, produto) => {
     map[produto.id] = produto;
@@ -638,11 +648,13 @@ db.all(`
     const produto =
       produtoMap[item.produto_id];
 
+    const calc = calcularEstoqueProduto(produto);
+
     const resultado =
       distribuirItemVenda(
         item,
-        Number(produto.saldo_fiscal || 0),
-        Number(produto.saldo_nao_fiscal || 0),
+        calc.disponivel_fiscal,
+        calc.disponivel_nao_fiscal,
         vendaFiscal
       );
 

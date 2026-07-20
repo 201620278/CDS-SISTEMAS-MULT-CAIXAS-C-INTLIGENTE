@@ -79,6 +79,24 @@ async function carregarAuditoria(page = 1) {
     }
 }
 
+function exportarAuditoriaCsv() {
+    const rows = [];
+    document.querySelectorAll('#auditTabelaCorpo tr').forEach((tr) => {
+        const cols = Array.from(tr.querySelectorAll('td')).map((td) => `"${String(td.textContent || '').replace(/"/g, '""')}"`);
+        if (cols.length) rows.push(cols.join(';'));
+    });
+    if (!rows.length) {
+        if (typeof showNotification === 'function') showNotification('Nada para exportar.', 'warning');
+        return;
+    }
+    const header = '"Data";"Usuário";"Módulo";"Ação";"Referência";"Detalhes"';
+    const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `auditoria-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+}
+
 function inicializarPaginaAuditoria() {
     if (!document.getElementById('auditTabelaCorpo')) {
         return;
@@ -87,13 +105,25 @@ function inicializarPaginaAuditoria() {
     const btnBuscar = document.getElementById('auditBuscar');
     const btnPrev = document.getElementById('auditPrev');
     const btnNext = document.getElementById('auditNext');
+    const btnExport = document.getElementById('auditExportar');
 
     if (btnBuscar) btnBuscar.onclick = () => carregarAuditoria(1);
     if (btnPrev) btnPrev.onclick = () => carregarAuditoria(Math.max(1, auditPage - 1));
     if (btnNext) btnNext.onclick = () => carregarAuditoria(auditPage + 1);
+    if (btnExport) btnExport.onclick = exportarAuditoriaCsv;
+
+    // Deep-link ?modulo=vendas_entrega
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const modulo = params.get('modulo');
+        if (modulo && document.getElementById('auditFiltroModulo')) {
+            document.getElementById('auditFiltroModulo').value = modulo;
+        }
+    } catch (_) { /* ignore */ }
 
     carregarAuditoria(1);
 }
 
 window.carregarAuditoria = carregarAuditoria;
 window.inicializarPaginaAuditoria = inicializarPaginaAuditoria;
+window.exportarAuditoriaCsv = exportarAuditoriaCsv;

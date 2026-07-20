@@ -1,12 +1,12 @@
 /**
- * EtiquetaBalancaStrategy — interpreta EAN-13 prefixo 2 via LayoutRegistry (Sprint 04).
- * Não altera o PDV; disponível no MIP para resolve() quando flag ON.
+ * EtiquetaBalancaStrategy — interpreta EAN-13 prefixo 2 via layout cadastrado
+ * no Motor de Equipamentos (Sprint EQUIPAMENTOS 02).
  */
 
 const IdentidadeStrategyBase = require('./IdentidadeStrategyBase');
 const IdentidadeResultadoDTO = require('../contracts/IdentidadeResultadoDTO');
-const LayoutRegistry = require('../layouts/LayoutRegistry');
-const { resolverLayoutId } = require('../config/etiquetaBalancaConfig');
+const { resolverLayoutConfig } = require('../config/etiquetaBalancaConfig');
+const { parseEtiquetaComLayout } = require('../../equipamentos/layouts/ConfiguravelEtiquetaParser');
 const { TIPOS_IDENTIFICADOR } = require('../constants/tiposIdentificador');
 const { normalizarCodigoIdentificador } = require('../normalizers/normalizarCodigoIdentificador');
 
@@ -18,16 +18,18 @@ class EtiquetaBalancaStrategy extends IdentidadeStrategyBase {
   /**
    * @param {Object} [deps]
    * @param {Object} [deps.catalogo]
-   * @param {LayoutRegistry} [deps.layoutRegistry]
    * @param {Object} [deps.db]
-   * @param {Function} [deps.resolverLayoutId]
+   * @param {Function} [deps.resolverLayoutConfig]
+   * @param {Object} [deps.layoutService]
    */
   constructor(deps = {}) {
     super();
     this._catalogo = deps.catalogo;
-    this._layouts = deps.layoutRegistry || LayoutRegistry.criarPadrao();
     this._db = deps.db || null;
-    this._resolverLayoutId = deps.resolverLayoutId || resolverLayoutId;
+    this._resolverLayoutConfig = deps.resolverLayoutConfig || resolverLayoutConfig;
+    this._layoutService = deps.layoutService || null;
+    // LayoutRegistry legado — mantido só se injetado (testes antigos)
+    this._layouts = deps.layoutRegistry || null;
   }
 
   get nome() {
@@ -68,7 +70,6 @@ class EtiquetaBalancaStrategy extends IdentidadeStrategyBase {
     const legado = await this._catalogo.buscarProdutoPorCodigoInterno(pluNorm);
     if (legado) return legado;
 
-    // tenta com zeros à esquerda (5 dígitos) como alguns cadastros
     const padded = pluNorm.padStart(5, '0');
     if (padded !== pluNorm) {
       const legadoPad = await this._catalogo.buscarProdutoPorCodigoInterno(padded);
@@ -82,12 +83,25 @@ class EtiquetaBalancaStrategy extends IdentidadeStrategyBase {
     const limpo = (deteccao.digitos || String(codigo || '').replace(/\D/g, ''));
     if (!ehEtiquetaBalanca(limpo)) return null;
 
-    const layoutId = await this._resolverLayoutId(contexto, { db: this._db });
-    const layout = this._layouts.obterOuDefault(layoutId);
-    if (!layout) return null;
+    const layoutConfig = await this._resolverLayoutConfig(contexto, {
+      db: this._db,
+      layoutService: this._layoutService
+    });
 
-    const parsed = layout.parse(limpo);
+    let parsed = parseEtiquetaComLayout(limpo, layoutConfig);
+
+    // Compat: se injetaram LayoutRegistry legado e config falhou
+    if (!parsed && this._layouts) {
+      const layoutId = layoutConfig?._metaLayoutId || layoutConfig?.preset_id || contexto.layoutStrategy;
+      const layout = this._layouts.obterOuDefault(layoutId);
+      if (layout) parsed = layout.parse(limpo);
+    }
+
     if (!parsed) return null;
+
+    const layoutIdMeta = layoutConfig?._metaLayoutId
+      || contexto.layoutStrategy
+      || parsed.layoutId;
 
     const produto = await this._localizarPorPlu(parsed.plu);
     if (!produto) {
@@ -101,13 +115,12 @@ class EtiquetaBalancaStrategy extends IdentidadeStrategyBase {
           valorTotal: parsed.valorTotal,
           peso: parsed.peso,
           tipoPayload: parsed.tipoPayload,
-          layoutId: parsed.layoutId,
+          layoutId: layoutIdMeta,
           produtoNaoEncontrado: true
         }
       });
     }
 
-    // Se VALOR e tem preço, calcula peso sugerido (qtd = valor/preço)
     let pesoCalculado = parsed.peso;
     if (
       parsed.tipoPayload === 'VALOR'
@@ -131,7 +144,7 @@ class EtiquetaBalancaStrategy extends IdentidadeStrategyBase {
         peso: pesoCalculado,
         pesoEtiqueta: parsed.peso,
         tipoPayload: parsed.tipoPayload,
-        layoutId: parsed.layoutId
+        layoutId: layoutIdMeta
       }
     });
   }
